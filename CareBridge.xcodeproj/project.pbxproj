@@ -45,6 +45,11 @@
 			path = CareBridgeUITests;
 			sourceTree = "<group>";
 		};
+		36E53EA92F86CEC500E38F41 /* Doc */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Doc;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -79,6 +84,7 @@
 				36E53E8E2F86C1ED00E38F41 /* CareBridgeTests */,
 				36E53E982F86C1ED00E38F41 /* CareBridgeUITests */,
 				36E53E7F2F86C1EC00E38F41 /* Products */,
+				36E53EA92F86CEC500E38F41 /* Doc */,
 			);
 			sourceTree = "<group>";
 		};
@@ -155,6 +161,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				36E53E982F86C1ED00E38F41 /* CareBridgeUITests */,
+				36E53EA92F86CEC500E38F41 /* Doc */,
 			);
 			name = CareBridgeUITests;
 			packageProductDependencies = (
@@ -395,6 +402,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 82LKV2GF52;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -426,6 +434,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 82LKV2GF52;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

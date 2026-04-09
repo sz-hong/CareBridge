@@ -1,21 +1,27 @@
-//
-//  ContentView.swift
-//  CareBridge
-//
-//  Created by Hank Chen on 2026/4/9.
-//
-
 import SwiftUI
 
 struct ContentView: View {
+    @State private var selectedTab = 0
+
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        TabView(selection: $selectedTab) {
+            Tab("首頁", systemImage: "house.fill", value: 0) {
+                HomeView()
+            }
+            Tab("聊天", systemImage: "message.fill", value: 1) {
+                ChatListView()
+            }
+            Tab("日誌", systemImage: "doc.text.fill", value: 2) {
+                CareLogView()
+            }
+            Tab("消費", systemImage: "cart.fill", value: 3) {
+                SpendingView()
+            }
+            Tab("更多", systemImage: "ellipsis", value: 4) {
+                MoreView()
+            }
         }
-        .padding()
+        .tint(Color(red: 0.0, green: 0.50, blue: 0.55))
     }
 }
 
