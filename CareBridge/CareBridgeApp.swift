@@ -9,9 +9,18 @@ import SwiftUI
 
 @main
 struct CareBridgeApp: App {
+    @State private var isLoggedIn = false
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            Group {
+                if isLoggedIn {
+                    ContentView(isLoggedIn: $isLoggedIn)
+                } else {
+                    LoginView(isLoggedIn: $isLoggedIn)
+                }
+            }
+            .preferredColorScheme(.light)
         }
     }
 }

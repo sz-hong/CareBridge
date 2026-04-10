@@ -1,12 +1,16 @@
 import SwiftUI
 
 struct ChatListView: View {
+    @Binding var showProfile: Bool
+    @Binding var isInChatDetail: Bool
     @State private var showPurchaseRequests = false
     @State private var showLeaveRequests = false
+    @State private var showNotifications = false
     @State private var chatRooms = ChatRoom.samples
+    @State private var navPath = NavigationPath()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navPath) {
             ScrollView {
                 VStack(spacing: 16) {
                     // Quick action buttons (採購核准 / 請假核准)
@@ -28,7 +32,7 @@ struct ChatListView: View {
                         }
 
                         ForEach(chatRooms) { room in
-                            NavigationLink(destination: ChatDetailView(room: room)) {
+                            NavigationLink(value: room) {
                                 ChatRoomRow(room: room)
                             }
                             .buttonStyle(.plain)
@@ -59,27 +63,55 @@ struct ChatListView: View {
             .scrollIndicators(.hidden)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "person.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundStyle(Color.brandTeal)
-                        Text("CareBridge")
-                            .font(.system(size: 20, weight: .bold))
+                    Button { showProfile = true } label: {
+                        HStack(spacing: 0) {
+                            Image(systemName: "person.circle.fill")
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundStyle(Color.brandTeal)
+                            Text("CareBridge")
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundStyle(.primary)
+                        }
                     }
+                    .buttonStyle(.plain)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { } label: {
-                        Image(systemName: "globe")
-                            .font(.system(size: 20))
-                            .foregroundStyle(Color.brandTeal)
+                    HStack(spacing: 12) {
+                        Button {
+                            showNotifications = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "bell.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(Color.brandTeal)
+                                Circle()
+                                    .fill(.red)
+                                    .frame(width: 8, height: 8)
+                                    .offset(x: 2, y: -2)
+                            }
+                        }
+                        Button { } label: {
+                            Image(systemName: "globe")
+                                .font(.system(size: 20))
+                                .foregroundStyle(Color.brandTeal)
+                        }
                     }
                 }
+            }
+            .navigationDestination(for: ChatRoom.self) { room in
+                ChatDetailView(room: room)
             }
             .navigationDestination(isPresented: $showPurchaseRequests) {
                 MessageBoardView()
             }
             .navigationDestination(isPresented: $showLeaveRequests) {
                 LeaveManagementView()
+            }
+            .navigationDestination(isPresented: $showNotifications) {
+                NotificationCenterView()
+            }
+            .onChange(of: navPath.count) { _, newCount in
+                isInChatDetail = newCount > 0
             }
         }
     }
@@ -158,20 +190,22 @@ struct ChatRoomRow: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(room.name)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.primary)
+                HStack {
+                    Text(room.name)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Spacer()
+                    Text(room.lastMessageTime.formatted(.relative(presentation: .named)))
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                }
                 Text(room.lastMessage)
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-
-            Spacer()
-
-            Text(room.lastMessageTime.formatted(.relative(presentation: .named)))
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
         }
         .padding(.vertical, 6)
     }
@@ -253,6 +287,7 @@ struct ChatDetailView: View {
     private func sendMessage() {
         guard !inputText.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         let newMsg = ChatMessage(
+            id: UUID().uuidString,
             sender: "林小明", senderRole: .family,
             content: inputText, translatedContent: nil,
             timestamp: Date(), isMe: true
@@ -336,5 +371,5 @@ struct MessageBubble: View {
 }
 
 #Preview {
-    ChatListView()
+    ChatListView(showProfile: .constant(false), isInChatDetail: .constant(false))
 }

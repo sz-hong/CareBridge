@@ -89,6 +89,7 @@ struct LeaveManagementView: View {
         if let index = requests.firstIndex(where: { $0.id == request.id }) {
             withAnimation {
                 requests[index] = LeaveRequest(
+                    id: request.id,
                     type: request.type,
                     startDate: request.startDate,
                     endDate: request.endDate,
@@ -228,6 +229,7 @@ struct AddLeaveRequestView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("提交") {
                         let req = LeaveRequest(
+                            id: UUID().uuidString,
                             type: leaveType,
                             startDate: startDate,
                             endDate: endDate,

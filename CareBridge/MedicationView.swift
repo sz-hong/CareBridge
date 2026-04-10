@@ -149,21 +149,21 @@ struct MedicationRow: View {
                         Text("\(medication.name)（\(medication.nameTranslated)）")
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(.primary)
-                        Text("\(medication.dosage) · \(medication.frequency)")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    HStack(spacing: 6) {
-                        ForEach(medication.times, id: \.self) { time in
-                            Text(time)
-                                .font(.system(size: 12, weight: .medium))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Capsule().fill(Color.brandTealLight))
-                                .foregroundStyle(Color.brandTeal)
+                            .lineLimit(1)
+                        HStack(spacing: 4) {
+                            Text("\(medication.dosage) · \(medication.frequency)")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            Spacer()
+                            ForEach(medication.times, id: \.self) { time in
+                                Text(time)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                                    .background(Capsule().fill(Color.brandTealLight))
+                                    .foregroundStyle(Color.brandTeal)
+                            }
                         }
                     }
 

@@ -2,15 +2,28 @@ import SwiftUI
 import Foundation
 
 // MARK: - User Roles
-enum UserRole: String, CaseIterable {
+enum UserRole: String, CaseIterable, Codable {
     case caregiver = "看護"
     case family = "家屬"
     case elder = "長者"
 }
 
+// MARK: - User Profile
+struct UserProfile: Identifiable, Codable {
+    var id: String
+    var name: String
+    var email: String
+    var phone: String
+    var birthday: String
+    var role: UserRole
+    var familyId: String
+    var familyName: String
+    var avatarURL: String?
+}
+
 // MARK: - Health Data
-struct HealthData: Identifiable {
-    let id = UUID()
+struct HealthData: Identifiable, Codable {
+    var id: String
     var heartRate: Int
     var bloodOxygen: Double
     var bloodPressureSystolic: Int
@@ -23,6 +36,7 @@ struct HealthData: Identifiable {
 
     static var sample: HealthData {
         HealthData(
+            id: UUID().uuidString,
             heartRate: 72,
             bloodOxygen: 97.5,
             bloodPressureSystolic: 118,
@@ -41,8 +55,8 @@ struct HealthData: Identifiable {
 }
 
 // MARK: - Chat Message
-struct ChatMessage: Identifiable {
-    let id = UUID()
+struct ChatMessage: Identifiable, Codable {
+    var id: String
     var sender: String
     var senderRole: UserRole
     var content: String
@@ -53,19 +67,19 @@ struct ChatMessage: Identifiable {
 
     static var samples: [ChatMessage] {
         [
-            ChatMessage(sender: "Rita Santos", senderRole: .caregiver,
+            ChatMessage(id: UUID().uuidString, sender: "Rita Santos", senderRole: .caregiver,
                         content: "Sudah minum obat pagi.",
                         translatedContent: "早上的藥已服用完畢。",
                         timestamp: Date().addingTimeInterval(-3600), isMe: false),
-            ChatMessage(sender: "林小明", senderRole: .family,
+            ChatMessage(id: UUID().uuidString, sender: "林小明", senderRole: .family,
                         content: "謝謝，今天狀況如何？",
                         translatedContent: "Terima kasih, bagaimana keadaan hari ini?",
                         timestamp: Date().addingTimeInterval(-3200), isMe: true),
-            ChatMessage(sender: "Rita Santos", senderRole: .caregiver,
+            ChatMessage(id: UUID().uuidString, sender: "Rita Santos", senderRole: .caregiver,
                         content: "爺爺精神很好，有散步30分鐘。",
                         translatedContent: "Kakek semangat, sudah jalan 30 menit.",
                         timestamp: Date().addingTimeInterval(-3000), isMe: false),
-            ChatMessage(sender: "林大華", senderRole: .family,
+            ChatMessage(id: UUID().uuidString, sender: "林大華", senderRole: .family,
                         content: "很好！晚上記得提醒他吃藥",
                         translatedContent: nil,
                         timestamp: Date().addingTimeInterval(-2400), isMe: false),
@@ -74,8 +88,8 @@ struct ChatMessage: Identifiable {
 }
 
 // MARK: - Chat Room
-struct ChatRoom: Identifiable {
-    let id = UUID()
+struct ChatRoom: Identifiable, Hashable, Codable {
+    var id: String
     var name: String
     var participants: [String]
     var lastMessage: String
@@ -86,10 +100,10 @@ struct ChatRoom: Identifiable {
 
     static var samples: [ChatRoom] {
         [
-            ChatRoom(name: "王家照護群", participants: ["林小明", "林大華", "Rita Santos"],
+            ChatRoom(id: UUID().uuidString, name: "王家照護群", participants: ["林小明", "林大華", "Rita Santos"],
                      lastMessage: "爸爸今天血壓正常", lastMessageTime: Date().addingTimeInterval(-1200),
                      unreadCount: 3, isGroup: true, avatarIcon: "person.3.fill"),
-            ChatRoom(name: "Siti 小華", participants: ["林小明", "Siti"],
+            ChatRoom(id: UUID().uuidString, name: "Siti 小華", participants: ["林小明", "Siti"],
                      lastMessage: "已經吃過午餐了", lastMessageTime: Date().addingTimeInterval(-86400),
                      unreadCount: 0, isGroup: false, avatarIcon: "person.fill"),
         ]
@@ -97,7 +111,7 @@ struct ChatRoom: Identifiable {
 }
 
 // MARK: - Care Log
-enum CareLogType: String, CaseIterable {
+enum CareLogType: String, CaseIterable, Codable {
     case medication = "用藥"
     case vital = "生理"
     case meal = "飲食"
@@ -135,8 +149,8 @@ enum CareLogType: String, CaseIterable {
     }
 }
 
-struct CareLogEntry: Identifiable {
-    let id = UUID()
+struct CareLogEntry: Identifiable, Codable {
+    var id: String
     var type: CareLogType
     var title: String
     var detail: String
@@ -149,19 +163,19 @@ struct CareLogEntry: Identifiable {
         let yesterday = cal.date(byAdding: .day, value: -1, to: today)!
 
         return [
-            CareLogEntry(type: .vital, title: "晨間生理指標測量",
+            CareLogEntry(id: UUID().uuidString, type: .vital, title: "晨間生理指標測量",
                          detail: "血壓 118/75 mmHg｜心率 72 bpm",
                          timestamp: today.addingTimeInterval(8.5 * 3600), hasPhoto: false),
-            CareLogEntry(type: .medication, title: "晨間用藥提醒",
+            CareLogEntry(id: UUID().uuidString, type: .medication, title: "晨間用藥提醒",
                          detail: "阿斯匹靈 (100mg) - 飯後服用",
                          timestamp: today.addingTimeInterval(8 * 3600 + 300), hasPhoto: false),
-            CareLogEntry(type: .meal, title: "營養早餐",
+            CareLogEntry(id: UUID().uuidString, type: .meal, title: "營養早餐",
                          detail: "白粥、蒸蛋、菠菜，食慾良好，全部完食",
                          timestamp: today.addingTimeInterval(7.5 * 3600), hasPhoto: true),
-            CareLogEntry(type: .activity, title: "晨間散步",
+            CareLogEntry(id: UUID().uuidString, type: .activity, title: "晨間散步",
                          detail: "花園散步 30 分鐘，約 1,200 步，狀態良好",
                          timestamp: today.addingTimeInterval(7 * 3600), hasPhoto: false),
-            CareLogEntry(type: .note, title: "晚間就寢紀錄",
+            CareLogEntry(id: UUID().uuidString, type: .note, title: "晚間就寢紀錄",
                          detail: "21:00 安靜入睡，無異常",
                          timestamp: yesterday.addingTimeInterval(21 * 3600), hasPhoto: false),
         ]
@@ -169,8 +183,8 @@ struct CareLogEntry: Identifiable {
 }
 
 // MARK: - Medication
-struct Medication: Identifiable {
-    let id = UUID()
+struct Medication: Identifiable, Codable {
+    var id: String
     var name: String
     var nameTranslated: String
     var dosage: String
@@ -181,13 +195,13 @@ struct Medication: Identifiable {
 
     static var samples: [Medication] {
         [
-            Medication(name: "Amlodipine", nameTranslated: "氨氯地平",
+            Medication(id: UUID().uuidString, name: "Amlodipine", nameTranslated: "氨氯地平",
                        dosage: "5mg", frequency: "每日一次", times: ["08:00"],
                        notes: "飯後服用，注意低血壓", isActive: true),
-            Medication(name: "Metformin", nameTranslated: "二甲雙胍",
+            Medication(id: UUID().uuidString, name: "Metformin", nameTranslated: "二甲雙胍",
                        dosage: "500mg", frequency: "每日兩次", times: ["08:00", "18:00"],
                        notes: "飯中服用", isActive: true),
-            Medication(name: "Aspirin", nameTranslated: "阿斯匹靈",
+            Medication(id: UUID().uuidString, name: "Aspirin", nameTranslated: "阿斯匹靈",
                        dosage: "100mg", frequency: "每日一次", times: ["08:00"],
                        notes: "飯後服用，勿空腹", isActive: true),
         ]
@@ -195,8 +209,8 @@ struct Medication: Identifiable {
 }
 
 // MARK: - Expense
-struct Expense: Identifiable {
-    let id = UUID()
+struct Expense: Identifiable, Codable {
+    var id: String
     var title: String
     var amount: Double
     var category: String
@@ -223,13 +237,13 @@ struct Expense: Identifiable {
 
     static var samples: [Expense] {
         [
-            Expense(title: "健檢費用 - 慈濟醫院", amount: 12000, category: "醫療保健",
+            Expense(id: UUID().uuidString, title: "健檢費用 - 慈濟醫院", amount: 12000, category: "醫療保健",
                     date: Date().addingTimeInterval(-3600 * 3), hasReceipt: true),
-            Expense(title: "全聯福利中心 - 食品", amount: 1450, category: "日常飲食",
+            Expense(id: UUID().uuidString, title: "全聯福利中心 - 食品", amount: 1450, category: "日常飲食",
                     date: Date().addingTimeInterval(-3600 * 6), hasReceipt: true),
-            Expense(title: "成人紙尿褲 - 屈臣氏", amount: 3200, category: "生活用品",
+            Expense(id: UUID().uuidString, title: "成人紙尿褲 - 屈臣氏", amount: 3200, category: "生活用品",
                     date: Date().addingTimeInterval(-86400), hasReceipt: true),
-            Expense(title: "處方藥費 - 杏一藥局", amount: 850, category: "醫療保健",
+            Expense(id: UUID().uuidString, title: "處方藥費 - 杏一藥局", amount: 850, category: "醫療保健",
                     date: Date().addingTimeInterval(-86400 * 2), hasReceipt: true),
         ]
     }
@@ -247,7 +261,7 @@ struct Expense: Identifiable {
 }
 
 // MARK: - Todo
-enum Priority: String, CaseIterable {
+enum Priority: String, CaseIterable, Codable {
     case high = "高"
     case medium = "中"
     case low = "低"
@@ -261,8 +275,8 @@ enum Priority: String, CaseIterable {
     }
 }
 
-struct TodoItem: Identifiable {
-    let id = UUID()
+struct TodoItem: Identifiable, Codable {
+    var id: String
     var title: String
     var assignee: String
     var priority: Priority
@@ -271,13 +285,13 @@ struct TodoItem: Identifiable {
 
     static var samples: [TodoItem] {
         [
-            TodoItem(title: "安排回診掛號（台大醫院心臟科）",
+            TodoItem(id: UUID().uuidString, title: "安排回診掛號（台大醫院心臟科）",
                      assignee: "林小明", priority: .high,
                      dueDate: Date().addingTimeInterval(86400 * 3), isCompleted: false),
-            TodoItem(title: "補購復健護具",
+            TodoItem(id: UUID().uuidString, title: "補購復健護具",
                      assignee: "Rita Santos", priority: .medium,
                      dueDate: Date().addingTimeInterval(86400), isCompleted: false),
-            TodoItem(title: "更新健保卡資料",
+            TodoItem(id: UUID().uuidString, title: "更新健保卡資料",
                      assignee: "林大華", priority: .low,
                      dueDate: nil, isCompleted: true),
         ]
@@ -285,8 +299,8 @@ struct TodoItem: Identifiable {
 }
 
 // MARK: - Calendar Event
-struct CalendarEvent: Identifiable {
-    let id = UUID()
+struct CalendarEvent: Identifiable, Codable {
+    var id: String
     var title: String
     var date: Date
     var location: String?
@@ -312,18 +326,18 @@ struct CalendarEvent: Identifiable {
 
     static var samples: [CalendarEvent] {
         [
-            CalendarEvent(title: "心臟科回診", date: Date().addingTimeInterval(86400 * 5),
+            CalendarEvent(id: UUID().uuidString, title: "心臟科回診", date: Date().addingTimeInterval(86400 * 5),
                           location: "台大醫院心臟科門診", type: "回診"),
-            CalendarEvent(title: "物理治療復健", date: Date().addingTimeInterval(86400 * 2),
+            CalendarEvent(id: UUID().uuidString, title: "物理治療復健", date: Date().addingTimeInterval(86400 * 2),
                           location: "復健科", type: "復健"),
-            CalendarEvent(title: "服藥提醒", date: Date().addingTimeInterval(3600 * 2),
+            CalendarEvent(id: UUID().uuidString, title: "服藥提醒", date: Date().addingTimeInterval(3600 * 2),
                           location: nil, type: "用藥"),
         ]
     }
 }
 
 // MARK: - Leave Request
-enum LeaveStatus: String {
+enum LeaveStatus: String, Codable {
     case pending = "待審核"
     case approved = "已核准"
     case rejected = "已駁回"
@@ -337,8 +351,8 @@ enum LeaveStatus: String {
     }
 }
 
-struct LeaveRequest: Identifiable {
-    let id = UUID()
+struct LeaveRequest: Identifiable, Codable {
+    var id: String
     var type: String
     var startDate: Date
     var endDate: Date
@@ -347,11 +361,11 @@ struct LeaveRequest: Identifiable {
 
     static var samples: [LeaveRequest] {
         [
-            LeaveRequest(type: "事假",
+            LeaveRequest(id: UUID().uuidString, type: "事假",
                          startDate: Date().addingTimeInterval(86400 * 10),
                          endDate: Date().addingTimeInterval(86400 * 12),
                          reason: "返鄉探親", status: .pending),
-            LeaveRequest(type: "病假",
+            LeaveRequest(id: UUID().uuidString, type: "病假",
                          startDate: Date().addingTimeInterval(-86400 * 7),
                          endDate: Date().addingTimeInterval(-86400 * 6),
                          reason: "就醫", status: .approved),
@@ -360,8 +374,8 @@ struct LeaveRequest: Identifiable {
 }
 
 // MARK: - Document
-struct AppDocument: Identifiable {
-    let id = UUID()
+struct AppDocument: Identifiable, Codable {
+    var id: String
     var title: String
     var category: String
     var fileSize: String
@@ -389,18 +403,18 @@ struct AppDocument: Identifiable {
 
     static var samples: [AppDocument] {
         [
-            AppDocument(title: "長照保險單2024", category: "保險",
+            AppDocument(id: UUID().uuidString, title: "長照保險單2024", category: "保險",
                         fileSize: "2.3 MB", uploadDate: Date().addingTimeInterval(-86400 * 30)),
-            AppDocument(title: "最新健康檢查報告", category: "醫療",
+            AppDocument(id: UUID().uuidString, title: "最新健康檢查報告", category: "醫療",
                         fileSize: "5.1 MB", uploadDate: Date().addingTimeInterval(-86400 * 14)),
-            AppDocument(title: "身份證正反面", category: "證件",
+            AppDocument(id: UUID().uuidString, title: "身份證正反面", category: "證件",
                         fileSize: "0.8 MB", uploadDate: Date().addingTimeInterval(-86400 * 60)),
         ]
     }
 }
 
 // MARK: - Notification
-enum NotificationCategory: String {
+enum NotificationCategory: String, Codable {
     case health = "健康警示"
     case medication = "用藥提醒"
     case leave = "請假申請"
@@ -434,8 +448,8 @@ enum NotificationCategory: String {
     }
 }
 
-struct AppNotification: Identifiable {
-    let id = UUID()
+struct AppNotification: Identifiable, Codable {
+    var id: String
     var category: NotificationCategory
     var title: String
     var body: String
@@ -444,16 +458,16 @@ struct AppNotification: Identifiable {
 
     static var samples: [AppNotification] {
         [
-            AppNotification(category: .health, title: "心率異常警示",
+            AppNotification(id: UUID().uuidString, category: .health, title: "心率異常警示",
                             body: "爸爸心率達到 112 bpm，超出正常範圍",
                             timestamp: Date().addingTimeInterval(-1800), isRead: false),
-            AppNotification(category: .medication, title: "用藥提醒",
+            AppNotification(id: UUID().uuidString, category: .medication, title: "用藥提醒",
                             body: "下午 2:00 Metformin 500mg 服藥時間到",
                             timestamp: Date().addingTimeInterval(-3600), isRead: false),
-            AppNotification(category: .leave, title: "請假申請",
+            AppNotification(id: UUID().uuidString, category: .leave, title: "請假申請",
                             body: "Rita Santos 申請 4/20-4/22 事假，請審核",
                             timestamp: Date().addingTimeInterval(-7200), isRead: true),
-            AppNotification(category: .purchase, title: "採購需求",
+            AppNotification(id: UUID().uuidString, category: .purchase, title: "採購需求",
                             body: "Rita Santos 申請補購成人尿布 x 2 包",
                             timestamp: Date().addingTimeInterval(-10800), isRead: true),
         ]
@@ -461,8 +475,8 @@ struct AppNotification: Identifiable {
 }
 
 // MARK: - Message Board (Purchase Requests)
-struct PurchaseRequest: Identifiable {
-    let id = UUID()
+struct PurchaseRequest: Identifiable, Codable {
+    var id: String
     var title: String
     var category: String
     var description: String
@@ -493,13 +507,13 @@ struct PurchaseRequest: Identifiable {
 
     static var samples: [PurchaseRequest] {
         [
-            PurchaseRequest(title: "電子血壓計（腕式）", category: "醫療用品",
+            PurchaseRequest(id: UUID().uuidString, title: "電子血壓計（腕式）", category: "醫療用品",
                             description: "需要一組腕式血壓計，方便每日量測",
                             estimatedCost: 1280,
                             status: "待確認", createdAt: Date().addingTimeInterval(-3600),
                             requester: "Rita Santos",
                             notes: "奶奶最近血壓帶有漏氣現象，本的血壓計較腕式比比方便，適合居家日常監測，已來在藥局被認適合格醫療器材。"),
-            PurchaseRequest(title: "購買優格和香蕉", category: "食品",
+            PurchaseRequest(id: UUID().uuidString, title: "購買優格和香蕉", category: "食品",
                             description: "爺爺喜歡的零食，一週份量",
                             estimatedCost: nil,
                             status: "已核准", createdAt: Date().addingTimeInterval(-86400),
@@ -509,60 +523,69 @@ struct PurchaseRequest: Identifiable {
 }
 
 // MARK: - AI Message
-struct AIMessage: Identifiable {
-    let id = UUID()
+struct AIMessage: Identifiable, Codable {
+    var id: String
     var content: String
     var isUser: Bool
     var timestamp: Date
 
     static var samples: [AIMessage] {
         [
-            AIMessage(content: "請分析一下李奶奶過去三天的血壓趨勢。",
+            AIMessage(id: UUID().uuidString, content: "請分析一下李奶奶過去三天的血壓趨勢。",
                       isUser: true, timestamp: Date().addingTimeInterval(-600)),
-            AIMessage(content: "根據過去72小時的數據顯示，李奶奶的血壓呈現小幅波動但總體趨於穩定。收縮壓在 **128-135 mmHg** 之間，舒張壓穩定在 **78-82 mmHg**。\n\n建議：當前狀態良好，請繼續保持低鹽飲食。",
+            AIMessage(id: UUID().uuidString, content: "根據過去72小時的數據顯示，李奶奶的血壓呈現小幅波動但總體趨於穩定。收縮壓在 **128-135 mmHg** 之間，舒張壓穩定在 **78-82 mmHg**。\n\n建議：當前狀態良好，請繼續保持低鹽飲食。",
                       isUser: false, timestamp: Date().addingTimeInterval(-550)),
-            AIMessage(content: "需要現在調整用藥嗎？",
+            AIMessage(id: UUID().uuidString, content: "需要現在調整用藥嗎？",
                       isUser: true, timestamp: Date().addingTimeInterval(-300)),
         ]
     }
 }
 
 // MARK: - First Aid Scenario
-struct FirstAidScenario: Identifiable {
-    let id = UUID()
+struct FirstAidScenario: Identifiable, Codable {
+    var id: String
     var title: String
     var icon: String
-    var color: Color
     var steps: [String]
+
+    // Color is UI-only, not from backend
+    var color: Color {
+        switch title {
+        case "昏厥", "胸痛", "出血": return .red
+        case "跌倒", "嘔吐": return .orange
+        case "呼吸困難": return .blue
+        default: return .gray
+        }
+    }
 
     static var samples: [FirstAidScenario] {
         [
-            FirstAidScenario(title: "昏厥", icon: "person.fill.questionmark", color: .red, steps: [
+            FirstAidScenario(id: UUID().uuidString, title: "昏厥", icon: "person.fill.questionmark", steps: [
                 "保持呼吸道通暢 — 請確保患者在堅固的平面上，輕輕抬起下巴，使頭部後仰。",
                 "尋找 AED 設備 — 如果有旁人在場，請立即呼叫其尋找最近的自動體外除顫器 (AED)。",
                 "準備胸外按壓 — 雙臂伸直，雙手叠扣，按壓位置在兩乳頭連線中點，按壓深度約 5 厘米。",
             ]),
-            FirstAidScenario(title: "胸痛", icon: "heart.fill", color: .red, steps: [
+            FirstAidScenario(id: UUID().uuidString, title: "胸痛", icon: "heart.fill", steps: [
                 "立即讓患者坐下或躺下，保持安靜。",
                 "撥打 119 急救電話。",
                 "若患者有硝化甘油，協助其舌下含服。",
             ]),
-            FirstAidScenario(title: "跌倒", icon: "figure.fall", color: .orange, steps: [
+            FirstAidScenario(id: UUID().uuidString, title: "跌倒", icon: "figure.fall", steps: [
                 "不要立刻移動患者，評估意識狀態。",
                 "檢查是否有明顯骨折或出血。",
                 "若有意識但無法站立，撥打 119 並保持患者溫暖。",
             ]),
-            FirstAidScenario(title: "呼吸困難", icon: "lungs.fill", color: .blue, steps: [
+            FirstAidScenario(id: UUID().uuidString, title: "呼吸困難", icon: "lungs.fill", steps: [
                 "協助患者採坐姿，身體稍微前傾。",
                 "鬆開頸部衣物，確保呼吸道通暢。",
                 "立即撥打 119。",
             ]),
-            FirstAidScenario(title: "嘔吐", icon: "mouth.fill", color: .orange, steps: [
+            FirstAidScenario(id: UUID().uuidString, title: "嘔吐", icon: "mouth.fill", steps: [
                 "讓患者側躺，防止吸入嘔吐物。",
                 "保持頭部側向一方。",
                 "清潔口腔，提供漱口水。",
             ]),
-            FirstAidScenario(title: "出血", icon: "drop.fill", color: .red, steps: [
+            FirstAidScenario(id: UUID().uuidString, title: "出血", icon: "drop.fill", steps: [
                 "用乾淨的布料直接加壓止血。",
                 "若出血不止，持續加壓並抬高傷肢。",
                 "嚴重出血請立即撥打 119。",
@@ -570,3 +593,4 @@ struct FirstAidScenario: Identifiable {
         ]
     }
 }
+

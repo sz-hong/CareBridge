@@ -182,6 +182,7 @@ struct UploadDocumentView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("上傳") {
                         let doc = AppDocument(
+                            id: UUID().uuidString,
                             title: title.isEmpty ? "未命名文件" : title,
                             category: category,
                             fileSize: "1.2 MB",

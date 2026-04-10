@@ -1,9 +1,11 @@
 import SwiftUI
 
 struct CareLogView: View {
+    @Binding var showProfile: Bool
     @State private var selectedFilter: CareLogType? = nil
     @State private var entries = CareLogEntry.samples
     @State private var showAddEntry = false
+    @State private var showNotifications = false
     @State private var calendarMode = 0          // 0 = 週, 1 = 月
     @State private var selectedDate = Date()
 
@@ -61,39 +63,51 @@ struct CareLogView: View {
             .background(Color.brandBackground)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "person.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundStyle(Color.brandTeal)
-                        Text("CareBridge")
-                            .font(.system(size: 20, weight: .bold))
+                    Button { showProfile = true } label: {
+                        HStack(spacing: 0) {
+                            Image(systemName: "person.circle.fill")
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundStyle(Color.brandTeal)
+                            Text("CareBridge")
+                                .font(.system(size: 20, weight: .bold))
+                        }
                     }
+                    .buttonStyle(.plain)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { } label: {
-                        Image(systemName: "globe")
-                            .font(.system(size: 20))
-                            .foregroundStyle(Color.brandTeal)
+                    HStack(spacing: 12) {
+                        Button {
+                            showNotifications = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "bell.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(Color.brandTeal)
+                                Circle()
+                                    .fill(.red)
+                                    .frame(width: 8, height: 8)
+                                    .offset(x: 2, y: -2)
+                            }
+                        }
+                        Button { } label: {
+                            Image(systemName: "globe")
+                                .font(.system(size: 20))
+                                .foregroundStyle(Color.brandTeal)
+                        }
                     }
                 }
             }
             .overlay(alignment: .bottomTrailing) {
-                // Sparkle AI button
-                HStack(spacing: 16) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 20))
-                        .foregroundStyle(Color.brandTeal)
-                    Button {
-                        showAddEntry = true
-                    } label: {
-                        ZStack {
-                            Circle()
-                                .fill(Color.brandTeal)
-                                .frame(width: 52, height: 52)
-                            Image(systemName: "plus")
-                                .font(.system(size: 22, weight: .bold))
-                                .foregroundStyle(.white)
-                        }
+                Button {
+                    showAddEntry = true
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(Color.brandTeal)
+                            .frame(width: 52, height: 52)
+                        Image(systemName: "plus")
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(.white)
                     }
                 }
                 .padding(.trailing, 20)
@@ -103,6 +117,9 @@ struct CareLogView: View {
                 AddCareLogView { newEntry in
                     entries.insert(newEntry, at: 0)
                 }
+            }
+            .navigationDestination(isPresented: $showNotifications) {
+                NotificationCenterView()
             }
         }
     }
@@ -809,6 +826,7 @@ struct AddCareLogView: View {
         }
 
         let entry = CareLogEntry(
+            id: UUID().uuidString,
             type: type,
             title: title,
             detail: detail,
@@ -821,7 +839,7 @@ struct AddCareLogView: View {
 }
 
 #Preview {
-    CareLogView()
+    CareLogView(showProfile: .constant(false))
 }
 
 #Preview("新增") {

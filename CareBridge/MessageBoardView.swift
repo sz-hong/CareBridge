@@ -65,6 +65,7 @@ struct MessageBoardView: View {
         if let index = requests.firstIndex(where: { $0.id == request.id }) {
             withAnimation {
                 requests[index] = PurchaseRequest(
+                    id: request.id,
                     title: request.title,
                     category: request.category,
                     description: request.description,
