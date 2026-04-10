@@ -209,6 +209,7 @@ struct AddTodoView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("儲存") {
                         let todo = TodoItem(
+                            id: UUID().uuidString,
                             title: title.isEmpty ? "新代辦事項" : title,
                             assignee: assignee.isEmpty ? "未指派" : assignee,
                             priority: priority,

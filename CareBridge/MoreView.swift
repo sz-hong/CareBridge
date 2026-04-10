@@ -16,6 +16,8 @@ enum MoreDestination: Hashable {
 
 // MARK: - MoreView
 struct MoreView: View {
+    @Binding var showProfile: Bool
+
     struct FeatureItem {
         let title: String
         let subtitle: String
@@ -62,6 +64,7 @@ struct MoreView: View {
     ]
 
     @State private var showSOS = false
+    @State private var showNotifications = false
 
     var body: some View {
         NavigationStack {
@@ -90,19 +93,38 @@ struct MoreView: View {
             .navigationTitle("更多")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "person.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundStyle(Color.brandTeal)
-                        Text("CareBridge")
-                            .font(.system(size: 20, weight: .bold))
+                    Button { showProfile = true } label: {
+                        HStack(spacing: 0) {
+                            Image(systemName: "person.circle.fill")
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundStyle(Color.brandTeal)
+                            Text("CareBridge")
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundStyle(.primary)
+                        }
                     }
+                    .buttonStyle(.plain)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { } label: {
-                        Image(systemName: "globe")
-                            .font(.system(size: 20))
-                            .foregroundStyle(Color.brandTeal)
+                    HStack(spacing: 12) {
+                        Button {
+                            showNotifications = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "bell.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(Color.brandTeal)
+                                Circle()
+                                    .fill(.red)
+                                    .frame(width: 8, height: 8)
+                                    .offset(x: 2, y: -2)
+                            }
+                        }
+                        Button { } label: {
+                            Image(systemName: "globe")
+                                .font(.system(size: 20))
+                                .foregroundStyle(Color.brandTeal)
+                        }
                     }
                 }
             }
@@ -120,6 +142,9 @@ struct MoreView: View {
                 case .firstaid:     FirstAidView()
                 case .notifications: NotificationCenterView()
                 }
+            }
+            .navigationDestination(isPresented: $showNotifications) {
+                NotificationCenterView()
             }
         }
         // SOS is still a full-screen modal
@@ -162,5 +187,5 @@ struct FeatureCard: View {
 }
 
 #Preview {
-    MoreView()
+    MoreView(showProfile: .constant(false))
 }

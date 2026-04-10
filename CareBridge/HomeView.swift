@@ -10,6 +10,7 @@ extension Color {
 
 // MARK: - HomeView
 struct HomeView: View {
+    @Binding var showProfile: Bool
     @State private var health = HealthData.sample
     @State private var showNotifications = false
     @State private var showSOS = false
@@ -46,14 +47,17 @@ struct HomeView: View {
             .scrollIndicators(.hidden)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "person.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundStyle(Color.brandTeal)
-                        Text("CareBridge")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundStyle(.primary)
+                    Button { showProfile = true } label: {
+                        HStack(spacing: 0) {
+                            Image(systemName: "person.circle.fill")
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundStyle(Color.brandTeal)
+                            Text("CareBridge")
+                                .font(.system(size: 20, weight: .bold))
+                                .foregroundStyle(.primary)
+                        }
                     }
+                    .buttonStyle(.plain)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 12) {
@@ -362,11 +366,6 @@ struct HomeView: View {
                     .padding(.bottom, 8)
                 Spacer()
             }
-            HStack(spacing: 4) {
-                Image(systemName: "sparkles")
-                    .foregroundStyle(Color.brandTeal)
-                    .font(.system(size: 14))
-            }
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 16).fill(.white))
@@ -374,5 +373,5 @@ struct HomeView: View {
 }
 
 #Preview {
-    HomeView()
+    HomeView(showProfile: .constant(false))
 }

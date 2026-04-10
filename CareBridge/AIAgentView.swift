@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct AIAgentView: View {
+    var isModal: Bool = false
+    @Environment(\.dismiss) private var dismiss
     @State private var messages = AIMessage.samples
     @State private var inputText = ""
     @State private var isLoading = false
@@ -41,6 +43,14 @@ struct AIAgentView: View {
         .navigationTitle("AI 智慧助理")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            if isModal {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .foregroundStyle(.primary)
+                    }
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 HStack(spacing: 16) {
                     Button { } label: {
@@ -116,7 +126,7 @@ struct AIAgentView: View {
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
-        messages.append(AIMessage(content: text, isUser: true, timestamp: Date()))
+        messages.append(AIMessage(id: UUID().uuidString, content: text, isUser: true, timestamp: Date()))
         inputText = ""
         isLoading = true
         Task {
@@ -124,6 +134,7 @@ struct AIAgentView: View {
             await MainActor.run {
                 isLoading = false
                 messages.append(AIMessage(
+                    id: UUID().uuidString,
                     content: "根據您的問題，我正在分析相關照護數據。目前長者的整體狀態穩定，建議繼續維持現有的照護計畫。如需更詳細的分析，請提供更多資訊。",
                     isUser: false,
                     timestamp: Date()
