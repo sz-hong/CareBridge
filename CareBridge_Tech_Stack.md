@@ -10,9 +10,11 @@
 
 | 裝置 | 系統版本 | 用途 |
 |---|---|---|
-| iPhone | iOS 26 | 看護與家屬的主要操作裝置 |
+| iPhone | iOS 26 | 看護與家屬的主要操作裝置（開發主力） |
 | iPad | iPadOS 26 | 家屬端大螢幕檢視照護報告、健康圖表 |
 | Apple Watch | watchOS 26 | 長者端穿戴裝置，健康監測與 SOS |
+
+> **設計策略**: 以 iOS 26 為開發主力，採用 Liquid Glass 液態玻璃設計語言。SwiftUI 共用程式碼自動適配 iPadOS，watchOS 為獨立 Target。
 
 ---
 
@@ -23,7 +25,7 @@
 | 技術 | 說明 | 對應功能 |
 |---|---|---|
 | **Swift** | Apple 原生開發語言，所有前端程式碼統一使用 | 全部 |
-| **SwiftUI** | 宣告式 UI 框架，一套程式碼適配 iPhone / iPad / Watch | 全部 UI |
+| **SwiftUI** | 宣告式 UI 框架，一套程式碼適配 iPhone / iPad / Watch，原生支援 Liquid Glass | 全部 UI |
 | **Swift Charts** | Apple 原生圖表框架 | 健康趨勢折線圖（10.4）、消費圓餅圖與長條圖（8.5） |
 | **WidgetKit** | 錶面小工具框架 | Apple Watch Complication（18.5） |
 
