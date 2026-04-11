@@ -50,6 +50,7 @@ protocol DataService {
 
     // Medication
     func fetchMedications(elderId: String) async throws -> [Medication]
+    func createMedication(_ medication: Medication) async throws -> Medication
     func updateMedication(_ medication: Medication) async throws -> Medication
 
     // Expenses
@@ -65,6 +66,7 @@ protocol DataService {
     // Calendar
     func fetchCalendarEvents(month: Date) async throws -> [CalendarEvent]
     func createCalendarEvent(_ event: CalendarEvent) async throws -> CalendarEvent
+    func createCalendarEvents(_ events: [CalendarEvent]) async throws -> [CalendarEvent]
 
     // Leave
     func fetchLeaveRequests() async throws -> [LeaveRequest]

@@ -182,6 +182,202 @@ struct CareLogEntry: Identifiable, Codable {
     }
 }
 
+// MARK: - Care Log Store (shared state → API synced)
+@Observable
+class CareLogStore {
+    var entries: [CareLogEntry] = CareLogEntry.samples
+    var isLoading = false
+    private let service: DataService
+
+    init(service: DataService = MockDataService()) {
+        self.service = service
+    }
+
+    func load() {
+        guard !isLoading else { return }
+        isLoading = true
+        Task { @MainActor in
+            do {
+                entries = try await service.fetchCareLogEntries(date: nil)
+            } catch {
+                print("[CareLogStore] fetch failed: \(error)")
+            }
+            isLoading = false
+        }
+    }
+
+    func addEntry(_ entry: CareLogEntry) {
+        entries.insert(entry, at: 0)
+        Task {
+            do {
+                _ = try await service.createCareLogEntry(entry)
+            } catch {
+                print("[CareLogStore] create failed: \(error)")
+            }
+        }
+    }
+}
+
+// MARK: - Todo Store (shared state → API synced)
+@Observable
+class TodoStore {
+    var todos: [TodoItem] = TodoItem.samples
+    var isLoading = false
+    private let service: DataService
+
+    init(service: DataService = MockDataService()) {
+        self.service = service
+    }
+
+    func load() {
+        guard !isLoading else { return }
+        isLoading = true
+        Task { @MainActor in
+            do {
+                todos = try await service.fetchTodos()
+            } catch {
+                print("[TodoStore] fetch failed: \(error)")
+            }
+            isLoading = false
+        }
+    }
+
+    func addTodo(_ todo: TodoItem) {
+        todos.insert(todo, at: 0)
+        Task {
+            do {
+                _ = try await service.createTodo(todo)
+            } catch {
+                print("[TodoStore] create failed: \(error)")
+            }
+        }
+    }
+
+    func updateTodo(_ todo: TodoItem) {
+        if let index = todos.firstIndex(where: { $0.id == todo.id }) {
+            todos[index] = todo
+        }
+        Task {
+            do {
+                _ = try await service.updateTodo(todo)
+            } catch {
+                print("[TodoStore] update failed: \(error)")
+            }
+        }
+    }
+}
+
+// MARK: - Calendar Store (shared state → API synced)
+@Observable
+class CalendarStore {
+    var events: [CalendarEvent] = CalendarEvent.samples
+    var isLoading = false
+    private let service: DataService
+
+    init(service: DataService = MockDataService()) {
+        self.service = service
+    }
+
+    func load() {
+        guard !isLoading else { return }
+        isLoading = true
+        Task { @MainActor in
+            do {
+                events = try await service.fetchCalendarEvents(month: Date())
+            } catch {
+                print("[CalendarStore] fetch failed: \(error)")
+            }
+            isLoading = false
+        }
+    }
+
+    func addEvent(_ event: CalendarEvent) {
+        events.append(event)
+        Task {
+            do {
+                _ = try await service.createCalendarEvent(event)
+            } catch {
+                print("[CalendarStore] create failed: \(error)")
+            }
+        }
+    }
+
+    func addEvents(_ newEvents: [CalendarEvent]) {
+        events.append(contentsOf: newEvents)
+        Task {
+            do {
+                _ = try await service.createCalendarEvents(newEvents)
+            } catch {
+                print("[CalendarStore] batch create failed: \(error)")
+            }
+        }
+    }
+}
+
+// MARK: - Medication Store (shared state → API synced)
+@Observable
+class MedicationStore {
+    var medications: [Medication] = Medication.samples
+    var doses: [DoseEntry] = [
+        DoseEntry(time: "08:00", name: "晨間藥物 x3", isDone: false),
+        DoseEntry(time: "14:00", name: "Metformin 500mg", isDone: false),
+        DoseEntry(time: "18:00", name: "晚間藥物 x2", isDone: false),
+    ]
+    var isLoading = false
+    private let service: DataService
+
+    init(service: DataService = MockDataService()) {
+        self.service = service
+    }
+
+    func load() {
+        guard !isLoading else { return }
+        isLoading = true
+        Task { @MainActor in
+            do {
+                medications = try await service.fetchMedications(elderId: "")
+            } catch {
+                print("[MedicationStore] fetch failed: \(error)")
+            }
+            isLoading = false
+        }
+    }
+
+    func addMedication(_ medication: Medication) {
+        medications.append(medication)
+        // Add dose entries for today's timeline
+        for time in medication.times {
+            doses.append(DoseEntry(time: time, name: "\(medication.nameTranslated) \(medication.dosage)", isDone: false))
+        }
+        Task {
+            do {
+                _ = try await service.createMedication(medication)
+            } catch {
+                print("[MedicationStore] create failed: \(error)")
+            }
+        }
+    }
+
+    func markDoseTaken(index: Int) {
+        guard index < doses.count else { return }
+        doses[index].isDone = true
+    }
+
+    var takenCount: Int { doses.filter(\.isDone).count }
+    var totalCount: Int { doses.count }
+    var progress: Double {
+        totalCount > 0 ? Double(takenCount) / Double(totalCount) : 0
+    }
+}
+
+// MARK: - Dose Entry
+struct DoseEntry: Identifiable {
+    let id = UUID()
+    let time: String
+    let name: String
+    var isDone: Bool
+}
+
 // MARK: - Medication
 struct Medication: Identifiable, Codable {
     var id: String
@@ -311,6 +507,8 @@ struct CalendarEvent: Identifiable, Codable {
         case "回診": return "stethoscope"
         case "復健": return "figure.walk"
         case "用藥": return "pills.fill"
+        case "完成": return "checkmark.circle.fill"
+        case "待辦": return "checklist"
         default: return "calendar"
         }
     }
@@ -320,6 +518,8 @@ struct CalendarEvent: Identifiable, Codable {
         case "回診": return Color(red: 0.0, green: 0.55, blue: 0.6)
         case "復健": return .green
         case "用藥": return .blue
+        case "完成": return .orange
+        case "待辦": return .purple
         default: return .gray
         }
     }
@@ -380,6 +580,7 @@ struct AppDocument: Identifiable, Codable {
     var category: String
     var fileSize: String
     var uploadDate: Date
+    var localURL: URL?    // 本地暫存路徑，供 QuickLook 預覽用
 
     var categoryIcon: String {
         switch category {

@@ -115,6 +115,7 @@ class APIDataService: DataService {
 
     // MARK: - Medication
     func fetchMedications(elderId: String) async throws -> [Medication] { try await get(path: "/medications?elderId=\(elderId)") }
+    func createMedication(_ medication: Medication) async throws -> Medication { try await post(path: "/medications", body: medication) }
     func updateMedication(_ medication: Medication) async throws -> Medication { try await put(path: "/medications/\(medication.id)", body: medication) }
 
     // MARK: - Expenses
@@ -130,6 +131,7 @@ class APIDataService: DataService {
     // MARK: - Calendar
     func fetchCalendarEvents(month: Date) async throws -> [CalendarEvent] { try await get(path: "/calendar") }
     func createCalendarEvent(_ event: CalendarEvent) async throws -> CalendarEvent { try await post(path: "/calendar", body: event) }
+    func createCalendarEvents(_ events: [CalendarEvent]) async throws -> [CalendarEvent] { try await post(path: "/calendar/batch", body: events) }
 
     // MARK: - Leave
     func fetchLeaveRequests() async throws -> [LeaveRequest] { try await get(path: "/leave") }

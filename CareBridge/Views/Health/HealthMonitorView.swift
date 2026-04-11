@@ -4,6 +4,7 @@ import Charts
 struct HealthMonitorView: View {
     @State private var selectedRange = 0 // 0=日, 1=週, 2=月
     private let rangeLabels = ["日", "週", "月"]
+    @State private var showThresholdSettings = false
 
     // Sample heart rate data for the week
     private let heartRateData: [(String, Int)] = [
@@ -118,6 +119,19 @@ struct HealthMonitorView: View {
         .background(Color.brandBackground)
         .navigationTitle("健康監測")
         .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showThresholdSettings = true
+                } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .foregroundStyle(Color.brandTeal)
+                }
+            }
+        }
+        .sheet(isPresented: $showThresholdSettings) {
+            HealthThresholdSettingsView()
+        }
     }
 
     private func vitalCard(title: String, value: String, unit: String,
@@ -212,6 +226,120 @@ struct HealthMonitorView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Health Threshold Settings
+struct HealthThresholdSettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var heartRateMax: Double = 100
+    @State private var heartRateMin: Double = 55
+    @State private var bloodOxygenMin: Double = 94
+    @State private var bloodPressureSystolicMax: Double = 140
+    @State private var bloodPressureDiastolicMax: Double = 90
+    @State private var bloodSugarMax: Double = 7.8
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("當數值超出警戒範圍時，系統將發送通知給所有家庭成員。")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("心率 (bpm)") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("上限")
+                            Spacer()
+                            Text("\(Int(heartRateMax)) bpm")
+                                .foregroundStyle(.red)
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        Slider(value: $heartRateMax, in: 80...150, step: 5)
+                            .tint(.red)
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("下限")
+                            Spacer()
+                            Text("\(Int(heartRateMin)) bpm")
+                                .foregroundStyle(.blue)
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        Slider(value: $heartRateMin, in: 40...80, step: 5)
+                            .tint(.blue)
+                    }
+                }
+
+                Section("血氧 (SpO2 %)") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("最低警戒值")
+                            Spacer()
+                            Text("\(Int(bloodOxygenMin))%")
+                                .foregroundStyle(.orange)
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        Slider(value: $bloodOxygenMin, in: 88...98, step: 1)
+                            .tint(.orange)
+                    }
+                }
+
+                Section("血壓 (mmHg)") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("收縮壓上限")
+                            Spacer()
+                            Text("\(Int(bloodPressureSystolicMax))")
+                                .foregroundStyle(.red)
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        Slider(value: $bloodPressureSystolicMax, in: 100...180, step: 5)
+                            .tint(.red)
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("舒張壓上限")
+                            Spacer()
+                            Text("\(Int(bloodPressureDiastolicMax))")
+                                .foregroundStyle(.purple)
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        Slider(value: $bloodPressureDiastolicMax, in: 60...120, step: 5)
+                            .tint(.purple)
+                    }
+                }
+
+                Section("血糖 (mmol/L)") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("餐後上限")
+                            Spacer()
+                            Text(String(format: "%.1f", bloodSugarMax))
+                                .foregroundStyle(.orange)
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        Slider(value: $bloodSugarMax, in: 5.0...12.0, step: 0.5)
+                            .tint(.orange)
+                    }
+                }
+            }
+            .navigationTitle("警戒值設定")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("取消") { dismiss() }
+                        .foregroundStyle(.secondary)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("儲存") { dismiss() }
+                        .bold()
+                        .foregroundStyle(Color.brandTeal)
+                }
+            }
+        }
     }
 }
 

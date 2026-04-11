@@ -29,6 +29,16 @@
 		36E53E952F86C1ED00E38F41 /* CareBridgeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CareBridgeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		36E541812F8A78C100E38F41 /* Exceptions for "Doc" folder in "CareBridgeUITests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				CareBridge_Frontend_Tasks.md,
+			);
+			target = 36E53E942F86C1ED00E38F41 /* CareBridgeUITests */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		36E53E802F86C1EC00E38F41 /* CareBridge */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -47,6 +57,9 @@
 		};
 		36E53EA92F86CEC500E38F41 /* Doc */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				36E541812F8A78C100E38F41 /* Exceptions for "Doc" folder in "CareBridgeUITests" target */,
+			);
 			path = Doc;
 			sourceTree = "<group>";
 		};
@@ -405,6 +418,8 @@
 				DEVELOPMENT_TEAM = 82LKV2GF52;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "CareBridge 需要使用相機來掃描收據";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "CareBridge 需要存取相片庫來選擇收據圖片";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -437,6 +452,8 @@
 				DEVELOPMENT_TEAM = 82LKV2GF52;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "CareBridge 需要使用相機來掃描收據";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "CareBridge 需要存取相片庫來選擇收據圖片";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

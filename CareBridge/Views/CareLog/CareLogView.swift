@@ -2,8 +2,9 @@ import SwiftUI
 
 struct CareLogView: View {
     @Binding var showProfile: Bool
+    let userRole: UserRole
+    @Environment(CareLogStore.self) private var careLogStore
     @State private var selectedFilter: CareLogType? = nil
-    @State private var entries = CareLogEntry.samples
     @State private var showAddEntry = false
     @State private var showNotifications = false
     @State private var calendarMode = 0          // 0 = 週, 1 = 月
@@ -19,8 +20,8 @@ struct CareLogView: View {
     }()
 
     var filteredEntries: [CareLogEntry] {
-        guard let filter = selectedFilter else { return entries }
-        return entries.filter { $0.type == filter }
+        guard let filter = selectedFilter else { return careLogStore.entries }
+        return careLogStore.entries.filter { $0.type == filter }
     }
 
     var groupedEntries: [(String, [CareLogEntry])] {
@@ -114,13 +115,14 @@ struct CareLogView: View {
                 .padding(.bottom, 20)
             }
             .sheet(isPresented: $showAddEntry) {
-                AddCareLogView { newEntry in
-                    entries.insert(newEntry, at: 0)
+                AddCareLogView(userRole: userRole) { newEntry in
+                    careLogStore.addEntry(newEntry)
                 }
             }
             .navigationDestination(isPresented: $showNotifications) {
                 NotificationCenterView()
             }
+            .task { careLogStore.load() }
         }
     }
 
@@ -310,7 +312,7 @@ struct CareLogView: View {
     private func dayCell(date: Date) -> some View {
         let isToday    = calendar.isDateInToday(date)
         let isSelected = calendar.isDate(date, inSameDayAs: selectedDate)
-        let hasEntry   = entries.contains { calendar.isDate($0.timestamp, inSameDayAs: date) }
+        let hasEntry   = careLogStore.entries.contains { calendar.isDate($0.timestamp, inSameDayAs: date) }
 
         return Button {
             withAnimation(.easeInOut(duration: 0.25)) {
@@ -495,20 +497,10 @@ struct TimelineEntryRow: View {
 // MARK: - Add Care Log View
 struct AddCareLogView: View {
     @Environment(\.dismiss) private var dismiss
+    let userRole: UserRole
     let onAdd: (CareLogEntry) -> Void
 
-    @State private var mode = 0                 // 0 = 待辦事項, 1 = 紀錄
-
-    // ── 待辦事項 ──
-    @State private var todoTitle = ""
-    @State private var assignee = ""
-    @State private var priority = 1             // 0=低, 1=中, 2=高
-    @State private var hasDueDate = false
-    @State private var dueDate = Date()
-    @State private var todoNote = ""
-
-    // ── 紀錄 ──
-    @State private var selectedType: CareLogType = .vital
+    @State private var selectedType: CareLogType = .note
     @State private var recordDate = Date()
 
     // vital signs
@@ -537,32 +529,22 @@ struct AddCareLogView: View {
     // note
     @State private var noteText = ""
 
-    private let priorityLabels  = ["低", "中", "高"]
     private let routeLabels     = ["口服", "外用", "注射"]
     private let mealLabels      = ["早餐", "午餐", "晚餐", "點心"]
     private let appetiteLabels  = ["差", "一般", "良好"]
     private let intensityLabels = ["輕度", "中度", "高強度"]
     private let conditionLabels = ["異常", "正常", "良好"]
 
+    private var availableRecordTypes: [CareLogType] {
+        CareLogType.allCases
+    }
+
     var body: some View {
         NavigationStack {
             Form {
-                // ── Mode toggle ──
-                Section {
-                    Picker("", selection: $mode) {
-                        Text("待辦事項").tag(0)
-                        Text("紀錄").tag(1)
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                if mode == 0 {
-                    todoForm
-                } else {
-                    recordForm
-                }
+                recordForm
             }
-            .navigationTitle(mode == 0 ? "新增待辦" : "新增紀錄")
+            .navigationTitle("新增紀錄")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -579,48 +561,12 @@ struct AddCareLogView: View {
         }
     }
 
-    // MARK: - 待辦事項 Form
-    @ViewBuilder
-    private var todoForm: some View {
-        Section("任務") {
-            TextField("任務標題", text: $todoTitle)
-        }
-
-        Section("負責人員") {
-            TextField("指派對象（姓名或角色）", text: $assignee)
-        }
-
-        Section("優先度") {
-            Picker("優先度", selection: $priority) {
-                ForEach(0..<priorityLabels.count, id: \.self) { i in
-                    Text(priorityLabels[i]).tag(i)
-                }
-            }
-            .pickerStyle(.segmented)
-        }
-
-        Section("到期日") {
-            Toggle("設定到期日", isOn: $hasDueDate)
-                .tint(Color.brandTeal)
-            if hasDueDate {
-                DatePicker("日期", selection: $dueDate, displayedComponents: .date)
-                    .datePickerStyle(.graphical)
-                    .tint(Color.brandTeal)
-            }
-        }
-
-        Section("備註") {
-            TextField("備註（選填）", text: $todoNote, axis: .vertical)
-                .lineLimit(3...5)
-        }
-    }
-
     // MARK: - 紀錄 Form
     @ViewBuilder
     private var recordForm: some View {
         Section("記錄類型") {
             Picker("類型", selection: $selectedType) {
-                ForEach(CareLogType.allCases, id: \.self) { t in
+                ForEach(availableRecordTypes, id: \.self) { t in
                     Label(t.rawValue, systemImage: t.icon).tag(t)
                 }
             }
@@ -784,45 +730,31 @@ struct AddCareLogView: View {
     private func saveEntry() {
         let title: String
         let detail: String
-        let type: CareLogType
+        let type = selectedType
 
-        if mode == 0 {
-            type = .note
-            title = todoTitle.isEmpty ? "待辦事項" : todoTitle
+        switch selectedType {
+        case .vital:
+            title = "生理數值紀錄"
             var parts: [String] = []
-            if !assignee.isEmpty { parts.append("負責：\(assignee)") }
-            parts.append("優先度：\(priorityLabels[priority])")
-            if hasDueDate {
-                parts.append("到期：\(dueDate.formatted(date: .abbreviated, time: .omitted))")
+            if !bp_systolic.isEmpty || !bp_diastolic.isEmpty {
+                parts.append("血壓 \(bp_systolic)/\(bp_diastolic) mmHg")
             }
-            if !todoNote.isEmpty { parts.append(todoNote) }
+            if !heartRate.isEmpty   { parts.append("心率 \(heartRate) bpm") }
+            if !bloodOxygen.isEmpty { parts.append("血氧 \(bloodOxygen)%") }
+            parts.append(conditionLabels[vitalCondition])
             detail = parts.joined(separator: "｜")
-        } else {
-            type = selectedType
-            switch selectedType {
-            case .vital:
-                title = "生理數值紀錄"
-                var parts: [String] = []
-                if !bp_systolic.isEmpty || !bp_diastolic.isEmpty {
-                    parts.append("血壓 \(bp_systolic)/\(bp_diastolic) mmHg")
-                }
-                if !heartRate.isEmpty   { parts.append("心率 \(heartRate) bpm") }
-                if !bloodOxygen.isEmpty { parts.append("血氧 \(bloodOxygen)%") }
-                parts.append(conditionLabels[vitalCondition])
-                detail = parts.joined(separator: "｜")
-            case .medication:
-                title  = medName.isEmpty ? "用藥紀錄" : "\(medName) \(medDosage)"
-                detail = "\(routeLabels[medRoute])｜\(medTaken ? "已服用" : "未服用")"
-            case .meal:
-                title  = mealLabels[mealType]
-                detail = "\(mealDesc)｜食慾：\(appetiteLabels[appetite])"
-            case .activity:
-                title  = activityName.isEmpty ? "活動紀錄" : activityName
-                detail = "\(activityDuration.isEmpty ? "—" : activityDuration)分鐘｜\(intensityLabels[activityIntensity])"
-            case .note:
-                title  = "備註"
-                detail = noteText
-            }
+        case .medication:
+            title  = medName.isEmpty ? "用藥紀錄" : "\(medName) \(medDosage)"
+            detail = "\(routeLabels[medRoute])｜\(medTaken ? "已服用" : "未服用")"
+        case .meal:
+            title  = mealLabels[mealType]
+            detail = "\(mealDesc)｜食慾：\(appetiteLabels[appetite])"
+        case .activity:
+            title  = activityName.isEmpty ? "活動紀錄" : activityName
+            detail = "\(activityDuration.isEmpty ? "—" : activityDuration)分鐘｜\(intensityLabels[activityIntensity])"
+        case .note:
+            title  = "備註"
+            detail = noteText
         }
 
         let entry = CareLogEntry(
@@ -830,7 +762,7 @@ struct AddCareLogView: View {
             type: type,
             title: title,
             detail: detail,
-            timestamp: mode == 1 ? recordDate : Date(),
+            timestamp: recordDate,
             hasPhoto: false
         )
         onAdd(entry)
@@ -839,9 +771,11 @@ struct AddCareLogView: View {
 }
 
 #Preview {
-    CareLogView(showProfile: .constant(false))
+    CareLogView(showProfile: .constant(false), userRole: .family)
+        .environment(CareLogStore())
 }
 
 #Preview("新增") {
-    AddCareLogView { _ in }
+    AddCareLogView(userRole: .caregiver) { _ in }
+        .environment(CareLogStore())
 }
