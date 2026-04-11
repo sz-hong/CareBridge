@@ -2,6 +2,7 @@
 
 > **負責範圍**: iOS App (iPhone/iPad) + watchOS App (Apple Watch)
 > **技術棧**: Swift + SwiftUI + Apple 原生框架
+> **後端**: Python (Django) — 詳見 CareBridge_Backend_Tasks.md
 > **最後更新**: 2026/04/11
 
 ---
@@ -305,5 +306,6 @@ CareBridge/
 | **WebSocket 事件格式** | 聊天即時訊息、typing 狀態的事件格式 |
 | **SSE 事件格式** | AI 串流回應的事件格式 |
 | **APNs Payload 格式** | 各類推播通知的 payload 結構 |
-| **Presigned URL 機制** | 檔案上傳/下載的 presigned URL 產生方式 |
+| **Presigned URL 機制** | 檔案上傳/下載的 presigned URL 產生方式（boto3） |
 | **錯誤碼定義** | 完整的業務錯誤碼清單 |
+| **Django Admin** | 開發期間可透過 `/admin/` 後台查看和管理資料 |

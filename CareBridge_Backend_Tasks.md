@@ -1,116 +1,161 @@
 # CareBridge 照護橋 — 後端開發工作清單
 
 > **負責範圍**: Server API + 資料庫 + AI 整合 + 推播 + 部署
-> **技術棧**: Swift (Vapor) + PostgreSQL + Redis + AWS S3
+> **技術棧**: Python (Django) + Django REST Framework + PostgreSQL + Redis + Celery
 > **最後更新**: 2026/04/11
 
 ---
 
 ## Phase 1：專案初始化與基礎建設
 
-### 1.1 Vapor 專案建立
+### 1.1 Django 專案建立
 
-- [ ] 使用 `vapor new CareBridgeAPI` 初始化專案
-- [ ] 設定專案結構：
+- [ ] 使用 `django-admin startproject carebridge_api` 初始化專案
+- [ ] 建立各 Django App 與專案結構：
 
 ```
-CareBridgeAPI/
-├── Package.swift                # 依賴管理
-├── Sources/
-│   └── App/
-│       ├── configure.swift      # App 設定（DB、Redis、Middleware）
-│       ├── routes.swift         # 路由總入口
-│       ├── Controllers/         # 各模組 Controller
-│       │   ├── AuthController.swift
-│       │   ├── FamilyController.swift
-│       │   ├── ChatController.swift
-│       │   ├── BoardController.swift
-│       │   ├── ExpenseController.swift
-│       │   ├── LeaveController.swift
-│       │   ├── CareLogController.swift
-│       │   ├── MedicationController.swift
-│       │   ├── HealthController.swift
-│       │   ├── EventController.swift
-│       │   ├── TodoController.swift
-│       │   ├── DocumentController.swift
-│       │   ├── AIController.swift
-│       │   ├── SOSController.swift
-│       │   └── NotificationController.swift
-│       ├── Models/              # Fluent ORM Model
-│       │   ├── User.swift
-│       │   ├── Family.swift
-│       │   ├── Chat.swift
-│       │   ├── Message.swift
-│       │   ├── BoardRequest.swift
-│       │   ├── Expense.swift
-│       │   ├── Leave.swift
-│       │   ├── CareLog.swift
-│       │   ├── Medication.swift
-│       │   ├── MedicationConfirmation.swift
-│       │   ├── HealthData.swift
-│       │   ├── HealthAlert.swift
-│       │   ├── Event.swift
-│       │   ├── Todo.swift
-│       │   ├── Document.swift
-│       │   ├── Notification.swift
-│       │   ├── Device.swift
-│       │   ├── AIConversation.swift
-│       │   └── SOSRecord.swift
-│       ├── Migrations/          # DB Migration
-│       ├── Middleware/           # JWT 驗證、角色權限、Rate Limiting
-│       ├── DTOs/                # Request / Response DTO
-│       ├── Services/            # 業務邏輯服務
-│       │   ├── TranslationService.swift
-│       │   ├── APNsService.swift
-│       │   ├── S3Service.swift
-│       │   ├── AIService.swift
-│       │   ├── OCRService.swift
-│       │   └── RAGService.swift
-│       └── WebSocket/           # WebSocket 處理
-├── Tests/
-├── Docker/
+carebridge_api/
+├── manage.py
+├── requirements.txt             # 或 pyproject.toml (Poetry)
+├── .env                         # 環境變數（DB、Redis、JWT Secret、S3、Claude API Key）
+├── carebridge_api/              # 專案設定
+│   ├── settings/
+│   │   ├── base.py              # 共用設定
+│   │   ├── development.py       # 開發環境
+│   │   └── production.py        # 正式環境
+│   ├── urls.py                  # 路由總入口
+│   ├── asgi.py                  # ASGI 設定（WebSocket）
+│   └── celery.py                # Celery 設定
+│
+├── apps/
+│   ├── auth_account/            # 認證與帳號（App 1）
+│   │   ├── models.py            # User Model（擴展 AbstractUser）
+│   │   ├── serializers.py       # DRF Serializer
+│   │   ├── views.py             # ViewSet / APIView
+│   │   ├── urls.py
+│   │   └── permissions.py       # 角色權限
+│   ├── family/                  # 家庭管理（App 2）
+│   ├── chat/                    # 即時聊天（App 3）
+│   │   ├── consumers.py         # WebSocket Consumer（Channels）
+│   │   ├── routing.py           # WebSocket 路由
+│   │   └── ...
+│   ├── board/                   # 留言板（App 4）
+│   ├── care_log/                # 照護日誌（App 5）
+│   ├── medication/              # 用藥管理（App 6）
+│   ├── expense/                 # 消費記帳（App 7）
+│   ├── leave/                   # 請假管理（App 8）
+│   ├── health/                  # 健康監測（App 9）
+│   ├── calendar_event/          # 行事曆（App 10）
+│   ├── todo/                    # 代辦事項（App 11）
+│   ├── document/                # 文件管理（App 12）
+│   ├── ai_assistant/            # AI 智慧助理 + 急救（App 13）
+│   ├── sos/                     # SOS 緊急呼叫（App 14）
+│   └── notification/            # 通知系統（App 15）
+│
+├── core/                        # 共用模組
+│   ├── pagination.py            # 統一分頁設定
+│   ├── exceptions.py            # 統一錯誤回應格式
+│   ├── permissions.py           # 共用角色權限 class
+│   ├── translation.py           # 翻譯服務封裝
+│   ├── apns.py                  # APNs 推播封裝
+│   └── storage.py               # S3 儲存封裝
+│
+├── docker/
 │   ├── Dockerfile
-│   └── docker-compose.yml       # API + PostgreSQL + Redis
-└── Resources/
+│   └── docker-compose.yml       # Django + PostgreSQL + Redis + Celery Worker
+│
+└── docs/
     └── first-aid-docs/          # RAG 用急救文件
 ```
 
-- [ ] 設定 `Package.swift` 依賴：
-  - `vapor/vapor`
-  - `vapor/fluent`
-  - `vapor/fluent-postgres-driver`
-  - `vapor/jwt`
-  - `vapor/redis`
-  - `soto-project/soto` (AWS S3 SDK for Swift)
+### 1.2 依賴安裝（requirements.txt）
 
-### 1.2 Docker 本地開發環境
+```
+django>=5.0
+djangorestframework
+djangorestframework-simplejwt
+django-channels[daphne]
+channels-redis
+celery[redis]
+django-storages[s3]
+boto3
+django-redis
+django-cors-headers
+django-filter
+anthropic
+pgvector
+voyageai
+apns2
+Pillow
+gunicorn
+uvicorn[standard]
+psycopg[binary]
+python-dotenv
+```
 
-- [ ] 撰寫 `Dockerfile`（Swift 6.x + Vapor）
+### 1.3 Docker 本地開發環境
+
+- [ ] 撰寫 `Dockerfile`（Python 3.12 + Django）
 - [ ] 撰寫 `docker-compose.yml`：
-  - Vapor API Server（port 8080）
+  - Django API Server（port 8000）
   - PostgreSQL 16（port 5432）+ pgvector 擴展
   - Redis 7（port 6379）
-- [ ] 環境變數管理（`.env` 檔案，含 DB 連線、JWT Secret、S3 Key、Claude API Key）
+  - Celery Worker（處理背景任務）
+  - Celery Beat（定時任務排程）
+- [ ] `.env` 環境變數管理
 
-### 1.3 資料庫 Schema 與 Migration
+### 1.4 Django 基礎設定
 
-- [ ] 建立所有 Fluent Model（對應 API 文件附錄的 18 張資料表）
-- [ ] 撰寫 Migration 檔案（逐版本建立 schema）
-- [ ] 啟用 pgvector 擴展（`CREATE EXTENSION vector`）
+- [ ] `settings/base.py`：
+  - `INSTALLED_APPS` 加入所有 app + DRF + Channels + corsheaders
+  - DRF 預設設定（分頁、認證、權限、例外處理）
+  - JWT 設定（Access Token 1hr / Refresh Token 30 days）
+  - Channels Layer 設定（Redis backend）
+  - Celery 設定（Redis broker）
+  - S3 Storage 設定
+  - CORS 設定
+- [ ] 統一回應格式：
+
+```python
+# 成功：{ "success": true, "data": {...}, "meta": {...} }
+# 錯誤：{ "success": false, "error": { "code": "...", "message": "...", "details": [...] } }
+```
+
+- [ ] 自訂 Exception Handler 對應 API 文件的錯誤碼
+
+### 1.5 資料庫 Model 與 Migration
+
+- [ ] 自訂 User Model（擴展 `AbstractUser`）：
+  - 欄位：email, name, role, language, phone, family_id, avatar_url
+  - role choices: `caregiver`, `family_member`, `elder`
+  - language choices: `zh-TW`, `id`, `vi`, `tl`
+- [ ] 建立所有 Model（對應 API 文件附錄的 18 張資料表）
+- [ ] 啟用 pgvector 擴展（Migration 中執行 `CREATE EXTENSION vector`）
 - [ ] 建立必要的 Index：
   - `users.email`（唯一索引）
   - `health_data(family_id, type, recorded_at)`（複合索引）
   - `care_logs(family_id, timestamp)`
   - `messages(chat_id, sent_at)`
   - `notifications(user_id, read, created_at)`
+- [ ] `python manage.py makemigrations && migrate`
 
-### 1.4 通用中介層（Middleware）
+### 1.6 Django Admin 設定
 
-- [ ] **JWT 驗證 Middleware**：驗證 Bearer Token，注入 `req.auth` 使用者資訊
-- [ ] **角色權限 Middleware**：依 API 端點限制角色存取（對照 API 文件的角色權限矩陣）
-- [ ] **Rate Limiting Middleware**：基於 Redis 的請求頻率限制
-- [ ] **統一錯誤處理**：所有錯誤回應格式統一為 `{ success: false, error: { code, message, details } }`
-- [ ] **CORS Middleware**：允許前端跨域存取（開發環境）
+- [ ] 為所有 Model 註冊 Admin
+- [ ] 自訂 Admin 顯示：User（角色/語言篩選）、CareLog（類型篩選）、HealthData（圖表）
+- [ ] Admin 可作為開發期間的資料管理工具與 Demo 後台
+
+### 1.7 共用權限系統
+
+- [ ] 建立角色權限 Permission Class（對照 API 文件的角色權限矩陣）：
+
+```python
+class IsCaregiverOrFamilyMember(BasePermission): ...
+class IsFamilyMemberOnly(BasePermission): ...
+class IsCaregiverOnly(BasePermission): ...
+class IsPrimaryFamilyMember(BasePermission): ...
+class IsFamilyMember(BasePermission): ...  # 確認使用者屬於該家庭
+```
 
 ---
 
@@ -119,27 +164,26 @@ CareBridgeAPI/
 ### 2.1 認證 API（功能 1.1–1.8）
 
 - [ ] `POST /auth/register` — 註冊
-  - 密碼 bcrypt 雜湊
-  - 產生 JWT Access Token（1 小時）+ Refresh Token（30 天）
-  - Email 唯一性驗證
-- [ ] `POST /auth/login` — 登入
-- [ ] `POST /auth/refresh` — Token 刷新
-  - 舊 Refresh Token 加入 Redis 黑名單
-  - 產生新 Token pair
+  - Django 密碼 hash（`make_password`）
+  - SimpleJWT 產生 Token pair
+  - Email 唯一性驗證（Serializer `validate_email`）
+- [ ] `POST /auth/login` — 登入（SimpleJWT `TokenObtainPairView` 自訂）
+- [ ] `POST /auth/refresh` — Token 刷新（SimpleJWT `TokenRefreshView`）
+  - 舊 Refresh Token 加入 Redis 黑名單（`SIMPLE_JWT.ROTATE_REFRESH_TOKENS = True`）
 - [ ] `GET /auth/me` — 取得個人資訊
 - [ ] `POST /auth/forgot-password` — 寄送密碼重設信
-  - 產生有時效的重設 Token（存 Redis，15 分鐘過期）
-  - 整合 Email 發送服務（SMTP / AWS SES）
+  - 產生有時效的重設 Token（Django `PasswordResetTokenGenerator` 或 Redis 15 分鐘 TTL）
+  - Email 發送（`django.core.mail` + SMTP / AWS SES）
 - [ ] `POST /auth/reset-password` — 重設密碼
-- [ ] `DELETE /auth/account` — 刪除帳號（級聯刪除所有相關資料）
-- [ ] `PUT /users/:id` — 更新個人資訊
+- [ ] `DELETE /auth/account` — 刪除帳號（級聯刪除 `on_delete=CASCADE`）
+- [ ] `PUT /users/:id` — 更新個人資訊（含頭像上傳 S3）
 
 ### 2.2 家庭管理 API（功能 2.1–2.4）
 
 - [ ] `POST /families` — 建立家庭群組
-  - 自動產生 8 位邀請碼（唯一性檢查）
+  - 自動產生 8 位邀請碼（`secrets.token_hex(4).upper()`）
   - 建立者自動加入為 primary family_member
-- [ ] `GET /families/:id` — 取得家庭資訊 + 成員列表
+- [ ] `GET /families/:id` — 取得家庭資訊 + 成員列表（Nested Serializer）
 - [ ] `POST /families/:id/members` — 透過邀請碼加入
 - [ ] `DELETE /families/:id/members/:userId` — 移除成員
 
@@ -149,33 +193,40 @@ CareBridgeAPI/
 
 ### 3.1 聊天 REST API（功能 4.1–4.7）
 
-- [ ] `GET /chats` — 聊天室列表（含未讀計數，從 Redis 讀取）
+- [ ] `GET /chats` — 聊天室列表（含未讀計數，`annotate` + Redis）
 - [ ] `POST /chats` — 建立聊天室（group / direct）
-- [ ] `GET /chats/:id/messages` — 歷史訊息（cursor-based 分頁）
+- [ ] `GET /chats/:id/messages` — 歷史訊息（cursor-based 分頁 `CursorPagination`）
 - [ ] `POST /chats/:id/messages` — 發送訊息（HTTP fallback）
   - 文字訊息：呼叫翻譯服務 → 存入翻譯結果
   - 圖片訊息：上傳 S3 → 儲存 URL
 
-### 3.2 WebSocket 即時通訊
+### 3.2 WebSocket 即時通訊（Django Channels）
 
-- [ ] `WS /ws/chat/:id` — WebSocket 連線管理
-  - Token 驗證（query parameter）
-  - 連線池管理（Redis pub/sub 支援多 server 實例）
-  - 事件處理：
-    - `message`：接收訊息 → 翻譯 → 廣播給聊天室成員
-    - `typing`：轉發「正在輸入」狀態
-    - `read`：已讀回執
-- [ ] 離線訊息處理：WebSocket 斷線時改用 APNs 推播
+- [ ] `ChatConsumer(AsyncWebsocketConsumer)` — WebSocket Consumer
+  - `connect()`：Token 驗證、加入 Channel Group
+  - `receive()`：接收訊息 → 翻譯 → 存入 DB → 廣播
+  - `disconnect()`：離開 Channel Group
+- [ ] Channel Layer 設定（`channels_redis.core.RedisChannelLayer`）
+- [ ] 事件處理：
+  - `chat.message`：訊息廣播
+  - `chat.typing`：「正在輸入」狀態轉發
+- [ ] ASGI routing（`routing.py`）：
+
+```python
+websocket_urlpatterns = [
+    re_path(r'ws/chat/(?P<chat_id>\w+)/$', ChatConsumer.as_asgi()),
+]
+```
+
+- [ ] 離線訊息處理：WebSocket 斷線時觸發 APNs 推播
 
 ### 3.3 翻譯服務（功能 3.2–3.3）
 
 - [ ] `POST /translate` — 文字翻譯
 - [ ] `POST /translate/speech` — 語音轉文字 + 翻譯
-  - 接收音訊檔案 → 呼叫 Speech-to-Text → 翻譯
-- [ ] 翻譯服務整合：
-  - 優先使用輕量翻譯模型或翻譯 API
-  - 複雜內容 fallback 到 Claude API
-- [ ] 翻譯快取（Redis）：相同文字+語言對不重複翻譯
+- [ ] 翻譯服務封裝（`core/translation.py`）：
+  - Claude API 翻譯（使用 `anthropic` SDK）
+  - 翻譯快取（Redis，相同文字+語言對不重複翻譯）
 
 ---
 
@@ -183,40 +234,45 @@ CareBridgeAPI/
 
 ### 4.1 照護日誌 API（功能 6.1–6.7）
 
-- [ ] `GET /care-logs` — 時間軸查詢（支援類型篩選、日期區間、分頁）
+- [ ] `GET /care-logs` — 時間軸查詢
+  - `django-filter` 支援類型篩選、日期區間
+  - 分頁（`PageNumberPagination`）
 - [ ] `POST /care-logs` — 新增紀錄
   - 支援 5 種類型：medication / vital / meal / activity / note
-  - 照片附件上傳至 S3
-  - 文字內容自動翻譯
+  - 照片附件上傳至 S3（`django-storages`）
+  - 文字內容自動翻譯（Celery 背景任務）
 - [ ] `PUT /care-logs/:id` — 更新紀錄
-- [ ] `GET /care-logs/summary` — 照護摘要（供 AI Agent 使用）
-  - 計算用藥順從度、生理平均值、飲食統計、活動統計
+- [ ] `GET /care-logs/summary` — 照護摘要
+  - Django ORM `aggregate` / `annotate` 計算：
+    - 用藥順從度（confirmed / total）
+    - 生理平均值（`Avg`）
+    - 飲食統計（`Count` by appetite）
+    - 活動統計
 
 ### 4.2 用藥管理 API（功能 7.1–7.6）
 
-- [ ] `GET /medications` — 藥物清單
+- [ ] `GET /medications` — 藥物清單（`ModelViewSet`）
 - [ ] `POST /medications` — 新增藥物
   - 自動翻譯藥物名稱與說明
-  - 建立用藥提醒排程（寫入 events 表，type: medication）
+  - 建立用藥提醒排程（寫入 `calendar_event`，type: medication）
 - [ ] `PUT /medications/:id` — 更新藥物
 - [ ] `POST /medications/:id/confirm` — 餵藥拍照確認
   - 照片上傳 S3
-  - **自動建立 care_logs 用藥紀錄**（跨模組連動）
-  - 推播通知家屬
-- [ ] 用藥提醒排程（Cron Job 或 Vapor Queues）：
-  - 定時檢查待服藥項目 → 推播通知看護 + Watch
+  - **自動建立 `care_log` 用藥紀錄**（跨模組連動）
+  - Celery 任務：推播通知家屬
+- [ ] **Celery Beat 定時任務**：用藥提醒排程
+  - 每分鐘檢查 → 到達時間的藥物 → APNs 推播看護 + Watch
 
 ### 4.3 健康監測 API（功能 10.1–10.8）
 
 - [ ] `POST /health/sync` — Watch 健康數據批次同步
-  - 去重處理（同一 timestamp 不重複寫入）
+  - 去重處理（`get_or_create` 或 `unique_together`）
   - **即時異常檢測**：比對閾值 → 觸發警示
-  - 異常時自動推播通知所有家庭成員
+  - 異常時 Celery 任務推播通知所有家庭成員
 - [ ] `GET /health/data` — 歷史數據查詢
-  - 支援 `raw` / `hourly` / `daily` 聚合模式
-  - SQL 聚合查詢最佳化
+  - 支援 `raw` / `hourly` / `daily` 聚合
+  - Django ORM：`TruncHour` / `TruncDay` + `Avg` / `Min` / `Max`
 - [ ] `GET /health/dashboard` — 儀表板彙總
-  - 最新數值 + 今日摘要 + 週趨勢 + 閾值設定
 - [ ] `GET /health/alerts` — 異常警示紀錄
 - [ ] `PUT /health/alerts/:id/acknowledge` — 確認警示
 - [ ] `PUT /health/thresholds` — 更新異常閾值
@@ -226,13 +282,16 @@ CareBridgeAPI/
 - [ ] `POST /expenses/scan` — 收據 OCR（非同步處理）
   - 接收收據照片 → 上傳 S3
   - 回應 202 Accepted
-  - 背景任務：Vision OCR 文字擷取 → Claude API 結構化解析 → 儲存結果
-  - 完成後推播通知前端
-- [ ] `GET /expenses/:id` — 取得單筆消費紀錄
-- [ ] `GET /expenses` — 消費紀錄列表（日期/分類篩選）
+  - **Celery 背景任務**：
+    1. Claude API 圖片辨識（直接發送圖片 base64 給 Claude Vision）
+    2. Claude API 結構化解析為 JSON（品名、數量、金額、日期、分類）
+    3. 儲存結果至 DB
+    4. APNs 推播通知前端
+- [ ] `GET /expenses/:id` — 取得單筆
+- [ ] `GET /expenses` — 列表（`django-filter`：日期/分類）
 - [ ] `PUT /expenses/:id` — 修正 OCR 結果
 - [ ] `GET /expenses/monthly` — 月結帳單
-  - SQL 聚合：總支出、分類佔比、每日趨勢、常去商店排行
+  - Django ORM 聚合：`Sum`、`Count`，按 category/date group by
 
 ---
 
@@ -240,45 +299,33 @@ CareBridgeAPI/
 
 ### 5.1 留言板 API（功能 5.1–5.4）
 
-- [ ] `GET /boards/requests` — 需求列表（狀態篩選）
-- [ ] `POST /boards/requests` — 新增需求
-  - 品項名稱自動翻譯
-  - 推播通知家屬
-- [ ] `PUT /boards/requests/:id` — 確認/駁回
-  - 推播通知看護
+- [ ] `ModelViewSet` for BoardRequest（CRUD）
+  - 新增時：品項自動翻譯 + 推播通知家屬
+  - 確認/駁回時：推播通知看護
 
 ### 5.2 請假管理 API（功能 9.1–9.4）
 
-- [ ] `POST /leaves` — 請假申請
-  - 請假原因自動翻譯
-  - 推播通知家屬
-- [ ] `GET /leaves` — 請假紀錄列表
-- [ ] `PUT /leaves/:id` — 核准/駁回
-  - 核准後**自動建立 events 行事曆事件**（跨模組連動）
-  - 推播通知看護
+- [ ] `ModelViewSet` for Leave（CRUD）
+  - 申請時：原因自動翻譯 + 推播通知家屬
+  - 核准時：**自動建立 `calendar_event`**（跨模組連動）+ 推播通知看護
 
 ### 5.3 行事曆 + 代辦 API（功能 11–12）
 
-- [ ] `GET /events` — 行程列表（日期區間查詢）
-- [ ] `POST /events` — 新增行程
+- [ ] `ModelViewSet` for Event（CRUD）
   - 標題自動翻譯
-- [ ] `PUT /events/:id` — 更新行程
-- [ ] `DELETE /events/:id` — 刪除行程
-- [ ] `GET /todos` — 代辦列表
-- [ ] `POST /todos` — 新增代辦
-  - 推播通知被指派者
-- [ ] `PUT /todos/:id` — 更新/完成代辦
-  - 完成時**自動建立 care_logs 活動紀錄**（跨模組連動）
-- [ ] 行程提醒排程（Cron Job）：行程前 N 分鐘推播
+- [ ] `ModelViewSet` for Todo（CRUD）
+  - 新增時推播通知被指派者
+  - 完成時**自動建立 `care_log` 活動紀錄**（跨模組連動）
+- [ ] **Celery Beat 定時任務**：行程提醒
+  - 每分鐘檢查 → 行程前 N 分鐘 → APNs 推播
 
 ### 5.4 文件管理 API（功能 13.1–13.4）
 
-- [ ] `POST /documents` — 上傳文件（multipart → S3）
-  - 檔案大小限制 10MB
-  - 支援 PDF/JPG/PNG
-- [ ] `GET /documents` — 文件列表（分類篩選）
-- [ ] `GET /documents/:id` — 取得 Presigned URL（1 小時時效）
-- [ ] `DELETE /documents/:id` — 刪除文件（DB + S3）
+- [ ] `POST /documents` — 上傳文件（multipart → S3 via `django-storages`）
+  - 檔案大小限制 10MB（`DATA_UPLOAD_MAX_MEMORY_SIZE`）
+- [ ] `GET /documents` — 列表（`django-filter`：category）
+- [ ] `GET /documents/:id` — Presigned URL（`boto3 generate_presigned_url`，1 hr）
+- [ ] `DELETE /documents/:id` — 刪除（DB + S3）
 
 ---
 
@@ -287,42 +334,78 @@ CareBridgeAPI/
 ### 6.1 AI 智慧助理（功能 14.1–14.6）
 
 - [ ] `POST /ai/chat` — 對話式查詢（SSE 串流回應）
-  - 接收使用者訊息
-  - 呼叫 Claude API（Function Calling）
-  - 定義 Function Tools：
-    - `query_health_data` — 查詢健康數據
-    - `query_care_logs` — 查詢照護日誌
-    - `query_medications` — 查詢用藥紀錄
-    - `query_expenses` — 查詢消費紀錄
-    - `query_events` — 查詢行事曆
-  - SSE 串流回應（`text/event-stream`）
-  - 對話歷史存入 `ai_conversations` 表
+
+```python
+from anthropic import Anthropic
+
+client = Anthropic()
+
+# Function Calling tools 定義
+tools = [
+    {"name": "query_health_data", "description": "查詢健康數據", "input_schema": {...}},
+    {"name": "query_care_logs", "description": "查詢照護日誌", "input_schema": {...}},
+    {"name": "query_medications", "description": "查詢用藥紀錄", "input_schema": {...}},
+    {"name": "query_expenses", "description": "查詢消費紀錄", "input_schema": {...}},
+    {"name": "query_events", "description": "查詢行事曆", "input_schema": {...}},
+]
+
+# SSE 串流回應
+def ai_chat_view(request):
+    response = StreamingHttpResponse(
+        stream_claude_response(message, tools, conversation),
+        content_type='text/event-stream'
+    )
+    return response
+```
+
+- [ ] Function Calling 工具實作：
+  - 每個 tool 對應 Django ORM 查詢
+  - 查詢結果回傳給 Claude → Claude 生成最終回應
+- [ ] 對話歷史管理（`AIConversation` Model）
+- [ ] **個資保護**：在 system prompt 中嚴格限制不回傳敏感資訊
+
 - [ ] `POST /ai/care-analysis` — 照護記錄分析
-  - 取得指定天數內的照護摘要
-  - 呼叫 Claude API 產生分析報告
+  - 取得照護摘要（`GET /care-logs/summary` 內部呼叫）
+  - `anthropic` SDK 呼叫 Claude → 產生分析報告
 - [ ] `POST /ai/handover-report` — 看護交接報告
-  - 彙整照護日誌 + 用藥紀錄 + 健康數據
-  - Claude API 生成雙語報告
-  - 選用：生成 PDF 存入 S3
+  - 彙整資料 → Claude 生成雙語報告
+  - 選用：`reportlab` 生成 PDF → S3
 - [ ] `POST /ai/subsidy-form` — 政府補助表單
-  - Claude API 根據長者資料填寫表單
-  - 標記缺漏欄位
-  - 生成 PDF 存入 S3
-- [ ] **個資保護 Middleware**：過濾 AI 回應中的敏感資訊（Email、電話、密碼等）
+  - Claude 根據長者資料填寫 → 標記缺漏欄位
+  - `reportlab` 生成 PDF → S3
 
 ### 6.2 AI 急救小幫手 — RAG（功能 15.1–15.4）
 
 - [ ] `POST /ai/first-aid` — 急救指引查詢
-  - 使用者查詢 → Embedding → pgvector 相似度搜尋
-  - 檢索相關急救文件段落
-  - Claude API 基於檢索結果生成母語急救指引
-  - 附帶資料來源 + 免責聲明
+
+```python
+import voyageai
+from pgvector.django import VectorField, L2Distance
+
+# 1. 使用者查詢 → Embedding
+vo = voyageai.Client()
+query_embedding = vo.embed([query], model="voyage-3").embeddings[0]
+
+# 2. pgvector 相似度搜尋
+results = FirstAidDocument.objects.order_by(
+    L2Distance('embedding', query_embedding)
+)[:5]
+
+# 3. Claude API 生成急救指引
+client = Anthropic()
+response = client.messages.create(
+    model="claude-sonnet-4-20250514",
+    system="你是急救指引助手，僅基於以下衛福部文件回答...",
+    messages=[{"role": "user", "content": f"文件：{context}\n問題：{query}"}]
+)
+```
+
 - [ ] RAG 資料準備：
   - [ ] 蒐集衛福部急救手冊、用藥指南 PDF
-  - [ ] 文件分段（chunking）
-  - [ ] 使用 Embedding Model（Voyage API）轉為向量
-  - [ ] 寫入 pgvector
-- [ ] RAG 管理腳本：批次更新文件向量
+  - [ ] 文件分段（chunking）— 使用 `langchain.text_splitter` 或手動分段
+  - [ ] Voyage API 轉為向量
+  - [ ] Django management command 批次寫入 pgvector
+- [ ] `FirstAidDocument` Model（含 `VectorField`）
 
 ---
 
@@ -330,15 +413,31 @@ CareBridgeAPI/
 
 ### 7.1 APNs 整合
 
+- [ ] APNs 推播服務封裝（`core/apns.py`）：
+
+```python
+from apns2.client import APNsClient
+from apns2.payload import Payload
+
+client = APNsClient(
+    credentials='/path/to/AuthKey.p8',
+    use_sandbox=True  # 開發環境
+)
+
+def send_push(device_token, title, body, data=None):
+    payload = Payload(alert={"title": title, "body": body}, custom=data, sound="default")
+    client.send_notification(device_token, payload, topic='com.carebridge.app')
+```
+
 - [ ] `POST /notifications/device` — 註冊裝置 Token
 - [ ] `GET /notifications` — 通知列表（分頁、已讀篩選）
 - [ ] `PUT /notifications/:id/read` — 標記已讀
 - [ ] `PUT /notifications/read-all` — 全部已讀
-- [ ] APNs Provider API 封裝：
-  - HTTP/2 連線管理
-  - JWT Token 簽名（APNs Auth Key）
-  - 推播 Payload 建構（含翻譯標題/內容）
-  - 送達失敗重試機制
+- [ ] 通知建立 + 推播統一封裝（`core/apns.py`）：
+  - 建立 `Notification` DB 紀錄
+  - 翻譯標題/內容
+  - 查詢使用者裝置 Token
+  - 呼叫 APNs 發送
 - [ ] 推播觸發點整合（所有需要推播的業務邏輯）：
 
 | 觸發時機 | 通知類型 | 接收者 |
@@ -364,8 +463,7 @@ CareBridgeAPI/
 
 - [ ] `POST /sos/trigger` — 觸發 SOS
   - 儲存 SOS 紀錄（位置、觸發者、時間）
-  - **立即**推播通知所有家庭成員（高優先級 APNs）
-  - 回應中包含通知狀態
+  - **同步**推播通知所有家庭成員（高優先級 APNs，`priority=10`）
 - [ ] `GET /sos/history` — SOS 歷史紀錄
 
 ---
@@ -374,11 +472,17 @@ CareBridgeAPI/
 
 ### 9.1 AWS S3 整合
 
-- [ ] S3 Service 封裝（使用 Soto SDK）：
-  - 上傳檔案（聊天圖片、餵藥照片、收據照片、文件）
-  - 生成 Presigned URL（上傳/下載）
-  - 刪除檔案
-- [ ] S3 Bucket 結構規劃：
+- [ ] `django-storages` 設定（`settings.py`）：
+
+```python
+DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
+AWS_STORAGE_BUCKET_NAME = 'carebridge-storage'
+AWS_S3_REGION_NAME = 'ap-northeast-1'
+AWS_QUERYSTRING_AUTH = True  # Presigned URL
+AWS_QUERYSTRING_EXPIRE = 3600  # 1 小時
+```
+
+- [ ] S3 Bucket 結構：
 
 ```
 carebridge-storage/
@@ -392,8 +496,19 @@ carebridge-storage/
 └── forms/{form_id}.pdf
 ```
 
-- [ ] 圖片壓縮處理（上傳前或上傳後）
-- [ ] 檔案大小限制驗證
+- [ ] Presigned URL 生成（`boto3`）：
+
+```python
+import boto3
+s3 = boto3.client('s3')
+url = s3.generate_presigned_url('get_object',
+    Params={'Bucket': 'carebridge-storage', 'Key': key},
+    ExpiresIn=3600
+)
+```
+
+- [ ] 圖片壓縮處理（Pillow，上傳前壓縮至合理大小）
+- [ ] 檔案大小限制驗證（10MB）
 
 ---
 
@@ -401,50 +516,65 @@ carebridge-storage/
 
 ### 10.1 部署準備
 
-- [ ] Production Dockerfile 最佳化（multi-stage build）
-- [ ] Nginx 設定（反向代理 + SSL + WebSocket Upgrade）
+- [ ] Production Dockerfile（multi-stage build）：
+
+```dockerfile
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+RUN python manage.py collectstatic --noinput
+CMD ["gunicorn", "carebridge_api.asgi:application", "-k", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000"]
+```
+
+- [ ] `docker-compose.production.yml`：
+  - Django (Gunicorn + Uvicorn)
+  - PostgreSQL（含備份 volume）
+  - Redis
+  - Celery Worker + Beat
+  - Nginx
+- [ ] Nginx 設定（反向代理 + SSL + WebSocket Upgrade + 靜態檔案）
+- [ ] SSL 憑證（Let's Encrypt / Certbot）
 - [ ] AWS EC2 / GCP Cloud Run 部署
-- [ ] PostgreSQL 正式環境設定（備份、連線池）
-- [ ] Redis 正式環境設定
-- [ ] SSL 憑證（Let's Encrypt）
-- [ ] 環境變數管理（production `.env`）
 
 ### 10.2 CI/CD
 
 - [ ] GitHub Actions workflow：
-  - 自動跑測試
+  - `pip install` + `python manage.py test`
   - Docker build + push
   - 自動部署到 staging
 - [ ] 健康檢查端點（`GET /health`）
 
 ### 10.3 監控與日誌
 
-- [ ] 結構化日誌（JSON format）
-- [ ] 錯誤追蹤
-- [ ] API 回應時間監控
+- [ ] Django Logging 設定（JSON format）
+- [ ] Sentry 或同類錯誤追蹤（選用）
+- [ ] Django Debug Toolbar（開發環境）
 
 ---
 
 ## Phase 11：測試
 
-- [ ] 單元測試：所有 Service 層的業務邏輯
-- [ ] 整合測試：API 端點測試（使用 Vapor XCTVapor）
-- [ ] WebSocket 測試
+- [ ] 單元測試：所有 Service 層業務邏輯（`django.test.TestCase`）
+- [ ] API 整合測試：DRF `APITestCase`（所有端點）
+- [ ] WebSocket 測試：Channels `WebsocketCommunicator`
+- [ ] Celery 任務測試：`CELERY_ALWAYS_EAGER = True`（同步測試模式）
 - [ ] 負載測試：健康數據同步 API（高頻寫入場景）
 
 ---
 
 ## 跨模組自動連動（後端需特別處理）
 
-以下功能涉及跨模組資料寫入，需在後端統一實作：
+以下功能涉及跨模組資料寫入，建議在對應的 ViewSet / Serializer 中統一實作：
 
 | 觸發動作 | 自動建立 | 實作位置 |
 |---|---|---|
-| 餵藥拍照確認（7.4） | 照護日誌 - 用藥紀錄（6.3） | `MedicationController.confirm()` |
-| 完成代辦（12.3） | 照護日誌 - 活動紀錄（6.6） | `TodoController.update()` |
-| 請假核准（9.2） | 行事曆事件（11） | `LeaveController.update()` |
-| 新增藥物 + 開啟提醒（7.2） | 行事曆用藥事件（11.3） | `MedicationController.create()` |
-| 健康數據異常（10.1） | 健康警示紀錄（10.7）+ 推播 | `HealthController.sync()` |
+| 餵藥拍照確認（7.4） | 照護日誌 - 用藥紀錄（6.3） | `medication/views.py → MedicationConfirmView` |
+| 完成代辦（12.3） | 照護日誌 - 活動紀錄（6.6） | `todo/views.py → TodoViewSet.partial_update()` |
+| 請假核准（9.2） | 行事曆事件（11） | `leave/views.py → LeaveViewSet.partial_update()` |
+| 新增藥物 + 開啟提醒（7.2） | 行事曆用藥事件（11.3） | `medication/views.py → MedicationViewSet.create()` |
+| 健康數據異常（10.1） | 健康警示紀錄（10.7）+ 推播 | `health/views.py → HealthSyncView.post()` |
 
 ---
 
@@ -452,7 +582,7 @@ carebridge-storage/
 
 | 項目 | 規範 |
 |---|---|
-| Base URL | `https://api.carebridge.app/v1`（Production）/ `http://localhost:8080/v1`（Dev） |
+| Base URL | `https://api.carebridge.app/v1`（Production）/ `http://localhost:8000/v1`（Dev） |
 | 認證 | `Authorization: Bearer {access_token}` |
 | Content-Type | `application/json`（預設）/ `multipart/form-data`（檔案上傳） |
 | 日期格式 | ISO 8601（`2026-04-08T14:30:00Z`） |
@@ -460,3 +590,4 @@ carebridge-storage/
 | 錯誤格式 | `{ success: false, error: { code, message, details } }` |
 | WebSocket | `wss://api.carebridge.app/v1/ws/chat/{id}?token={token}` |
 | SSE | `Content-Type: text/event-stream`（AI 串流） |
+| Django Admin | `https://api.carebridge.app/admin/`（開發/Demo 用資料管理後台） |
