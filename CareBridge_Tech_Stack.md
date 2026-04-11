@@ -1,7 +1,7 @@
 # CareBridge 照護橋 — 技術棧分析
 
-> **版本**: v1.0
-> **最後更新**: 2026/04/10
+> **版本**: v1.1
+> **最後更新**: 2026/04/11
 > **對應功能清單**: CareBridge_Feature_List v1.1（96 項功能）
 
 ---
@@ -82,11 +82,11 @@
 
 | 技術 | 說明 | 理由 |
 |---|---|---|
-| **Swift** | 後端語言 | 前後端統一語言，Apple 生態系原生支持 |
-| **Vapor** | Swift Server-Side 框架 | Apple 生態系首選後端框架，支援 async/await、Codable 直接共用 Model |
-| **Fluent ORM** | Vapor 內建 ORM | 資料庫操作，支援 PostgreSQL，與 Vapor 無縫整合 |
-
-> **備選方案**: 若團隊對 Vapor 不熟悉，可考慮 **Node.js (Express/Fastify)** 或 **Python (FastAPI)** 作為替代，但建議優先使用 Swift 以展現 Apple 生態系整合度。
+| **Python 3.12+** | 後端語言 | AI/ML 生態最成熟，Anthropic 官方 SDK 支援最完整 |
+| **Django 5.x** | Web 框架 | 內建 ORM、Admin 後台、Auth 系統、Migration，開箱即用，開發速度快 |
+| **Django REST Framework (DRF)** | REST API 框架 | Serializer + ViewSet 快速建立標準化 API |
+| **Django Channels** | WebSocket / ASGI 支援 | 即時聊天的 WebSocket 連線管理 |
+| **Celery** | 分散式任務佇列 | 非同步背景任務（OCR 處理、推播排程、報告生成） |
 
 ### 2.2 API 設計
 
@@ -94,7 +94,7 @@
 |---|---|---|
 | API 風格 | **RESTful JSON** | 全部模組的 CRUD 操作 |
 | 認證機制 | **JWT (Access Token + Refresh Token)** | 1.2, 1.3 |
-| 即時通訊 | **WebSocket** | 聊天訊息即時推送（4.1–4.7）、「正在輸入」狀態（4.6） |
+| 即時通訊 | **WebSocket (Django Channels)** | 聊天訊息即時推送（4.1–4.7）、「正在輸入」狀態（4.6） |
 | AI 串流回應 | **Server-Sent Events (SSE)** | AI 智慧助理串流回覆（14.1, 14.5） |
 | 檔案上傳 | **multipart/form-data** | 圖片（4.4, 7.4, 8.1）、文件上傳（13.1） |
 
@@ -103,7 +103,7 @@
 | 技術 | 用途 | 對應功能 |
 |---|---|---|
 | **PostgreSQL** | 主要關聯式資料庫，儲存使用者、家庭、照護紀錄、用藥、行事曆等結構化資料 | 全部模組 |
-| **Redis** | 快取層 + WebSocket 狀態管理 + Token 黑名單 | 1.3（Token 刷新）, 4.6（輸入狀態）, 4.7（未讀計數） |
+| **Redis** | 快取層 + Channels Layer（WebSocket）+ Celery Broker + Token 黑名單 | 1.3, 4.6, 4.7, 背景任務 |
 | **向量資料庫 (pgvector)** | 儲存急救手冊嵌入向量，供 RAG 檢索 | 15.3 |
 
 > 使用 PostgreSQL + pgvector 擴展，無需額外部署獨立向量資料庫。
@@ -113,16 +113,19 @@
 | 技術 | 用途 | 對應功能 |
 |---|---|---|
 | **AWS S3 / 相容物件儲存** | 儲存圖片（聊天照片、餵藥照片、收據照片）、文件（PDF/證件）| 4.4, 6.5, 7.4, 8.1, 13.1 |
-| **預簽名 URL (Presigned URL)** | 產生有時效的下載/上傳連結 | 13.3 |
+| **boto3** | AWS 官方 Python SDK，管理 S3 上傳/下載/Presigned URL | 13.3 |
+| **django-storages** | Django 整合 S3 作為檔案儲存後端 | 全部檔案上傳 |
 
 ### 2.5 部署與基礎設施
 
 | 技術 | 用途 |
 |---|---|
-| **Docker** | 容器化部署 Vapor 應用 |
-| **Docker Compose** | 本地開發環境編排（API + PostgreSQL + Redis） |
+| **Docker** | 容器化部署 Django 應用 |
+| **Docker Compose** | 本地開發環境編排（Django + PostgreSQL + Redis + Celery Worker） |
+| **Gunicorn + Uvicorn** | WSGI/ASGI Server（HTTP + WebSocket） |
+| **Daphne** | ASGI Server（Django Channels WebSocket 備選） |
+| **Nginx** | 反向代理、SSL 終端、WebSocket 升級、靜態檔案 |
 | **AWS EC2 / GCP Cloud Run** | 正式環境部署 |
-| **Nginx** | 反向代理、SSL 終端、WebSocket 升級 |
 
 ---
 
@@ -186,17 +189,39 @@
 
 ---
 
-## 5. 第三方套件（Swift Package Manager）
+## 5. 第三方套件
 
-所有第三方依賴統一透過 **Swift Package Manager (SPM)** 管理，不使用 CocoaPods 或 Carthage。
+### 5.1 前端（Swift Package Manager）
+
+所有前端依賴統一透過 **Swift Package Manager (SPM)** 管理，不使用 CocoaPods 或 Carthage。
 
 | 套件 | 用途 | 對應功能 |
 |---|---|---|
-| **swift-jwt** (Vapor) | 後端 JWT Token 生成與驗證 | 1.2, 1.3 |
 | **Kingfisher** | 圖片非同步載入與快取 | 4.4, 6.5, 7.4, 8.1 |
 | **swift-markdown-ui** | Markdown 渲染（AI 回覆內容） | 14.1 |
 
 > 原則：能用 Apple 原生框架就不引入第三方套件，減少依賴風險。
+
+### 5.2 後端（pip / Poetry）
+
+| 套件 | 用途 | 對應功能 |
+|---|---|---|
+| **djangorestframework** | REST API 框架 | 全部 API |
+| **djangorestframework-simplejwt** | JWT Token 認證 | 1.2, 1.3 |
+| **django-channels** | WebSocket / ASGI 支援 | 4.1–4.7 |
+| **channels-redis** | Channels 的 Redis 後端 | 4.6, 4.7 |
+| **celery[redis]** | 背景任務佇列 | OCR, 推播排程, 報告生成 |
+| **django-storages[s3]** | S3 檔案儲存整合 | 檔案上傳 |
+| **boto3** | AWS S3 SDK | 13.3 |
+| **anthropic** | Anthropic 官方 SDK（Claude API + Function Calling + SSE） | 14.1–14.6, 15.3, 8.2 |
+| **pgvector** | PostgreSQL 向量擴展 Python 整合 | 15.3 |
+| **voyageai** | Voyage Embedding API | 15.3 |
+| **django-redis** | Redis 快取後端 | 1.3, 快取 |
+| **django-cors-headers** | CORS 跨域設定 | 開發環境 |
+| **apns2** | APNs HTTP/2 推播 | 17.1–17.5 |
+| **Pillow** | 圖片處理（壓縮、格式轉換） | 圖片上傳 |
+| **gunicorn** | WSGI Server | 部署 |
+| **uvicorn** | ASGI Server | WebSocket 部署 |
 
 ---
 
@@ -204,13 +229,17 @@
 
 | 工具 | 用途 |
 |---|---|
-| **Xcode 26** | 主要 IDE，支援 iOS 26 / watchOS 26 / iPadOS 26 |
-| **Swift Package Manager** | 依賴管理 |
+| **Xcode 26** | 前端 IDE，支援 iOS 26 / watchOS 26 / iPadOS 26 |
+| **VS Code / PyCharm** | 後端 IDE，Python / Django 開發 |
+| **Swift Package Manager** | 前端依賴管理 |
+| **pip / Poetry** | 後端依賴管理 |
 | **Git + GitHub** | 版本控制與協作 |
 | **GitHub Actions** | CI/CD，自動建置與測試 |
-| **TestFlight** | Beta 測試分發 |
-| **Xcode Instruments** | 效能分析（記憶體、CPU、網路） |
+| **TestFlight** | 前端 Beta 測試分發 |
+| **Xcode Instruments** | 前端效能分析（記憶體、CPU、網路） |
 | **Xcode Previews** | SwiftUI 即時預覽 |
+| **Django Admin** | 後端資料管理後台，免費內建 |
+| **Django Debug Toolbar** | 後端除錯工具 |
 
 ---
 
@@ -242,16 +271,17 @@
 │                     Server (Backend)                         │
 │                                                             │
 │  ┌───────────────────────┐    ┌──────────────────────────┐  │
-│  │ Swift + Vapor         │    │ PostgreSQL               │  │
-│  │ Fluent ORM            │───►│ + pgvector (RAG 向量)    │  │
-│  │ JWT 認證              │    └──────────────────────────┘  │
-│  │ WebSocket (聊天)      │                                  │
+│  │ Python + Django       │    │ PostgreSQL               │  │
+│  │ Django REST Framework │───►│ + pgvector (RAG 向量)    │  │
+│  │ SimpleJWT 認證        │    └──────────────────────────┘  │
+│  │ Channels (WebSocket)  │                                  │
 │  │ SSE (AI 串流)         │    ┌──────────────────────────┐  │
-│  │ APNs Provider API     │───►│ Redis (快取/狀態)        │  │
+│  │ APNs (apns2)          │───►│ Redis (快取/Channels/    │  │
+│  │ Celery (背景任務)     │    │        Celery Broker)    │  │
 │  └──────────┬────────────┘    └──────────────────────────┘  │
 │             │                                               │
 │             │                 ┌──────────────────────────┐  │
-│             │────────────────►│ AWS S3 (檔案儲存)        │  │
+│             │────────────────►│ AWS S3 (boto3 檔案儲存)  │  │
 │             │                 └──────────────────────────┘  │
 └─────────────┼───────────────────────────────────────────────┘
               │
@@ -278,22 +308,22 @@
 
 | 功能模組 | 前端技術 | 後端技術 | AI / 外部服務 |
 |---|---|---|---|
-| 認證與帳號 (1) | Keychain, SwiftUI | Vapor, JWT, Fluent | — |
-| 家庭管理 (2) | SwiftUI | Vapor, Fluent | — |
+| 認證與帳號 (1) | Keychain, SwiftUI | Django, SimpleJWT | — |
+| 家庭管理 (2) | SwiftUI | Django, DRF | — |
 | 即時翻譯 (3) | Translation Framework, Speech | — | Apple Translation（離線）, Claude API（fallback） |
-| 即時聊天 (4) | SwiftUI, AVFoundation | WebSocket, Redis, S3 | — |
-| 留言板 (5) | SwiftUI | Vapor, Fluent | — |
-| 照護日誌 (6) | SwiftUI, AVFoundation, Speech | Vapor, Fluent, S3 | — |
-| 用藥管理 (7) | SwiftUI, UserNotifications | Vapor, Fluent, APNs | Translation Framework |
-| 消費記帳 (8) | SwiftUI, AVFoundation, Vision | Vapor, Fluent, S3 | Claude API（OCR 結構化） |
-| 請假管理 (9) | SwiftUI, Speech | Vapor, Fluent, APNs | Translation Framework |
-| 健康監測 (10) | HealthKit, Swift Charts | Vapor, Fluent | Apple Intelligence（趨勢分析） |
-| 行事曆 (11) | SwiftUI | Vapor, Fluent | — |
-| 代辦事項 (12) | SwiftUI | Vapor, Fluent, APNs | — |
-| 文件管理 (13) | QuickLook, SwiftUI | Vapor, S3 (Presigned URL) | — |
-| AI 智慧助理 (14) | SwiftUI, swift-markdown-ui | Vapor, SSE, Fluent | Claude API (Function Calling) |
-| AI 急救小幫手 (15) | SwiftUI, Speech | Vapor, pgvector | Claude API + RAG, Voyage Embedding |
-| SOS 緊急呼叫 (16) | CoreLocation, CallKit | Vapor, APNs | — |
-| 通知系統 (17) | UserNotifications | APNs Provider API, Redis | — |
+| 即時聊天 (4) | SwiftUI, AVFoundation | Channels, Redis, S3 | — |
+| 留言板 (5) | SwiftUI | Django, DRF | — |
+| 照護日誌 (6) | SwiftUI, AVFoundation, Speech | Django, DRF, S3 | — |
+| 用藥管理 (7) | SwiftUI, UserNotifications | Django, DRF, Celery, APNs | Translation Framework |
+| 消費記帳 (8) | SwiftUI, AVFoundation, Vision | Django, Celery, S3 | anthropic SDK（OCR 結構化） |
+| 請假管理 (9) | SwiftUI, Speech | Django, DRF, APNs | Translation Framework |
+| 健康監測 (10) | HealthKit, Swift Charts | Django, DRF | Apple Intelligence（趨勢分析） |
+| 行事曆 (11) | SwiftUI | Django, DRF | — |
+| 代辦事項 (12) | SwiftUI | Django, DRF, APNs | — |
+| 文件管理 (13) | QuickLook, SwiftUI | Django, boto3 (Presigned URL) | — |
+| AI 智慧助理 (14) | SwiftUI, swift-markdown-ui | Django, SSE, anthropic SDK | Claude API (Function Calling) |
+| AI 急救小幫手 (15) | SwiftUI, Speech | Django, pgvector | anthropic SDK + RAG, Voyage |
+| SOS 緊急呼叫 (16) | CoreLocation, CallKit | Django, apns2 | — |
+| 通知系統 (17) | UserNotifications | apns2, Celery, Redis | — |
 | Apple Watch (18) | HealthKit, CoreMotion, WatchConnectivity, WidgetKit | — | — |
-| 資料匯出 (19) | PDFKit, UIActivityViewController | Vapor, Fluent | — |
+| 資料匯出 (19) | PDFKit, UIActivityViewController | Django, DRF | — |
