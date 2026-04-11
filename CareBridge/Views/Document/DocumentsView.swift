@@ -1,9 +1,11 @@
 import SwiftUI
+import QuickLook
 
 struct DocumentsView: View {
     @State private var documents = AppDocument.samples
     @State private var selectedCategory = "全部"
     @State private var showUpload = false
+    @State private var previewURL: URL? = nil
 
     private let categories = ["全部", "保險", "醫療", "證件", "合約", "其他"]
 
@@ -40,14 +42,20 @@ struct DocumentsView: View {
             } else {
                 List {
                     ForEach(filteredDocuments) { doc in
-                        DocumentRow(document: doc)
-                            .listRowBackground(Color.white)
+                        DocumentRow(document: doc) {
+                            // Open document preview
+                            if let url = doc.localURL {
+                                previewURL = url
+                            }
+                        }
+                        .listRowBackground(Color.white)
                     }
                     .onDelete { indexSet in
                         documents.remove(atOffsets: indexSet)
                     }
                 }
                 .listStyle(.plain)
+                .quickLookPreview($previewURL)
             }
         }
         .background(Color.brandBackground)
@@ -78,6 +86,7 @@ struct DocumentsView: View {
 // MARK: - Document Row
 struct DocumentRow: View {
     let document: AppDocument
+    let onPreview: () -> Void
 
     var body: some View {
         HStack(spacing: 14) {
@@ -113,9 +122,9 @@ struct DocumentRow: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                 Button {
-                    // Preview/download
+                    onPreview()
                 } label: {
-                    Image(systemName: "arrow.down.circle")
+                    Image(systemName: "eye.circle")
                         .foregroundStyle(Color.brandTeal)
                         .font(.system(size: 20))
                 }
@@ -133,32 +142,54 @@ struct UploadDocumentView: View {
 
     @State private var title = ""
     @State private var category = "醫療"
+    @State private var showFilePicker = false
+    @State private var selectedFileName: String? = nil
+    @State private var selectedFileSize: String? = nil
     private let categories = ["保險", "醫療", "證件", "合約", "其他"]
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 24) {
                 // Upload area
-                VStack(spacing: 12) {
-                    Image(systemName: "arrow.up.doc.fill")
-                        .font(.system(size: 48))
-                        .foregroundStyle(Color.brandTeal)
-                    Text("點擊上傳文件")
-                        .font(.system(size: 16, weight: .medium))
-                    Text("支援 PDF / JPG / PNG（最大 10MB）")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
+                Button {
+                    showFilePicker = true
+                } label: {
+                    VStack(spacing: 12) {
+                        if let fileName = selectedFileName {
+                            Image(systemName: "doc.fill.badge.checkmark")
+                                .font(.system(size: 48))
+                                .foregroundStyle(.green)
+                            Text(fileName)
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.primary)
+                            Text("點擊更換")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Image(systemName: "arrow.up.doc.fill")
+                                .font(.system(size: 48))
+                                .foregroundStyle(Color.brandTeal)
+                            Text("點擊選擇文件")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(.primary)
+                            Text("支援 PDF / JPG / PNG（最大 10MB）")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 40)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [8]))
+                            .foregroundStyle(selectedFileName != nil ? Color.green.opacity(0.4) : Color.brandTeal.opacity(0.4))
+                    )
+                    .background(RoundedRectangle(cornerRadius: 16).fill(
+                        selectedFileName != nil ? Color.green.opacity(0.05) : Color.brandTealLight.opacity(0.3)
+                    ))
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 40)
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [8]))
-                        .foregroundStyle(Color.brandTeal.opacity(0.4))
-                )
-                .background(RoundedRectangle(cornerRadius: 16).fill(Color.brandTealLight.opacity(0.3)))
+                .buttonStyle(.plain)
                 .padding(.horizontal, 16)
-                .onTapGesture { }
 
                 Form {
                     Section("文件標題") {
@@ -183,9 +214,9 @@ struct UploadDocumentView: View {
                     Button("上傳") {
                         let doc = AppDocument(
                             id: UUID().uuidString,
-                            title: title.isEmpty ? "未命名文件" : title,
+                            title: title.isEmpty ? (selectedFileName ?? "未命名文件") : title,
                             category: category,
-                            fileSize: "1.2 MB",
+                            fileSize: selectedFileSize ?? "—",
                             uploadDate: Date()
                         )
                         onUpload(doc)
@@ -193,6 +224,28 @@ struct UploadDocumentView: View {
                     }
                     .bold()
                     .foregroundStyle(Color.brandTeal)
+                    .disabled(selectedFileName == nil && title.isEmpty)
+                }
+            }
+            .fileImporter(
+                isPresented: $showFilePicker,
+                allowedContentTypes: [.pdf, .image, .png, .jpeg],
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    if let url = urls.first {
+                        selectedFileName = url.lastPathComponent
+                        if let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+                            let mb = Double(fileSize) / 1_048_576
+                            selectedFileSize = mb < 1 ? "\(Int(mb * 1024)) KB" : String(format: "%.1f MB", mb)
+                        }
+                        if title.isEmpty {
+                            title = url.deletingPathExtension().lastPathComponent
+                        }
+                    }
+                case .failure:
+                    break
                 }
             }
         }

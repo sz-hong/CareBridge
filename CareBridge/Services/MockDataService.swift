@@ -46,6 +46,7 @@ class MockDataService: DataService {
 
     // MARK: - Medication
     func fetchMedications(elderId: String) async throws -> [Medication] { Medication.samples }
+    func createMedication(_ medication: Medication) async throws -> Medication { medication }
     func updateMedication(_ medication: Medication) async throws -> Medication { medication }
 
     // MARK: - Expenses
@@ -68,6 +69,7 @@ class MockDataService: DataService {
     // MARK: - Calendar
     func fetchCalendarEvents(month: Date) async throws -> [CalendarEvent] { CalendarEvent.samples }
     func createCalendarEvent(_ event: CalendarEvent) async throws -> CalendarEvent { event }
+    func createCalendarEvents(_ events: [CalendarEvent]) async throws -> [CalendarEvent] { events }
 
     // MARK: - Leave
     func fetchLeaveRequests() async throws -> [LeaveRequest] { LeaveRequest.samples }

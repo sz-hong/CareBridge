@@ -3,6 +3,7 @@ import SwiftUI
 struct ChatListView: View {
     @Binding var showProfile: Bool
     @Binding var isInChatDetail: Bool
+    let userRole: UserRole
     @State private var showPurchaseRequests = false
     @State private var showLeaveRequests = false
     @State private var showNotifications = false
@@ -102,10 +103,10 @@ struct ChatListView: View {
                 ChatDetailView(room: room)
             }
             .navigationDestination(isPresented: $showPurchaseRequests) {
-                MessageBoardView()
+                MessageBoardView(userRole: userRole)
             }
             .navigationDestination(isPresented: $showLeaveRequests) {
-                LeaveManagementView()
+                LeaveManagementView(userRole: userRole)
             }
             .navigationDestination(isPresented: $showNotifications) {
                 NotificationCenterView()
@@ -122,20 +123,21 @@ struct ChatListView: View {
                 showPurchaseRequests = true
             } label: {
                 ZStack(alignment: .topTrailing) {
-                    Text("採購核准")
+                    Text(userRole == .caregiver ? "採購需求" : "採購核准")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(Color.brandTeal)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 18)
                         .background(RoundedRectangle(cornerRadius: 14).fill(Color.brandTealLight))
-                    // Badge
-                    ZStack {
-                        Circle().fill(.red).frame(width: 22, height: 22)
-                        Text("1")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.white)
+                    if userRole == .family {
+                        ZStack {
+                            Circle().fill(.red).frame(width: 22, height: 22)
+                            Text("1")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
+                        .offset(x: 6, y: -10)
                     }
-                    .offset(x: 6, y: -10)
                 }
             }
             .buttonStyle(.plain)
@@ -144,19 +146,21 @@ struct ChatListView: View {
                 showLeaveRequests = true
             } label: {
                 ZStack(alignment: .topTrailing) {
-                    Text("請假核准")
+                    Text(userRole == .caregiver ? "請假申請" : "請假核准")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(Color.brandTeal)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 18)
                         .background(RoundedRectangle(cornerRadius: 14).fill(Color.brandTealLight))
-                    ZStack {
-                        Circle().fill(.red).frame(width: 22, height: 22)
-                        Text("1")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.white)
+                    if userRole == .family {
+                        ZStack {
+                            Circle().fill(.red).frame(width: 22, height: 22)
+                            Text("1")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
+                        .offset(x: 6, y: -10)
                     }
-                    .offset(x: 6, y: -10)
                 }
             }
             .buttonStyle(.plain)
@@ -371,5 +375,5 @@ struct MessageBubble: View {
 }
 
 #Preview {
-    ChatListView(showProfile: .constant(false), isInChatDetail: .constant(false))
+    ChatListView(showProfile: .constant(false), isInChatDetail: .constant(false), userRole: .family)
 }

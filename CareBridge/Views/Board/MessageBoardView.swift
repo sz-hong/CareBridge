@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct MessageBoardView: View {
+    var userRole: UserRole = .family
     @State private var requests = PurchaseRequest.samples
     @State private var selectedCategory = "全部"
     @State private var showAddRequest = false
@@ -29,6 +30,7 @@ struct MessageBoardView: View {
                 VStack(spacing: 12) {
                     ForEach(filteredRequests) { req in
                         PurchaseRequestCard(request: req,
+                                            userRole: userRole,
                                             onApprove: { updateStatus(req, to: "已核准") },
                                             onReject: { updateStatus(req, to: "已駁回") })
                     }
@@ -39,16 +41,21 @@ struct MessageBoardView: View {
             }
         }
         .background(Color.brandBackground)
-        .navigationTitle("採購核准")
+        .navigationTitle(userRole == .caregiver ? "採購需求" : "採購核准")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showAddRequest = true
-                } label: {
-                    Image(systemName: "plus.circle.fill")
+            if userRole == .caregiver {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showAddRequest = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus.circle.fill")
+                            Text("新增需求")
+                        }
                         .foregroundStyle(Color.brandTeal)
-                        .font(.system(size: 22))
+                        .font(.system(size: 14, weight: .medium))
+                    }
                 }
             }
         }
@@ -83,6 +90,7 @@ struct MessageBoardView: View {
 // MARK: - Purchase Request Card
 struct PurchaseRequestCard: View {
     let request: PurchaseRequest
+    let userRole: UserRole
     let onApprove: () -> Void
     let onReject: () -> Void
     @State private var replyText = ""
@@ -140,20 +148,22 @@ struct PurchaseRequestCard: View {
                 }
             }
 
-            // Reply area
-            VStack(alignment: .leading, spacing: 6) {
-                Text("意見與回饋給看護者 (選填)")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                TextField("輸入您的意見...", text: $replyText, axis: .vertical)
-                    .font(.system(size: 14))
-                    .padding(10)
-                    .background(RoundedRectangle(cornerRadius: 8).fill(Color(.systemGray6)))
-                    .lineLimit(1...3)
+            // Reply area (family only)
+            if userRole == .family {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("意見與回饋給看護者 (選填)")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    TextField("輸入您的意見...", text: $replyText, axis: .vertical)
+                        .font(.system(size: 14))
+                        .padding(10)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color(.systemGray6)))
+                        .lineLimit(1...3)
+                }
             }
 
-            // Action buttons (only for pending)
-            if request.status == "待確認" {
+            // Action buttons (only for pending, family can approve/reject)
+            if request.status == "待確認" && userRole == .family {
                 HStack(spacing: 12) {
                     Button(action: onReject) {
                         HStack(spacing: 6) {
@@ -190,6 +200,6 @@ struct PurchaseRequestCard: View {
 
 #Preview {
     NavigationStack {
-        MessageBoardView()
+        MessageBoardView(userRole: .family)
     }
 }

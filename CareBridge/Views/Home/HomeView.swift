@@ -11,6 +11,7 @@ extension Color {
 // MARK: - HomeView
 struct HomeView: View {
     @Binding var showProfile: Bool
+    let userRole: UserRole
     @State private var health = HealthData.sample
     @State private var showNotifications = false
     @State private var showSOS = false
@@ -221,7 +222,7 @@ struct HomeView: View {
                 .font(.system(size: 17, weight: .bold))
 
             // Medication row
-            NavigationLink(destination: MedicationView()) {
+            NavigationLink(destination: MedicationView(userRole: userRole)) {
                 HStack(spacing: 14) {
                     RoundedRectangle(cornerRadius: 10)
                         .fill(Color.brandTealLight)
@@ -373,5 +374,8 @@ struct HomeView: View {
 }
 
 #Preview {
-    HomeView(showProfile: .constant(false))
+    HomeView(showProfile: .constant(false), userRole: .family)
+        .environment(MedicationStore())
+        .environment(CareLogStore())
+        .environment(CalendarStore())
 }

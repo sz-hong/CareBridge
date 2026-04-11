@@ -2,7 +2,9 @@ import SwiftUI
 
 struct JoinFamilyView: View {
     @Binding var isLoggedIn: Bool
+    @Binding var userRole: UserRole
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedRole: UserRole = .family
     @State private var inviteCode: [String] = ["", "", "", "", "", ""]
     @FocusState private var focusedField: Int?
 
@@ -46,6 +48,26 @@ struct JoinFamilyView: View {
                             .foregroundStyle(.secondary)
                     }
 
+                    // Role selection card
+                    VStack(spacing: 14) {
+                        Text("選擇您的身份 / Select Your Role")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.secondary)
+
+                        HStack(spacing: 12) {
+                            roleCard(role: .family, icon: "figure.and.child.holdinghands",
+                                     title: "家屬", subtitle: "Family")
+                            roleCard(role: .caregiver, icon: "cross.case.fill",
+                                     title: "看護", subtitle: "Caregiver")
+                        }
+                    }
+                    .padding(20)
+                    .background(
+                        RoundedRectangle(cornerRadius: 20)
+                            .fill(.white.opacity(0.85))
+                    )
+                    .padding(.horizontal, 16)
+
                     // Invite code card
                     VStack(spacing: 16) {
                         HStack(spacing: 6) {
@@ -84,6 +106,7 @@ struct JoinFamilyView: View {
 
                         // Join button
                         Button {
+                            userRole = selectedRole
                             withAnimation { isLoggedIn = true }
                         } label: {
                             HStack {
@@ -164,8 +187,37 @@ struct JoinFamilyView: View {
             .scrollIndicators(.hidden)
         }
     }
+
+    private func roleCard(role: UserRole, icon: String, title: String, subtitle: String) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) { selectedRole = role }
+        } label: {
+            VStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 32))
+                    .foregroundStyle(selectedRole == role ? .white : Color.brandTeal)
+                Text(title)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(selectedRole == role ? .white : .primary)
+                Text(subtitle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(selectedRole == role ? .white.opacity(0.8) : .secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 20)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(selectedRole == role ? Color.brandTeal : Color(.systemGray6))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(selectedRole == role ? Color.brandTeal : Color.clear, lineWidth: 2)
+            )
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 #Preview {
-    JoinFamilyView(isLoggedIn: .constant(false))
+    JoinFamilyView(isLoggedIn: .constant(false), userRole: .constant(.family))
 }

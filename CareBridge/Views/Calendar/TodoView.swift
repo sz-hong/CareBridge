@@ -1,19 +1,21 @@
 import SwiftUI
 
 struct TodoView: View {
-    @State private var todos = TodoItem.samples
+    @Environment(TodoStore.self) private var todoStore
+    @Environment(CareLogStore.self) private var careLogStore
+    @Environment(CalendarStore.self) private var calendarStore
     @State private var showAddTodo = false
     @State private var filter = 0 // 0=全部, 1=待處理, 2=已完成
 
     var filteredTodos: [TodoItem] {
         switch filter {
-        case 1: return todos.filter { !$0.isCompleted }
-        case 2: return todos.filter { $0.isCompleted }
-        default: return todos
+        case 1: return todoStore.todos.filter { !$0.isCompleted }
+        case 2: return todoStore.todos.filter { $0.isCompleted }
+        default: return todoStore.todos
         }
     }
 
-    var pendingCount: Int { todos.filter { !$0.isCompleted }.count }
+    var pendingCount: Int { todoStore.todos.filter { !$0.isCompleted }.count }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -71,15 +73,52 @@ struct TodoView: View {
         }
         .sheet(isPresented: $showAddTodo) {
             AddTodoView { newTodo in
-                todos.insert(newTodo, at: 0)
+                todoStore.addTodo(newTodo)
+                // Sync to shared calendar
+                let calEvent = CalendarEvent(
+                    id: UUID().uuidString,
+                    title: "📋 \(newTodo.title)",
+                    date: newTodo.dueDate ?? Date(),
+                    location: "負責人：\(newTodo.assignee)",
+                    type: "待辦"
+                )
+                calendarStore.addEvent(calEvent)
             }
         }
+        .task { todoStore.load() }
     }
 
     private func toggleTodo(_ todo: TodoItem) {
-        if let index = todos.firstIndex(where: { $0.id == todo.id }) {
+        if let index = todoStore.todos.firstIndex(where: { $0.id == todo.id }) {
+            let wasCompleted = todoStore.todos[index].isCompleted
+            var updated = todoStore.todos[index]
+            updated.isCompleted.toggle()
             withAnimation {
-                todos[index].isCompleted.toggle()
+                todoStore.updateTodo(updated)
+            }
+
+            // Sync completion to care log + calendar
+            if !wasCompleted {
+                // Add care log entry
+                let logEntry = CareLogEntry(
+                    id: UUID().uuidString,
+                    type: .note,
+                    title: "待辦完成：\(todo.title)",
+                    detail: "負責人：\(todo.assignee)｜優先度：\(todo.priority.rawValue)",
+                    timestamp: Date(),
+                    hasPhoto: false
+                )
+                careLogStore.addEntry(logEntry)
+
+                // Add calendar event
+                let calEvent = CalendarEvent(
+                    id: UUID().uuidString,
+                    title: "✅ \(todo.title)",
+                    date: Date(),
+                    location: nil,
+                    type: "完成"
+                )
+                calendarStore.addEvent(calEvent)
             }
         }
     }
@@ -87,7 +126,7 @@ struct TodoView: View {
     private func deleteTodo(at indexSet: IndexSet) {
         let toDelete = indexSet.map { filteredTodos[$0] }
         withAnimation {
-            todos.removeAll { todo in toDelete.contains { $0.id == todo.id } }
+            todoStore.todos.removeAll { todo in toDelete.contains { $0.id == todo.id } }
         }
     }
 }
@@ -231,4 +270,7 @@ struct AddTodoView: View {
     NavigationStack {
         TodoView()
     }
+    .environment(TodoStore())
+    .environment(CareLogStore())
+    .environment(CalendarStore())
 }

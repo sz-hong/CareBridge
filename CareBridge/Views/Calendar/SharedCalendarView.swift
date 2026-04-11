@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct SharedCalendarView: View {
+    @Environment(CalendarStore.self) private var calendarStore
     @State private var selectedDate = Date()
-    @State private var events = CalendarEvent.samples
     @State private var showAddEvent = false
     @State private var viewMode = 0 // 0=月, 1=日
 
@@ -29,7 +29,7 @@ struct SharedCalendarView: View {
     }
 
     private var selectedDayEvents: [CalendarEvent] {
-        events.filter { calendar.isDate($0.date, inSameDayAs: selectedDate) }
+        calendarStore.events.filter { calendar.isDate($0.date, inSameDayAs: selectedDate) }
     }
 
     var body: some View {
@@ -76,7 +76,7 @@ struct SharedCalendarView: View {
                                 date: date,
                                 isSelected: calendar.isDate(date, inSameDayAs: selectedDate),
                                 isToday: calendar.isDateInToday(date),
-                                hasEvent: events.contains { calendar.isDate($0.date, inSameDayAs: date) }
+                                hasEvent: calendarStore.events.contains { calendar.isDate($0.date, inSameDayAs: date) }
                             ) {
                                 selectedDate = date
                             }
@@ -126,7 +126,7 @@ struct SharedCalendarView: View {
                         .font(.system(size: 17, weight: .bold))
                         .padding(.horizontal, 16)
 
-                    ForEach(events.sorted { $0.date < $1.date }) { event in
+                    ForEach(calendarStore.events.sorted { $0.date < $1.date }) { event in
                         EventRow(event: event)
                             .padding(.horizontal, 16)
                     }
@@ -148,6 +148,7 @@ struct SharedCalendarView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.brandBackground)
         }
+        .task { calendarStore.load() }
     }
 }
 
@@ -230,4 +231,5 @@ struct EventRow: View {
     NavigationStack {
         SharedCalendarView()
     }
+    .environment(CalendarStore())
 }

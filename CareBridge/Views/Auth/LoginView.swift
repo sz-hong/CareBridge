@@ -2,9 +2,11 @@ import SwiftUI
 
 struct LoginView: View {
     @Binding var isLoggedIn: Bool
+    @Binding var userRole: UserRole
     @State private var email = ""
     @State private var password = ""
     @State private var showJoinFamily = false
+    @State private var showForgotPassword = false
 
     var body: some View {
         ZStack {
@@ -69,7 +71,7 @@ struct LoginView: View {
                                     .font(.system(size: 11, weight: .semibold))
                                     .foregroundStyle(.secondary)
                                 Spacer()
-                                Button("FORGOT? \u{2022} 忘記密碼?") { }
+                                Button("FORGOT? \u{2022} 忘記密碼?") { showForgotPassword = true }
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundStyle(Color.brandTeal)
                             }
@@ -173,11 +175,100 @@ struct LoginView: View {
             .scrollIndicators(.hidden)
         }
         .fullScreenCover(isPresented: $showJoinFamily) {
-            JoinFamilyView(isLoggedIn: $isLoggedIn)
+            JoinFamilyView(isLoggedIn: $isLoggedIn, userRole: $userRole)
+        }
+        .sheet(isPresented: $showForgotPassword) {
+            ForgotPasswordView()
+        }
+    }
+}
+
+// MARK: - Forgot Password View
+struct ForgotPasswordView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var email = ""
+    @State private var isSent = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 28) {
+                Image(systemName: "lock.rotation")
+                    .font(.system(size: 52))
+                    .foregroundStyle(Color.brandTeal)
+                    .padding(.top, 16)
+
+                VStack(spacing: 8) {
+                    Text("重設密碼")
+                        .font(.system(size: 26, weight: .bold))
+                    Text("輸入您的電子郵件，我們將發送重設連結")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+
+                if isSent {
+                    VStack(spacing: 16) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 52))
+                            .foregroundStyle(.green)
+                        Text("重設連結已發送")
+                            .font(.system(size: 18, weight: .semibold))
+                        Text("請檢查 \(email) 的收件匣")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(24)
+                    .background(RoundedRectangle(cornerRadius: 16).fill(Color(.systemGray6)))
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("電子郵件")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 10) {
+                            Image(systemName: "envelope")
+                                .foregroundStyle(.secondary)
+                                .frame(width: 20)
+                            TextField("name@carebridge.com", text: $email)
+                                .textContentType(.emailAddress)
+                                .keyboardType(.emailAddress)
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.never)
+                        }
+                        .padding(14)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
+                    }
+                    .padding(.horizontal, 4)
+
+                    Button {
+                        withAnimation { isSent = true }
+                    } label: {
+                        Text("發送重設連結")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Capsule().fill(email.isEmpty ? Color.gray : Color.brandTeal))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(email.isEmpty)
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 24)
+            .navigationTitle("忘記密碼")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("關閉") { dismiss() }
+                        .foregroundStyle(Color.brandTeal)
+                }
+            }
         }
     }
 }
 
 #Preview {
-    LoginView(isLoggedIn: .constant(false))
+    LoginView(isLoggedIn: .constant(false), userRole: .constant(.family))
 }

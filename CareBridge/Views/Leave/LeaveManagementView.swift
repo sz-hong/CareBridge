@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct LeaveManagementView: View {
+    var userRole: UserRole = .family
     @State private var requests = LeaveRequest.samples
     @State private var showAddRequest = false
     @State private var selectedStatus: String = "全部"
@@ -50,7 +51,7 @@ struct LeaveManagementView: View {
 
             List {
                 ForEach(filteredRequests) { request in
-                    LeaveRequestRow(request: request, onApprove: {
+                    LeaveRequestRow(request: request, userRole: userRole, onApprove: {
                         updateStatus(request, to: .approved)
                     }, onReject: {
                         updateStatus(request, to: .rejected)
@@ -65,16 +66,18 @@ struct LeaveManagementView: View {
         .navigationTitle("請假管理")
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showAddRequest = true
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "plus.circle.fill")
-                        Text("申請請假")
+            if userRole == .caregiver {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showAddRequest = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus.circle.fill")
+                            Text("申請請假")
+                        }
+                        .foregroundStyle(Color.brandTeal)
+                        .font(.system(size: 14, weight: .medium))
                     }
-                    .foregroundStyle(Color.brandTeal)
-                    .font(.system(size: 14, weight: .medium))
                 }
             }
         }
@@ -104,6 +107,7 @@ struct LeaveManagementView: View {
 // MARK: - Leave Request Row
 struct LeaveRequestRow: View {
     let request: LeaveRequest
+    let userRole: UserRole
     let onApprove: () -> Void
     let onReject: () -> Void
 
@@ -154,8 +158,8 @@ struct LeaveRequestRow: View {
                 }
             }
 
-            // Action buttons (only for pending)
-            if request.status == .pending {
+            // Action buttons (only for pending, family can approve/reject)
+            if request.status == .pending && userRole == .family {
                 HStack(spacing: 12) {
                     Button(action: onReject) {
                         HStack(spacing: 6) {
