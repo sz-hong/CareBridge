@@ -599,7 +599,7 @@
 | `id` | UUID | PK | 對話唯一識別碼 |
 | `family_id` | UUID | FK → families.id | 所屬家庭 |
 | `user_id` | UUID | FK → users.id | 使用者 |
-| `messages_history` | JSONB | NOT NULL, DEFAULT '[]' | 對話歷史（Claude messages 格式） |
+| `messages_history` | JSONB | NOT NULL, DEFAULT '[]' | 對話歷史（OpenAI messages 格式） |
 | `tokens_used` | INTEGER | DEFAULT 0 | 累計 Token 使用量 |
 | `created_at` | TIMESTAMP | DEFAULT now() | 建立時間 |
 | `updated_at` | TIMESTAMP | auto | 最後更新時間 |

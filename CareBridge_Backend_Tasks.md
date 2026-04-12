@@ -17,7 +17,7 @@
 carebridge_api/
 ├── manage.py
 ├── requirements.txt             # 或 pyproject.toml (Poetry)
-├── .env                         # 環境變數（DB、Redis、JWT Secret、S3、Claude API Key）
+├── .env                         # 環境變數（DB、Redis、JWT Secret、S3、OpenAI API Key）
 ├── carebridge_api/              # 專案設定
 │   ├── settings/
 │   │   ├── base.py              # 共用設定
@@ -82,9 +82,8 @@ boto3
 django-redis
 django-cors-headers
 django-filter
-anthropic
+openai
 pgvector
-voyageai
 apns2
 Pillow
 gunicorn
@@ -225,7 +224,7 @@ websocket_urlpatterns = [
 - [ ] `POST /translate` — 文字翻譯
 - [ ] `POST /translate/speech` — 語音轉文字 + 翻譯
 - [ ] 翻譯服務封裝（`core/translation.py`）：
-  - Claude API 翻譯（使用 `anthropic` SDK）
+  - OpenAI API 翻譯（使用 `openai` SDK）
   - 翻譯快取（Redis，相同文字+語言對不重複翻譯）
 
 ---
@@ -283,8 +282,8 @@ websocket_urlpatterns = [
   - 接收收據照片 → 上傳 S3
   - 回應 202 Accepted
   - **Celery 背景任務**：
-    1. Claude API 圖片辨識（直接發送圖片 base64 給 Claude Vision）
-    2. Claude API 結構化解析為 JSON（品名、數量、金額、日期、分類）
+    1. OpenAI GPT-4o Vision 圖片辨識（直接發送圖片 base64 給 GPT-4o Vision）
+    2. GPT-4o 結構化解析為 JSON（品名、數量、金額、日期、分類）
     3. 儲存結果至 DB
     4. APNs 推播通知前端
 - [ ] `GET /expenses/:id` — 取得單筆
@@ -336,9 +335,9 @@ websocket_urlpatterns = [
 - [ ] `POST /ai/chat` — 對話式查詢（SSE 串流回應）
 
 ```python
-from anthropic import Anthropic
+from openai import OpenAI
 
-client = Anthropic()
+client = OpenAI()
 
 # Function Calling tools 定義
 tools = [
@@ -352,7 +351,7 @@ tools = [
 # SSE 串流回應
 def ai_chat_view(request):
     response = StreamingHttpResponse(
-        stream_claude_response(message, tools, conversation),
+        stream_openai_response(message, tools, conversation),
         content_type='text/event-stream'
     )
     return response
@@ -360,18 +359,18 @@ def ai_chat_view(request):
 
 - [ ] Function Calling 工具實作：
   - 每個 tool 對應 Django ORM 查詢
-  - 查詢結果回傳給 Claude → Claude 生成最終回應
+  - 查詢結果回傳給 GPT-4o → GPT-4o 生成最終回應
 - [ ] 對話歷史管理（`AIConversation` Model）
 - [ ] **個資保護**：在 system prompt 中嚴格限制不回傳敏感資訊
 
 - [ ] `POST /ai/care-analysis` — 照護記錄分析
   - 取得照護摘要（`GET /care-logs/summary` 內部呼叫）
-  - `anthropic` SDK 呼叫 Claude → 產生分析報告
+  - `openai` SDK 呼叫 GPT-4o → 產生分析報告
 - [ ] `POST /ai/handover-report` — 看護交接報告
-  - 彙整資料 → Claude 生成雙語報告
+  - 彙整資料 → GPT-4o 生成雙語報告
   - 選用：`reportlab` 生成 PDF → S3
 - [ ] `POST /ai/subsidy-form` — 政府補助表單
-  - Claude 根據長者資料填寫 → 標記缺漏欄位
+  - GPT-4o 根據長者資料填寫 → 標記缺漏欄位
   - `reportlab` 生成 PDF → S3
 
 ### 6.2 AI 急救小幫手 — RAG（功能 15.1–15.4）
@@ -379,31 +378,35 @@ def ai_chat_view(request):
 - [ ] `POST /ai/first-aid` — 急救指引查詢
 
 ```python
-import voyageai
+from openai import OpenAI
 from pgvector.django import VectorField, L2Distance
 
+client = OpenAI()
+
 # 1. 使用者查詢 → Embedding
-vo = voyageai.Client()
-query_embedding = vo.embed([query], model="voyage-3").embeddings[0]
+query_embedding = client.embeddings.create(
+    input=[query], model="text-embedding-3-small"
+).data[0].embedding
 
 # 2. pgvector 相似度搜尋
 results = FirstAidDocument.objects.order_by(
     L2Distance('embedding', query_embedding)
 )[:5]
 
-# 3. Claude API 生成急救指引
-client = Anthropic()
-response = client.messages.create(
-    model="claude-sonnet-4-20250514",
-    system="你是急救指引助手，僅基於以下衛福部文件回答...",
-    messages=[{"role": "user", "content": f"文件：{context}\n問題：{query}"}]
+# 3. OpenAI GPT-4o 生成急救指引
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[
+        {"role": "system", "content": "你是急救指引助手，僅基於以下衛福部文件回答..."},
+        {"role": "user", "content": f"文件：{context}\n問題：{query}"}
+    ]
 )
 ```
 
 - [ ] RAG 資料準備：
   - [ ] 蒐集衛福部急救手冊、用藥指南 PDF
   - [ ] 文件分段（chunking）— 使用 `langchain.text_splitter` 或手動分段
-  - [ ] Voyage API 轉為向量
+  - [ ] OpenAI Embedding API 轉為向量
   - [ ] Django management command 批次寫入 pgvector
 - [ ] `FirstAidDocument` Model（含 `VectorField`）
 
