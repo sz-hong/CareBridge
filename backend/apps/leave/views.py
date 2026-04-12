@@ -97,4 +97,25 @@ class LeaveViewSet(ModelViewSet):
             instance.calendar_event = event
 
         instance.save()
+
+        # Phase 7: Notify leave applicant of status change
+        try:
+            from apps.notification.tasks import send_notification_task
+            status_label = 'Approved' if new_status == 'approved' else 'Rejected'
+            send_notification_task.delay(
+                user_id=str(instance.applicant.id),
+                type='leave_status',
+                title=f'Leave {status_label}',
+                body=f'Your {instance.get_type_display()} leave has been {status_label.lower()}.',
+                data={
+                    'leave_id': str(instance.id),
+                    'status': new_status,
+                },
+            )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                'Failed to send leave notification', exc_info=True
+            )
+
         return success_response(data=LeaveSerializer(instance).data)
