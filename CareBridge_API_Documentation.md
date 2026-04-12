@@ -1541,20 +1541,55 @@ ws://127.0.0.1:8000/ws/chat/c1d2e3f4-a5b6-7890-cdef-123456789012/?token=eyJhbGci
 
 ---
 
-### POST /medications/:id/confirm/
+---
 
-餵藥拍照確認（照片上傳 S3，自動建立 care_log 用藥紀錄，推播通知家屬）。
+### GET /medications/today_confirmations/
+
+取得當天家族內所有的用藥確認紀錄（服藥打勾狀態同步）。
 
 | 項目 | 說明 |
 |---|---|
 | 認證 | 是 |
-| 權限 | caregiver |
+| 權限 | caregiver / family_member / elder |
 
-**Request Body（multipart/form-data）：**
+**Response（200 OK）：**
 
 ```json
 {
-  "photo": "<binary file>",
+  "success": true,
+  "data": [
+    {
+      "id": "mc1a2b3c-d4e5-6789-abcd-ef1234567890",
+      "medication": "med1a2b3-c4d5-6789-abcd-ef1234567890",
+      "confirmed_by": {
+        "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+        "name": "Siti"
+      },
+      "photo_url": null,
+      "scheduled_time": "08:00",
+      "note": "順利服藥",
+      "confirmed_at": "2026-04-12T08:15:00Z"
+    }
+  ]
+}
+```
+
+---
+
+### POST /medications/:id/confirm/
+
+餵藥確認（照片已設為選填參數，自動建立 care_log 用藥紀錄，推播通知家屬）。
+
+| 項目 | 說明 |
+|---|---|
+| 認證 | 是 |
+| 權限 | caregiver / family_member |
+
+**Request Body（JSON）：**
+
+```json
+{
+  "photo_url": null,
   "scheduled_time": "08:00",
   "note": "順利服藥"
 }
@@ -3484,7 +3519,8 @@ SOS 歷史紀錄列表。
 | GET /medications/ | O | O | - |
 | POST /medications/ | - | O | - |
 | PUT /medications/:id/ | - | O | - |
-| POST /medications/:id/confirm/ | O | - | - |
+| GET /medications/today_confirmations/ | O | O | O |
+| POST /medications/:id/confirm/ | O | O | - |
 | **Expense** | | | |
 | GET /expenses/ | O | O | - |
 | POST /expenses/scan/ | O | - | - |
