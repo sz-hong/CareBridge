@@ -88,6 +88,15 @@ class FamilyViewSet(ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @action(detail=False, methods=['get'])
+    def members(self, request):
+        if not request.user.family:
+            return success_response(data=[])
+        
+        from apps.auth_account.serializers import UserSerializer
+        users = request.user.family.members.all()
+        return success_response(data=UserSerializer(users, many=True).data)
+
     @action(detail=True, methods=['post'])
     def join(self, request, pk=None):
         serializer = JoinFamilySerializer(data=request.data)

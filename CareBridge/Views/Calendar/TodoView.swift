@@ -198,13 +198,18 @@ struct TodoRow: View {
 // MARK: - Add Todo View
 struct AddTodoView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(UserStore.self) private var userStore
     let onAdd: (TodoItem) -> Void
 
     @State private var title = ""
-    @State private var assignee = ""
+    @State private var selectedMemberId: String? = nil
     @State private var priority = Priority.medium
     @State private var hasDueDate = false
     @State private var dueDate = Date().addingTimeInterval(86400)
+
+    private var selectedMemberName: String {
+        userStore.familyMembers.first(where: { $0.id == selectedMemberId })?.name ?? "未指派"
+    }
 
     var body: some View {
         NavigationStack {
@@ -215,7 +220,21 @@ struct AddTodoView: View {
                 }
 
                 Section("指派對象") {
-                    TextField("指派給誰？", text: $assignee)
+                    if userStore.familyMembers.isEmpty {
+                        Text("載入成員中...").foregroundStyle(.secondary)
+                    } else {
+                        Picker("指派給誰？", selection: $selectedMemberId) {
+                            Text("未指派").tag(nil as String?)
+                            ForEach(userStore.familyMembers) { member in
+                                HStack(spacing: 6) {
+                                    Image(systemName: member.role == .caregiver ? "cross.case.fill" : "person.fill")
+                                        .font(.system(size: 12))
+                                    Text("\(member.name)（\(member.role.displayName)）")
+                                }
+                                .tag(member.id as String?)
+                            }
+                        }
+                    }
                 }
 
                 Section("優先度") {
@@ -250,18 +269,21 @@ struct AddTodoView: View {
                         let todo = TodoItem(
                             id: UUID().uuidString,
                             title: title.isEmpty ? "新代辦事項" : title,
-                            assignee: assignee.isEmpty ? "未指派" : assignee,
+                            assignee: selectedMemberName,
                             priority: priority,
                             dueDate: hasDueDate ? dueDate : nil,
-                            isCompleted: false
+                            isCompleted: false,
+                            assigneeId: selectedMemberId
                         )
                         onAdd(todo)
                         dismiss()
                     }
                     .bold()
-                    .foregroundStyle(Color.brandTeal)
+                    .foregroundStyle(title.isEmpty ? Color.secondary : Color.brandTeal)
+                    .disabled(title.isEmpty)
                 }
             }
+            .task { userStore.load() }
         }
     }
 }

@@ -18,6 +18,9 @@ if not family_user:
         email='test@carebridge.com', password='test1234',
         name='測試用戶', role='family_member', language='zh-TW',
     )
+else:
+    family_user.set_password('test1234')
+    family_user.save()
 
 # 看護
 caregiver, _ = User.objects.get_or_create(
@@ -27,9 +30,8 @@ caregiver, _ = User.objects.get_or_create(
         phone='0912111222',
     ),
 )
-if not caregiver.has_usable_password():
-    caregiver.set_password('test1234')
-    caregiver.save()
+caregiver.set_password('test1234')
+caregiver.save()
 
 # 長者
 elder, _ = User.objects.get_or_create(
@@ -38,9 +40,8 @@ elder, _ = User.objects.get_or_create(
         name='王爺爺', role='elder', language='zh-TW',
     ),
 )
-if not elder.has_usable_password():
-    elder.set_password('test1234')
-    elder.save()
+elder.set_password('test1234')
+elder.save()
 
 print(f'✅ Users: {User.objects.count()} 筆')
 

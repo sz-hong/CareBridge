@@ -40,6 +40,7 @@ protocol DataService {
     // Profile
     func fetchProfile() async throws -> UserProfile
     func updateProfile(_ profile: UserProfile) async throws -> UserProfile
+    func fetchFamilyMembers() async throws -> [UserProfile]
 
     // Health
     func fetchHealthData(elderId: String) async throws -> HealthData
@@ -58,6 +59,8 @@ protocol DataService {
     func fetchMedications(elderId: String) async throws -> [Medication]
     func createMedication(_ medication: Medication) async throws -> Medication
     func updateMedication(_ medication: Medication) async throws -> Medication
+    func fetchTodayConfirmations() async throws -> [MedicationConfirmation]
+    func confirmMedication(id: String, request: ConfirmMedicationRequest) async throws -> MedicationConfirmation
 
     // Expenses
     func fetchExpenses(month: Date?) async throws -> [Expense]

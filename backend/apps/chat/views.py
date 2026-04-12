@@ -118,7 +118,7 @@ class ChatViewSet(ModelViewSet):
         qs = Message.objects.filter(chat=chat).select_related('sender')
         page = self.paginate_queryset(qs)
         if page is not None:
-            serializer = MessageSerializer(page, many=True)
+            serializer = MessageSerializer(page, many=True, context={'request': request})
             return success_response(
                 data=serializer.data,
                 meta={
@@ -127,7 +127,7 @@ class ChatViewSet(ModelViewSet):
                     'page_size': self.paginator.page_size,
                 },
             )
-        serializer = MessageSerializer(qs, many=True)
+        serializer = MessageSerializer(qs, many=True, context={'request': request})
         return success_response(data=serializer.data)
 
     def _send_message(self, request, chat):

@@ -1,3 +1,4 @@
+import logging
 from rest_framework.views import exception_handler
 from rest_framework import status
 from rest_framework.exceptions import (
@@ -10,19 +11,29 @@ from rest_framework.exceptions import (
     Throttled,
 )
 
+logger = logging.getLogger('carebridge.api')
 
 def custom_exception_handler(exc, context):
     """
     Custom DRF exception handler that returns a uniform response format:
     {"success": false, "error": {"code": "...", "message": "..."}}
+    And also logs the error to the terminal.
     """
     response = exception_handler(exc, context)
 
     if response is None:
+        # This is an unhandled 500 Server Error
+        logger.error(f"🔴 [500] Unhandled Exception: {exc}", exc_info=True)
         return None
 
     error_code = _get_error_code(exc)
     error_message = _get_error_message(exc, response)
+
+    # Log the API error to the terminal so developers can see it instantly in Docker
+    if response.status_code >= 500:
+        logger.error(f"🔴 [{response.status_code}] {error_code.upper()} - {error_message}", exc_info=True)
+    elif response.status_code >= 400:
+        logger.warning(f"🟡 [{response.status_code}] {error_code.upper()} - {error_message}")
 
     response.data = {
         'success': False,

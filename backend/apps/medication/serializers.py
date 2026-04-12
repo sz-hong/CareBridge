@@ -42,6 +42,6 @@ class MedicationConfirmationSerializer(serializers.ModelSerializer):
 
 
 class ConfirmMedicationSerializer(serializers.Serializer):
-    photo_url = serializers.URLField(max_length=500)
+    photo_url = serializers.URLField(max_length=500, required=False, allow_blank=True, allow_null=True)
     scheduled_time = serializers.CharField(max_length=5)
     note = serializers.CharField(required=False, allow_blank=True, default='')

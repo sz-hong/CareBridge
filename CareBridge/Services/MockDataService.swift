@@ -28,6 +28,15 @@ class MockDataService: DataService {
 
     func updateProfile(_ profile: UserProfile) async throws -> UserProfile { profile }
 
+    func fetchFamilyMembers() async throws -> [UserProfile] {
+        [
+            UserProfile(id: "u2", name: "Rita Santos", email: "rita@carebridge.com",
+                        role: .caregiver, family: FamilyInfo(id: "f1", name: "Chen Family")),
+            UserProfile(id: "u3", name: "林小明", email: "ming@carebridge.com",
+                        role: .family, family: FamilyInfo(id: "f1", name: "Chen Family")),
+        ]
+    }
+
     // MARK: - Health
     func fetchHealthData(elderId: String) async throws -> HealthData { .sample }
     func fetchWeeklySteps(elderId: String) async throws -> [Int] { HealthData.weeklySteps }
@@ -48,6 +57,10 @@ class MockDataService: DataService {
     func fetchMedications(elderId: String) async throws -> [Medication] { Medication.samples }
     func createMedication(_ medication: Medication) async throws -> Medication { medication }
     func updateMedication(_ medication: Medication) async throws -> Medication { medication }
+    func fetchTodayConfirmations() async throws -> [MedicationConfirmation] { [] }
+    func confirmMedication(id: String, request: ConfirmMedicationRequest) async throws -> MedicationConfirmation {
+        MedicationConfirmation(id: UUID().uuidString, medication: id, scheduledTime: request.scheduledTime, confirmedAt: Date(), photoUrl: request.photoUrl, note: request.note)
+    }
 
     // MARK: - Expenses
     func fetchExpenses(month: Date?) async throws -> [Expense] { Expense.samples }

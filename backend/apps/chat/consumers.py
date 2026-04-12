@@ -19,8 +19,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
         message_type = data.get('type', 'chat.message')
 
         if message_type == 'chat.message':
+            # Get authenticated user from scope securely
+            user = self.scope.get('user')
+            user_id = user.id if getattr(user, 'is_authenticated', False) else data.get('sender_id')
+            
             # Save message to DB
-            message = await self.save_message(data)
+            message = await self.save_message(data, user_id)
             # Broadcast to group
             await self.channel_layer.group_send(
                 self.room_group_name,
@@ -50,12 +54,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
         }))
 
     @database_sync_to_async
-    def save_message(self, data):
+    def save_message(self, data, user_id):
         from apps.chat.models import Message
 
         message = Message.objects.create(
             chat_id=self.chat_id,
-            sender_id=data.get('sender_id'),
+            sender_id=user_id,
             type=data.get('message_type', 'text'),
             content=data.get('content', ''),
         )

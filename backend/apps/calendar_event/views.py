@@ -12,6 +12,7 @@ from .serializers import CreateEventSerializer, EventSerializer
 class EventViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = EventSerializer
+    pagination_class = None
 
     def get_queryset(self):
         qs = Event.objects.filter(family=self.request.user.family)

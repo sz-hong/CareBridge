@@ -12,6 +12,7 @@ struct LoginView: View {
     @State private var errorMessage: String?
 
     @Environment(\.dataService) private var service
+    @Environment(UserStore.self) private var userStore
 
     var body: some View {
         ZStack {
@@ -216,6 +217,8 @@ struct LoginView: View {
         isLoading = true
         do {
             let response = try await service.login(email: email, password: password)
+            userStore.populate(from: response)
+            userStore.load()   // async fetch family members
             userRole = response.user.role
             await MainActor.run { withAnimation { isLoggedIn = true } }
         } catch {

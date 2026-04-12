@@ -187,8 +187,19 @@ struct MedicationRow: View {
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(.primary)
                             .lineLimit(1)
+                        let freqLabel: String = {
+                            switch medication.frequency {
+                            case "daily": return "每日一次"
+                            case "twice_daily": return "每日兩次"
+                            case "thrice_daily": return "每日三次"
+                            case "weekly": return "每週一次"
+                            case "as_needed": return "需要時服用"
+                            default: return medication.frequency
+                            }
+                        }()
+                        
                         HStack(spacing: 4) {
-                            Text("\(medication.dosage) · \(medication.frequency)")
+                            Text("\(medication.dosage) · \(freqLabel)")
                                 .font(.system(size: 13))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
@@ -324,12 +335,20 @@ struct AddMedicationView: View {
 
     private func saveMedication() {
         let times = timeStrings
+        let frequencyEnum: String
+        switch frequency {
+        case 0: frequencyEnum = "daily"
+        case 1: frequencyEnum = "twice_daily"
+        case 2: frequencyEnum = "thrice_daily"
+        default: frequencyEnum = "daily"
+        }
+
         let med = Medication(
             id: UUID().uuidString,
             name: name.isEmpty ? nameTranslated : name,
             nameTranslated: nameTranslated.isEmpty ? name : nameTranslated,
             dosage: dosage.isEmpty ? "—" : dosage,
-            frequency: frequencyLabels[frequency],
+            frequency: frequencyEnum,
             times: times,
             instructions: notes,
             isActive: true,
