@@ -8,6 +8,7 @@ class Medication(models.Model):
     class Frequency(models.TextChoices):
         DAILY = 'daily', 'Daily'
         TWICE_DAILY = 'twice_daily', 'Twice Daily'
+        THRICE_DAILY = 'thrice_daily', 'Thrice Daily'
         WEEKLY = 'weekly', 'Weekly'
         AS_NEEDED = 'as_needed', 'As Needed'
 
@@ -55,7 +56,7 @@ class MedicationConfirmation(models.Model):
         on_delete=models.CASCADE,
         related_name='medication_confirmations',
     )
-    photo_url = models.URLField(max_length=500)
+    photo_url = models.URLField(max_length=500, null=True, blank=True)
     scheduled_time = models.CharField(max_length=5)
     note = models.TextField(null=True, blank=True)
     care_log = models.ForeignKey(

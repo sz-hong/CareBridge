@@ -103,6 +103,7 @@ class APIDataService: DataService {
     // MARK: - Profile
     func fetchProfile() async throws -> UserProfile { try await get(path: "/auth/me/") }
     func updateProfile(_ profile: UserProfile) async throws -> UserProfile { try await put(path: "/auth/me/", body: profile) }
+    func fetchFamilyMembers() async throws -> [UserProfile] { try await get(path: "/families/members/") }
 
     // MARK: - Health
     func fetchHealthData(elderId: String) async throws -> HealthData { try await get(path: "/health-data/dashboard/") }
@@ -128,7 +129,11 @@ class APIDataService: DataService {
     // MARK: - Medication
     func fetchMedications(elderId: String) async throws -> [Medication] { try await get(path: "/medications/") }
     func createMedication(_ medication: Medication) async throws -> Medication { try await post(path: "/medications/", body: medication) }
-    func updateMedication(_ medication: Medication) async throws -> Medication { try await put(path: "/medications/\(medication.id)/", body: medication) }
+    func updateMedication(_ medication: Medication) async throws -> Medication { try await put(path: "/medications/\(medication.id)", body: medication) }
+    func fetchTodayConfirmations() async throws -> [MedicationConfirmation] { try await get(path: "/medications/today_confirmations") }
+    func confirmMedication(id: String, request: ConfirmMedicationRequest) async throws -> MedicationConfirmation {
+        try await post(path: "/medications/\(id)/confirm", body: request)
+    }
 
     // MARK: - Expenses
     func fetchExpenses(month: Date?) async throws -> [Expense] { try await get(path: "/expenses/") }

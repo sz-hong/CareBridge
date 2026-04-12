@@ -4,10 +4,13 @@ struct ProfileView: View {
     @Binding var isLoggedIn: Bool
     let userRole: UserRole
     @Environment(\.dismiss) private var dismiss
+    @Environment(UserStore.self) private var userStore
     @State private var showLogoutConfirm = false
     @State private var showEditProfile = false
     @State private var showFamilyMembers = false
     @State private var showNotificationPrefs = false
+
+    private var user: UserProfile? { userStore.currentUser }
 
     var body: some View {
         NavigationStack {
@@ -19,12 +22,12 @@ struct ProfileView: View {
                             .font(.system(size: 56))
                             .foregroundStyle(Color.brandTeal)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Hank Chen")
+                            Text(user?.name ?? "-")
                                 .font(.system(size: 20, weight: .bold))
-                            Text("hank@carebridge.com")
+                            Text(user?.email ?? "-")
                                 .font(.system(size: 14))
                                 .foregroundStyle(.secondary)
-                            Text(userRole == .caregiver ? "看護" : "家屬")
+                            Text(user?.role.displayName ?? userRole.displayName)
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 10)
@@ -37,10 +40,10 @@ struct ProfileView: View {
 
                 // Personal info
                 Section("個人資訊") {
-                    profileRow(icon: "person.text.rectangle", label: "姓名", value: "Hank Chen")
-                    profileRow(icon: "phone.fill", label: "電話", value: "+886 912-345-678")
-                    profileRow(icon: "envelope.fill", label: "電子郵件", value: "hank@carebridge.com")
-                    profileRow(icon: "birthday.cake.fill", label: "生日", value: "1990/05/15")
+                    profileRow(icon: "person.text.rectangle", label: "姓名", value: user?.name ?? "-")
+                    profileRow(icon: "phone.fill", label: "電話", value: user?.phone ?? "-")
+                    profileRow(icon: "envelope.fill", label: "電子郵件", value: user?.email ?? "-")
+                    profileRow(icon: "birthday.cake.fill", label: "生日", value: user?.birthday ?? "-")
                     Button {
                         showEditProfile = true
                     } label: {
@@ -60,8 +63,8 @@ struct ProfileView: View {
 
                 // Family info
                 Section("家庭資訊") {
-                    profileRow(icon: "house.fill", label: "家庭名稱", value: "Chen Family")
-                    profileRow(icon: "shield.checkered", label: "角色", value: userRole == .caregiver ? "看護" : "家屬")
+                    profileRow(icon: "house.fill", label: "家庭名稱", value: user?.familyName.isEmpty == false ? user!.familyName : "-")
+                    profileRow(icon: "shield.checkered", label: "角色", value: user?.role.displayName ?? userRole.displayName)
                     Button {
                         showFamilyMembers = true
                     } label: {

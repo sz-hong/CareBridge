@@ -11,6 +11,7 @@ struct CareBridgeApp: App {
 
     private let dataService: DataService
 
+    @State private var userStore: UserStore
     @State private var careLogStore: CareLogStore
     @State private var todoStore: TodoStore
     @State private var calendarStore: CalendarStore
@@ -18,7 +19,8 @@ struct CareBridgeApp: App {
 
     init() {
         let service: DataService = APIDataService()
-        dataService  = service
+        dataService      = service
+        _userStore       = State(initialValue: UserStore(service: service))
         _careLogStore    = State(initialValue: CareLogStore(service: service))
         _todoStore       = State(initialValue: TodoStore(service: service))
         _calendarStore   = State(initialValue: CalendarStore(service: service))
@@ -34,6 +36,7 @@ struct CareBridgeApp: App {
                     LoginView(isLoggedIn: $isLoggedIn, userRole: $userRole)
                 }
             }
+            .environment(userStore)
             .environment(careLogStore)
             .environment(todoStore)
             .environment(calendarStore)

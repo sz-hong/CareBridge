@@ -140,7 +140,7 @@ class MedicationViewSet(ModelViewSet):
         confirmation = MedicationConfirmation.objects.create(
             medication=medication,
             confirmed_by=request.user,
-            photo_url=serializer.validated_data['photo_url'],
+            photo_url=serializer.validated_data.get('photo_url'),
             scheduled_time=serializer.validated_data['scheduled_time'],
             note=serializer.validated_data.get('note', ''),
             care_log=care_log,
@@ -148,3 +148,14 @@ class MedicationViewSet(ModelViewSet):
 
         out = MedicationConfirmationSerializer(confirmation).data
         return success_response(data=out, status=201)
+
+    @action(detail=False, methods=['get'], url_path='today_confirmations')
+    def today_confirmations(self, request):
+        today = timezone.localdate()
+        confirmations = MedicationConfirmation.objects.filter(
+            medication__family=request.user.family,
+            confirmed_at__date=today
+        ).select_related('medication')
+        
+        out = MedicationConfirmationSerializer(confirmations, many=True).data
+        return success_response(data=out)

@@ -20,8 +20,11 @@ struct CareLogView: View {
     }()
 
     var filteredEntries: [CareLogEntry] {
-        guard let filter = selectedFilter else { return careLogStore.entries }
-        return careLogStore.entries.filter { $0.type == filter }
+        let sameDayEntries = careLogStore.entries.filter {
+            calendar.isDate($0.timestamp, inSameDayAs: selectedDate)
+        }
+        guard let filter = selectedFilter else { return sameDayEntries }
+        return sameDayEntries.filter { $0.type == filter }
     }
 
     var groupedEntries: [(String, [CareLogEntry])] {

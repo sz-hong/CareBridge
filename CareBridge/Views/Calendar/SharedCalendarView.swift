@@ -112,23 +112,11 @@ struct SharedCalendarView: View {
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8)
                     } else {
-                        ForEach(selectedDayEvents) { event in
+                        // Ensure chronological order for the day's events
+                        ForEach(selectedDayEvents.sorted { $0.date < $1.date }) { event in
                             EventRow(event: event)
                                 .padding(.horizontal, 16)
                         }
-                    }
-                }
-                .padding(.vertical, 8)
-
-                // Upcoming events
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("即將到來")
-                        .font(.system(size: 17, weight: .bold))
-                        .padding(.horizontal, 16)
-
-                    ForEach(calendarStore.events.sorted { $0.date < $1.date }) { event in
-                        EventRow(event: event)
-                            .padding(.horizontal, 16)
                     }
                 }
                 .padding(.vertical, 8)

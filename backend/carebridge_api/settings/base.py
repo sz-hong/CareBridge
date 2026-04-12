@@ -132,8 +132,8 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': (
         'rest_framework.renderers.JSONRenderer',
     ),
-    'DATETIME_FORMAT': '%Y-%m-%dT%H:%M:%SZ',
-    'DATE_FORMAT': '%Y-%m-%d',
+    'DATETIME_FORMAT': 'iso-8601',
+    'DATE_FORMAT': 'iso-8601',
 }
 
 # ==============================================================================

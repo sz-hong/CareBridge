@@ -80,7 +80,8 @@ class TodoViewSet(ModelViewSet):
                 type=CareLog.Type.ACTIVITY,
                 content={
                     'todo_id': str(instance.id),
-                    'title': instance.title,
+                    'activity_type': f"待辦: {instance.title}",
+                    'note': f"完成者：{request.user.name}",
                     'completed_by': str(request.user.id),
                 },
                 timestamp=timezone.now(),

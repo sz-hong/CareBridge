@@ -520,6 +520,41 @@ struct CareLogEntry: Identifiable, Codable {
     }
 }
 
+// MARK: - User Store (current user + family members)
+@Observable
+class UserStore {
+    var currentUser: UserProfile? = nil
+    var familyMembers: [UserProfile] = []
+    var isLoading = false
+    private let service: DataService
+
+    init(service: DataService = MockDataService()) { self.service = service }
+
+    /// Called immediately after login — pre-populates profile from AuthResponse
+    func populate(from authResponse: AuthResponse) {
+        currentUser = authResponse.user
+    }
+
+    /// Fetches up-to-date profile + family members from API
+    func load() {
+        isLoading = true
+        Task {
+            do {
+                async let profile = service.fetchProfile()
+                async let members = service.fetchFamilyMembers()
+                let (p, m) = try await (profile, members)
+                await MainActor.run {
+                    currentUser = p
+                    familyMembers = m
+                }
+            } catch {
+                print("[UserStore] fetch failed: \(error)")
+            }
+            await MainActor.run { isLoading = false }
+        }
+    }
+}
+
 // MARK: - Care Log Store (shared state → API synced)
 @Observable
 class CareLogStore {
@@ -669,7 +704,22 @@ class MedicationStore {
         isLoading = true
         Task { @MainActor in
             do {
-                medications = try await service.fetchMedications(elderId: "")
+                async let medsTask = service.fetchMedications(elderId: "")
+                async let confsTask = service.fetchTodayConfirmations()
+                let (fetchedMeds, confs) = try await (medsTask, confsTask)
+                medications = fetchedMeds
+                
+                // Build today's dose timeline
+                var newDoses: [DoseEntry] = []
+                for med in medications {
+                    for time in med.times {
+                        let isConfirmed = confs.contains { $0.medication == med.id && $0.scheduledTime == time }
+                        newDoses.append(DoseEntry(medicationId: med.id, time: time, name: "\(med.nameTranslated) \(med.dosage)", isDone: isConfirmed))
+                    }
+                }
+                // Sort chronologically (e.g. 08:00 before 20:00)
+                doses = newDoses.sorted { $0.time < $1.time }
+                
             } catch {
                 print("[MedicationStore] fetch failed: \(error)")
             }
@@ -681,8 +731,9 @@ class MedicationStore {
         medications.append(medication)
         // Add dose entries for today's timeline
         for time in medication.times {
-            doses.append(DoseEntry(time: time, name: "\(medication.nameTranslated) \(medication.dosage)", isDone: false))
+            doses.append(DoseEntry(medicationId: medication.id, time: time, name: "\(medication.nameTranslated) \(medication.dosage)", isDone: false))
         }
+        doses.sort { $0.time < $1.time }
         Task {
             do {
                 _ = try await service.createMedication(medication)
@@ -695,6 +746,15 @@ class MedicationStore {
     func markDoseTaken(index: Int) {
         guard index < doses.count else { return }
         doses[index].isDone = true
+        let dose = doses[index]
+        let request = ConfirmMedicationRequest(scheduledTime: dose.time, photoUrl: nil, note: nil)
+        Task {
+            do {
+                _ = try await service.confirmMedication(id: dose.medicationId, request: request)
+            } catch {
+                print("[MedicationStore] mark dose taken failed: \(error)")
+            }
+        }
     }
 
     var takenCount: Int { doses.filter(\.isDone).count }
@@ -707,9 +767,26 @@ class MedicationStore {
 // MARK: - Dose Entry
 struct DoseEntry: Identifiable {
     let id = UUID()
+    let medicationId: String
     let time: String
     let name: String
     var isDone: Bool
+}
+
+// MARK: - Medication Confirmation
+struct MedicationConfirmation: Identifiable, Codable {
+    let id: String
+    let medication: String
+    let scheduledTime: String
+    let confirmedAt: Date
+    let photoUrl: String?
+    let note: String?
+}
+
+struct ConfirmMedicationRequest: Codable {
+    let scheduledTime: String
+    let photoUrl: String?
+    let note: String?
 }
 
 // MARK: - Medication

@@ -12,14 +12,21 @@ class MemberUserSerializer(serializers.ModelSerializer):
 
 class MessageSerializer(serializers.ModelSerializer):
     sender = MemberUserSerializer(read_only=True)
+    is_me = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
         fields = [
-            'id', 'chat', 'sender', 'type', 'content',
+            'id', 'chat', 'sender', 'is_me', 'type', 'content',
             'translations', 'image_url', 'sent_at',
         ]
         read_only_fields = ['id', 'chat', 'sender', 'sent_at']
+
+    def get_is_me(self, obj):
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and request.user.is_authenticated:
+            return obj.sender_id == request.user.id
+        return False
 
 
 class SendMessageSerializer(serializers.Serializer):

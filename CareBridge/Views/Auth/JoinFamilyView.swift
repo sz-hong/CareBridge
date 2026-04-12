@@ -5,6 +5,7 @@ struct JoinFamilyView: View {
     @Binding var userRole: UserRole
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dataService) private var service
+    @Environment(UserStore.self) private var userStore
     @State private var selectedRole: UserRole = .family
     @State private var inviteCode: [String] = ["", "", "", "", "", ""]
     @FocusState private var focusedField: Int?
@@ -213,6 +214,8 @@ struct JoinFamilyView: View {
         let code = inviteCode.joined()
         do {
             let response = try await service.joinFamily(inviteCode: code)
+            userStore.populate(from: response)
+            userStore.load()
             await MainActor.run {
                 userRole = response.user.role
                 withAnimation { isLoggedIn = true }
