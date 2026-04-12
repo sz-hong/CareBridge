@@ -135,7 +135,7 @@ struct HealthData: Identifiable, Codable {
         var recordedAt: Date?
         enum CodingKeys: String, CodingKey {
             case id, value
-            case recordedAt = "recorded_at"
+            case recordedAt  // "recorded_at" → convertFromSnakeCase → "recordedAt"
         }
     }
 
@@ -151,9 +151,9 @@ struct HealthData: Identifiable, Codable {
             guard let k = DynamicKey(stringValue: key) else { return nil }
             return try? c.decodeIfPresent(Entry.self, forKey: k)
         }
-        let hr = entry("heart_rate")
-        let ox = entry("blood_oxygen")
-        let st = entry("step_count")
+        let hr = entry("heartRate")    // API: heart_rate → convertFromSnakeCase → heartRate
+        let ox = entry("bloodOxygen")  // API: blood_oxygen
+        let st = entry("stepCount")    // API: step_count
         heartRate   = hr?.value.map { Int($0) } ?? 0
         bloodOxygen = ox?.value ?? 0
         steps       = st?.value.map { Int($0) } ?? 0
@@ -206,7 +206,7 @@ struct ChatMessage: Identifiable, Codable {
     private enum CodingKeys: String, CodingKey {
         case id, content, translations, isMe, senderRole, imageURL
         case sender
-        case timestamp = "sent_at"
+        case timestamp = "sentAt"   // API: sent_at → convertFromSnakeCase → sentAt
     }
     private enum SenderKeys: String, CodingKey { case name }
 
@@ -283,13 +283,13 @@ struct ChatRoom: Identifiable, Hashable, Codable {
     // MARK: Custom Coding (API field mapping)
     private enum CodingKeys: String, CodingKey {
         case id, name, type, members
-        case lastMessage = "last_message"
-        case unreadCount = "unread_count"
+        case lastMessage    // API: last_message → convertFromSnakeCase → lastMessage
+        case unreadCount    // API: unread_count → unreadCount
     }
     private enum MemberKeys: String, CodingKey { case name }
     private enum LastMessageKeys: String, CodingKey {
         case content
-        case sentAt = "sent_at"
+        case sentAt     // API: sent_at → convertFromSnakeCase → sentAt
     }
 
     init(id: String, name: String, participants: [String], lastMessage: String,
@@ -411,7 +411,7 @@ struct CareLogEntry: Identifiable, Codable {
     // MARK: Custom Coding
     private enum CodingKeys: String, CodingKey {
         case id, type, content, timestamp
-        case photoUrl = "photo_url"
+        case photoUrl   // API: photo_url → convertFromSnakeCase → photoUrl
     }
 
     // Nested content fields (covers all care log types)
@@ -432,15 +432,10 @@ struct CareLogEntry: Identifiable, Codable {
         var textTranslated: String?
 
         enum CodingKeys: String, CodingKey {
-            case medicationName = "medication_name"
-            case dosage, note, description, appetite, temperature, text
-            case bloodPressureSystolic = "blood_pressure_systolic"
-            case bloodPressureDiastolic = "blood_pressure_diastolic"
-            case bloodSugar = "blood_sugar"
-            case mealType = "meal_type"
-            case activityType = "activity_type"
-            case durationMinutes = "duration_minutes"
-            case textTranslated = "text_translated"
+            // All snake_case keys auto-converted by .convertFromSnakeCase
+            case medicationName, dosage, note, description, appetite, temperature, text
+            case bloodPressureSystolic, bloodPressureDiastolic
+            case bloodSugar, mealType, activityType, durationMinutes, textTranslated
         }
     }
 
@@ -732,12 +727,9 @@ struct Medication: Identifiable, Codable {
     var reminderEnabled: Bool        // API: reminder_enabled
 
     private enum CodingKeys: String, CodingKey {
+        // All snake_case keys auto-converted by .convertFromSnakeCase
         case id, name, dosage, frequency, times, instructions
-        case nameTranslated = "name_translated"
-        case isActive = "is_active"
-        case startDate = "start_date"
-        case endDate = "end_date"
-        case reminderEnabled = "reminder_enabled"
+        case nameTranslated, isActive, startDate, endDate, reminderEnabled
     }
 
     init(id: String = UUID().uuidString, name: String, nameTranslated: String,
@@ -824,9 +816,9 @@ struct Expense: Identifiable, Codable {
 
     enum CodingKeys: String, CodingKey {
         case id, date, items
-        case title = "store_name"
-        case amount = "total_amount"
-        case hasReceipt = "image_url"
+        case title = "storeName"       // API: store_name → convertFromSnakeCase → storeName
+        case amount = "totalAmount"    // API: total_amount → totalAmount
+        case hasReceipt = "imageUrl"   // API: image_url → imageUrl
         // `category` is UI-only — backend stores category per item inside `items` JSONB.
     }
 
@@ -955,10 +947,9 @@ struct TodoItem: Identifiable, Codable {
     var isCompleted: Bool   // API: status == "completed"
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, priority
-        case dueDate = "due_date"
-        case assignee, status
-        case assigneeId = "assignee_id"
+        // All snake_case keys auto-converted by .convertFromSnakeCase
+        case id, title, priority, assignee, status
+        case dueDate, assigneeId
     }
     private enum AssigneeKeys: String, CodingKey { case id, name }
 
@@ -1031,7 +1022,7 @@ struct CalendarEvent: Identifiable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, location, type
-        case date = "start_time"
+        case date = "startTime"   // API: start_time → convertFromSnakeCase → startTime
     }
 
     init(id: String, title: String, date: Date, location: String?, type: String) {
@@ -1140,9 +1131,8 @@ struct LeaveRequest: Identifiable, Codable {
     var status: LeaveStatus
 
     private enum CodingKeys: String, CodingKey {
-        case id, type, reason, status
-        case startDate = "start_date"
-        case endDate   = "end_date"
+        // All snake_case keys auto-converted by .convertFromSnakeCase
+        case id, type, reason, status, startDate, endDate
     }
 
     init(id: String, type: String, startDate: Date, endDate: Date,
@@ -1219,8 +1209,8 @@ struct AppDocument: Identifiable, Codable {
 
     private enum CodingKeys: String, CodingKey {
         case id, title, category
-        case fileSizeBytes = "file_size"
-        case uploadDate    = "created_at"
+        case fileSizeBytes = "fileSize"    // API: file_size → convertFromSnakeCase → fileSize
+        case uploadDate    = "createdAt"   // API: created_at → createdAt
     }
 
     init(id: String, title: String, category: String, fileSize: String, uploadDate: Date, localURL: URL? = nil) {
@@ -1347,9 +1337,9 @@ struct AppNotification: Identifiable, Codable {
 
     enum CodingKeys: String, CodingKey {
         case id, title, body
-        case category = "type"
-        case isRead = "is_read"
-        case timestamp = "created_at"
+        case category = "type"    // API: "type" field → renamed to category in Swift
+        case isRead               // API: is_read → convertFromSnakeCase → isRead
+        case timestamp = "createdAt"  // API: created_at → createdAt
     }
 
     static var samples: [AppNotification] {
@@ -1391,15 +1381,14 @@ struct PurchaseRequest: Identifiable, Codable {
         var quantity: String?
 
         enum CodingKeys: String, CodingKey {
-            case name, quantity
-            case nameTranslated = "name_translated"
+            // name_translated → convertFromSnakeCase → nameTranslated
+            case name, quantity, nameTranslated
         }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, category, status, items, requester
-        case createdAt = "created_at"
-        case note
+        // created_at → convertFromSnakeCase → createdAt
+        case id, category, status, items, requester, createdAt, note
     }
     private enum RequesterKeys: String, CodingKey { case name }
 
