@@ -15,7 +15,7 @@ struct LeaveManagementView: View {
 
     var filteredRequests: [LeaveRequest] {
         if selectedStatus == "全部" { return requests }
-        return requests.filter { $0.status.rawValue == selectedStatus }
+        return requests.filter { $0.status.displayName == selectedStatus }
     }
 
     var body: some View {
@@ -131,7 +131,7 @@ struct LeaveRequestRow: View {
                 Spacer()
 
                 // Status
-                Text(request.status.rawValue)
+                Text(request.status.displayName)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(request.status.color)
                     .padding(.horizontal, 10)

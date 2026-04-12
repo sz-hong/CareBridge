@@ -146,7 +146,7 @@ struct CareLogView: View {
                         selectedFilter = nil
                     }
                     ForEach(CareLogType.allCases, id: \.self) { type in
-                        FilterChip(title: type.rawValue, isSelected: selectedFilter == type) {
+                        FilterChip(title: type.displayName, isSelected: selectedFilter == type) {
                             selectedFilter = (selectedFilter == type) ? nil : type
                         }
                     }
@@ -425,7 +425,7 @@ struct TimelineEntryRow: View {
         VStack(alignment: .leading, spacing: 8) {
             // Type badge
             HStack(spacing: 6) {
-                Text(entry.type.rawValue.uppercased())
+                Text(entry.type.displayName.uppercased())
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(entry.type.uiColor)
                     .padding(.horizontal, 8)
@@ -567,7 +567,7 @@ struct AddCareLogView: View {
         Section("記錄類型") {
             Picker("類型", selection: $selectedType) {
                 ForEach(availableRecordTypes, id: \.self) { t in
-                    Label(t.rawValue, systemImage: t.icon).tag(t)
+                    Label(t.displayName, systemImage: t.icon).tag(t)
                 }
             }
         }

@@ -215,13 +215,68 @@ struct ChatRoomRow: View {
     }
 }
 
+// MARK: - WebSocket Manager
+
+@Observable
+class ChatWebSocket {
+    private var task: URLSessionWebSocketTask?
+    var isConnected = false
+    var onReceive: ((ChatMessage) -> Void)?
+
+    func connect(roomId: String) {
+        var urlString = "ws://127.0.0.1:8000/ws/chat/\(roomId)/"
+        if let token = KeychainService.accessToken {
+            urlString += "?token=\(token)"
+        }
+        guard let url = URL(string: urlString) else { return }
+        task = URLSession.shared.webSocketTask(with: url)
+        task?.resume()
+        isConnected = true
+        receiveLoop()
+    }
+
+    func send(content: String, sender: String, senderRole: UserRole) {
+        guard isConnected else { return }
+        let payload: [String: String] = ["content": content, "sender": sender, "senderRole": senderRole.rawValue]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8) else { return }
+        task?.send(.string(json)) { _ in }
+    }
+
+    func disconnect() {
+        task?.cancel(with: .goingAway, reason: nil)
+        isConnected = false
+    }
+
+    private func receiveLoop() {
+        task?.receive { [weak self] result in
+            switch result {
+            case .success(.string(let text)):
+                if let data = text.data(using: .utf8),
+                   let msg = try? JSONDecoder().decode(ChatMessage.self, from: data) {
+                    DispatchQueue.main.async { self?.onReceive?(msg) }
+                }
+                self?.receiveLoop()
+            case .success(.data):
+                self?.receiveLoop()
+            case .failure:
+                DispatchQueue.main.async { self?.isConnected = false }
+            @unknown default:
+                break
+            }
+        }
+    }
+}
+
 // MARK: - Chat Detail View
+
 struct ChatDetailView: View {
     let room: ChatRoom
     @State private var messages = ChatMessage.samples
     @State private var inputText = ""
     @State private var isRecording = false
     @FocusState private var isInputFocused: Bool
+    @State private var socket = ChatWebSocket()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -239,11 +294,18 @@ struct ChatDetailView: View {
                 }
                 .onChange(of: messages.count) { _, _ in
                     if let last = messages.last {
-                        withAnimation {
-                            proxy.scrollTo(last.id, anchor: .bottom)
-                        }
+                        withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
                     }
                 }
+            }
+
+            // 連線狀態
+            if socket.isConnected {
+                HStack(spacing: 4) {
+                    Circle().fill(.green).frame(width: 6, height: 6)
+                    Text("即時連線中").font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 2)
             }
 
             // Input bar
@@ -252,19 +314,25 @@ struct ChatDetailView: View {
         .background(Color.brandBackground)
         .navigationTitle(room.name)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            socket.connect(roomId: room.id)
+            socket.onReceive = { msg in
+                guard !messages.contains(where: { $0.id == msg.id }) else { return }
+                messages.append(msg)
+            }
+        }
+        .onDisappear { socket.disconnect() }
     }
 
     private var inputBar: some View {
         HStack(spacing: 12) {
-            Button {
-                // Attach
-            } label: {
+            Button { } label: {
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 28))
                     .foregroundStyle(Color.brandTeal)
             }
 
-            TextField("輸入您的問題...", text: $inputText, axis: .vertical)
+            TextField("輸入訊息...", text: $inputText, axis: .vertical)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(RoundedRectangle(cornerRadius: 20).fill(Color(.systemGray6)))
@@ -289,15 +357,17 @@ struct ChatDetailView: View {
     }
 
     private func sendMessage() {
-        guard !inputText.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        let text = inputText.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
         let newMsg = ChatMessage(
             id: UUID().uuidString,
             sender: "林小明", senderRole: .family,
-            content: inputText, translatedContent: nil,
+            content: text, translatedContent: nil,
             timestamp: Date(), isMe: true
         )
         messages.append(newMsg)
         inputText = ""
+        socket.send(content: text, sender: "林小明", senderRole: .family)
     }
 }
 

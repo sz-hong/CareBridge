@@ -1,4 +1,51 @@
 import SwiftUI
+import CoreLocation
+
+// MARK: - Location Manager
+
+@Observable
+class LocationManager: NSObject, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+    var coordinate: CLLocationCoordinate2D?
+    var locationString: String = "取得位置中..."
+    var authorizationStatus: CLAuthorizationStatus = .notDetermined
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+    }
+
+    func requestLocation() {
+        switch manager.authorizationStatus {
+        case .notDetermined:
+            manager.requestWhenInUseAuthorization()
+        case .authorizedWhenInUse, .authorizedAlways:
+            manager.requestLocation()
+        default:
+            locationString = "位置存取被拒絕"
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.last else { return }
+        coordinate = location.coordinate
+        locationString = String(format: "%.5f, %.5f", location.coordinate.latitude, location.coordinate.longitude)
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        locationString = "無法取得位置"
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        authorizationStatus = manager.authorizationStatus
+        if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
+            manager.requestLocation()
+        }
+    }
+}
+
+// MARK: - SOS View
 
 struct SOSView: View {
     @Environment(\.dismiss) private var dismiss
@@ -6,6 +53,7 @@ struct SOSView: View {
     @State private var countdown = 5
     @State private var isTriggered = false
     @State private var timerTask: Task<Void, Never>? = nil
+    @State private var locationManager = LocationManager()
 
     var body: some View {
         NavigationStack {
@@ -51,6 +99,7 @@ struct SOSView: View {
                     withAnimation(.spring()) {
                         countdown = 5
                         isConfirming = true
+                        locationManager.requestLocation()
                         startCountdown()
                     }
                 } label: {
@@ -116,6 +165,10 @@ struct SOSView: View {
                         isTriggered = true
                         isConfirming = false
                     }
+                    // 撥打 119
+                    if let url = URL(string: "tel://119") {
+                        UIApplication.shared.open(url)
+                    }
                 }
             }
         }
@@ -163,6 +216,19 @@ struct SOSView: View {
                     .font(.system(size: 18))
                     .foregroundStyle(.white.opacity(0.9))
             }
+
+            // GPS 位置
+            HStack(spacing: 8) {
+                Image(systemName: "location.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white.opacity(0.8))
+                Text(locationManager.locationString)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white.opacity(0.9))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.2)))
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("已通知以下成員")
