@@ -146,6 +146,30 @@ class ChatViewSet(ModelViewSet):
         if message.type == 'text' and message.content:
             self._translate_message(message, request.user)
 
+        # Phase 7: Notify other chat members of new message
+        try:
+            from apps.notification.tasks import send_notification_task
+            sender_name = request.user.name or request.user.email
+            member_ids = (
+                ChatMember.objects.filter(chat=chat)
+                .exclude(user=request.user)
+                .values_list('user_id', flat=True)
+            )
+            content_preview = (message.content or '')[:80]
+            for uid in member_ids:
+                send_notification_task.delay(
+                    user_id=str(uid),
+                    type='chat_message',
+                    title=f'New message from {sender_name}',
+                    body=content_preview,
+                    data={
+                        'chat_id': str(chat.id),
+                        'message_id': str(message.id),
+                    },
+                )
+        except Exception:
+            logger.warning('Failed to send chat message notification', exc_info=True)
+
         out = MessageSerializer(message)
         return success_response(data=out.data, status=201)
 

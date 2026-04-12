@@ -42,7 +42,7 @@ def _check_thresholds(family, data_point):
             threshold_value = threshold.blood_oxygen_low
 
     if severity and threshold_value is not None:
-        return HealthAlert.objects.create(
+        alert = HealthAlert.objects.create(
             family=family,
             type=data_point.type,
             value=value,
@@ -50,6 +50,29 @@ def _check_thresholds(family, data_point):
             severity=severity,
             recorded_at=data_point.recorded_at,
         )
+
+        # Phase 7: Send push notification to family members
+        try:
+            from apps.notification.tasks import broadcast_family_task
+            severity_label = 'Critical' if severity == HealthAlert.Severity.CRITICAL else 'Warning'
+            broadcast_family_task.delay(
+                family_id=str(family.id),
+                type='health_alert',
+                title=f'Health Alert: {data_point.get_type_display()} ({severity_label})',
+                body=f'{data_point.get_type_display()} value {float(value)} is abnormal (threshold: {float(threshold_value)}).',
+                data={
+                    'alert_id': str(alert.id),
+                    'health_type': data_point.type,
+                    'severity': severity,
+                },
+            )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                'Failed to send health alert notification', exc_info=True
+            )
+
+        return alert
     return None
 
 
