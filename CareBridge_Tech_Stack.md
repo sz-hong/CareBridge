@@ -82,7 +82,7 @@
 
 | 技術 | 說明 | 理由 |
 |---|---|---|
-| **Python 3.12+** | 後端語言 | AI/ML 生態最成熟，Anthropic 官方 SDK 支援最完整 |
+| **Python 3.12+** | 後端語言 | AI/ML 生態最成熟，OpenAI 官方 SDK 支援最完整 |
 | **Django 5.x** | Web 框架 | 內建 ORM、Admin 後台、Auth 系統、Migration，開箱即用，開發速度快 |
 | **Django REST Framework (DRF)** | REST API 框架 | Serializer + ViewSet 快速建立標準化 API |
 | **Django Channels** | WebSocket / ASGI 支援 | 即時聊天的 WebSocket 連線管理 |
@@ -136,11 +136,11 @@
 | 技術 | 用途 | 對應功能 |
 |---|---|---|
 | **Apple Intelligence / Foundation Models** | 裝置端 AI 推論（文字摘要、翻譯輔助），展現 Apple 生態整合 | 3.2, 14.2 |
-| **Claude API (Anthropic)** | 雲端 LLM，用於 AI 智慧助理對話、Function Calling、照護報告生成、補助表單填寫 | 14.1–14.6 |
-| **Claude API + Function Calling** | AI Agent 透過 Function Calling 查詢 App 資料庫，回覆使用者問題 | 14.1, 14.5 |
-| **Claude API + SSE** | 串流回應，提升對話體驗 | 14.1 |
+| **OpenAI API (GPT-4o)** | 雲端 LLM，用於 AI 智慧助理對話、Function Calling、照護報告生成、補助表單填寫 | 14.1–14.6 |
+| **OpenAI API + Function Calling** | AI Agent 透過 Function Calling 查詢 App 資料庫，回覆使用者問題 | 14.1, 14.5 |
+| **OpenAI API + SSE** | 串流回應，提升對話體驗 | 14.1 |
 
-> **策略**: 優先使用 Apple Intelligence 處理裝置端任務（隱私優先），複雜推理與報告生成交由 Claude API。
+> **策略**: 優先使用 Apple Intelligence 處理裝置端任務（隱私優先），複雜推理與報告生成交由 OpenAI API。
 
 ### 3.2 翻譯服務
 
@@ -148,7 +148,7 @@
 |---|---|---|
 | **Apple Translation Framework** | iOS 26 原生翻譯 API，支援裝置端離線翻譯，零額外成本 | 3.2, 3.3, 4.3, 5.1, 7.6, 9.1 |
 
-> Translation Framework 支援中文 ↔ 印尼語/越南語/菲律賓語（Tagalog），可離線運作，是 MAIC 競賽的加分項。若特定語言對不支援，fallback 到 Claude API 翻譯。
+> Translation Framework 支援中文 ↔ 印尼語/越南語/菲律賓語（Tagalog），可離線運作，是 MAIC 競賽的加分項。若特定語言對不支援，fallback 到 OpenAI API 翻譯。
 
 ### 3.3 語音辨識
 
@@ -163,17 +163,17 @@
 | 技術 | 用途 | 對應功能 |
 |---|---|---|
 | **Vision Framework** (VNRecognizeTextRequest) | Apple 原生 OCR，辨識收據上的文字 | 8.2 |
-| **Claude API** | OCR 結果的結構化解析（品名、金額、分類），LLM 理解非結構化收據格式 | 8.2 |
+| **OpenAI API (GPT-4o Vision)** | OCR 結果的結構化解析（品名、金額、分類），LLM 理解非結構化收據格式 | 8.2 |
 
-> 流程：Vision OCR 擷取原始文字 → Claude API 結構化解析為 JSON（品名、數量、金額、日期、分類）。
+> 流程：Vision OCR 擷取原始文字 → OpenAI API 結構化解析為 JSON（品名、數量、金額、日期、分類）。
 
 ### 3.5 RAG（檢索增強生成）
 
 | 技術 | 用途 | 對應功能 |
 |---|---|---|
 | **pgvector** | 儲存衛福部急救手冊 / 用藥指南的文字嵌入向量 | 15.3 |
-| **Embedding Model** | 將查詢與文件轉為向量（可使用 Voyage API 或開源模型） | 15.3 |
-| **Claude API** | 基於檢索結果生成母語急救指引 | 15.3 |
+| **Embedding Model** | 將查詢與文件轉為向量（使用 OpenAI text-embedding-3-small） | 15.3 |
+| **OpenAI API** | 基於檢索結果生成母語急救指引 | 15.3 |
 
 ---
 
@@ -213,9 +213,8 @@
 | **celery[redis]** | 背景任務佇列 | OCR, 推播排程, 報告生成 |
 | **django-storages[s3]** | S3 檔案儲存整合 | 檔案上傳 |
 | **boto3** | AWS S3 SDK | 13.3 |
-| **anthropic** | Anthropic 官方 SDK（Claude API + Function Calling + SSE） | 14.1–14.6, 15.3, 8.2 |
+| **openai** | OpenAI 官方 SDK（GPT-4o + Function Calling + SSE） | 14.1–14.6, 15.3, 8.2 |
 | **pgvector** | PostgreSQL 向量擴展 Python 整合 | 15.3 |
-| **voyageai** | Voyage Embedding API | 15.3 |
 | **django-redis** | Redis 快取後端 | 1.3, 快取 |
 | **django-cors-headers** | CORS 跨域設定 | 開發環境 |
 | **apns2** | APNs HTTP/2 推播 | 17.1–17.5 |
@@ -290,13 +289,13 @@
 │                     AI Services                              │
 │                                                             │
 │  ┌─────────────────────┐  ┌───────────────────────────────┐ │
-│  │ Claude API           │  │ Apple Intelligence            │ │
+│  │ OpenAI API            │  │ Apple Intelligence            │ │
 │  │ - Function Calling   │  │ - 裝置端摘要/分類            │ │
 │  │ - SSE 串流回應       │  │ - 隱私優先處理              │ │
 │  │ - OCR 結構化解析     │  └───────────────────────────────┘ │
 │  │ - RAG 急救指引       │                                   │
 │  │ - 報告/表單生成      │  ┌───────────────────────────────┐ │
-│  └─────────────────────┘  │ Voyage Embedding API          │ │
+│  └─────────────────────┘  │ OpenAI Embedding API          │ │
 │                            │ - 文件向量化 (RAG)            │ │
 │                            └───────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
@@ -310,19 +309,19 @@
 |---|---|---|---|
 | 認證與帳號 (1) | Keychain, SwiftUI | Django, SimpleJWT | — |
 | 家庭管理 (2) | SwiftUI | Django, DRF | — |
-| 即時翻譯 (3) | Translation Framework, Speech | — | Apple Translation（離線）, Claude API（fallback） |
+| 即時翻譯 (3) | Translation Framework, Speech | — | Apple Translation（離線）, OpenAI API（fallback） |
 | 即時聊天 (4) | SwiftUI, AVFoundation | Channels, Redis, S3 | — |
 | 留言板 (5) | SwiftUI | Django, DRF | — |
 | 照護日誌 (6) | SwiftUI, AVFoundation, Speech | Django, DRF, S3 | — |
 | 用藥管理 (7) | SwiftUI, UserNotifications | Django, DRF, Celery, APNs | Translation Framework |
-| 消費記帳 (8) | SwiftUI, AVFoundation, Vision | Django, Celery, S3 | anthropic SDK（OCR 結構化） |
+| 消費記帳 (8) | SwiftUI, AVFoundation, Vision | Django, Celery, S3 | OpenAI SDK（OCR 結構化） |
 | 請假管理 (9) | SwiftUI, Speech | Django, DRF, APNs | Translation Framework |
 | 健康監測 (10) | HealthKit, Swift Charts | Django, DRF | Apple Intelligence（趨勢分析） |
 | 行事曆 (11) | SwiftUI | Django, DRF | — |
 | 代辦事項 (12) | SwiftUI | Django, DRF, APNs | — |
 | 文件管理 (13) | QuickLook, SwiftUI | Django, boto3 (Presigned URL) | — |
-| AI 智慧助理 (14) | SwiftUI, swift-markdown-ui | Django, SSE, anthropic SDK | Claude API (Function Calling) |
-| AI 急救小幫手 (15) | SwiftUI, Speech | Django, pgvector | anthropic SDK + RAG, Voyage |
+| AI 智慧助理 (14) | SwiftUI, swift-markdown-ui | Django, SSE, OpenAI SDK | OpenAI API (Function Calling) |
+| AI 急救小幫手 (15) | SwiftUI, Speech | Django, pgvector | OpenAI SDK + RAG, OpenAI Embedding |
 | SOS 緊急呼叫 (16) | CoreLocation, CallKit | Django, apns2 | — |
 | 通知系統 (17) | UserNotifications | apns2, Celery, Redis | — |
 | Apple Watch (18) | HealthKit, CoreMotion, WatchConnectivity, WidgetKit | — | — |
