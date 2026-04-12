@@ -3,10 +3,11 @@ import SwiftUI
 struct FirstAidView: View {
     var isModal: Bool = false          // true = 從 HomeView sheet 開啟，需要關閉按鈕
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dataService) private var service
     @State private var searchText = ""
     @State private var selectedScenario: FirstAidScenario? = nil
     @State private var showSOS = false
-    private let scenarios = FirstAidScenario.samples
+    @State private var scenarios: [FirstAidScenario] = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -105,6 +106,9 @@ struct FirstAidView: View {
         }
         .sheet(isPresented: $showSOS) {
             SOSView()
+        }
+        .task {
+            scenarios = (try? await service.fetchFirstAidScenarios()) ?? []
         }
     }
 

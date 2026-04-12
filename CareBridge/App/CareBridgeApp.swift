@@ -9,8 +9,7 @@ struct CareBridgeApp: App {
     @State private var isLoggedIn = false
     @State private var userRole: UserRole = .family
 
-    // Shared DataService — swap MockDataService() → APIDataService() when backend is ready
-    private let dataService: DataService = MockDataService()
+    private let dataService: DataService
 
     @State private var careLogStore: CareLogStore
     @State private var todoStore: TodoStore
@@ -18,7 +17,8 @@ struct CareBridgeApp: App {
     @State private var medicationStore: MedicationStore
 
     init() {
-        let service: DataService = MockDataService()
+        let service: DataService = APIDataService()
+        dataService  = service
         _careLogStore    = State(initialValue: CareLogStore(service: service))
         _todoStore       = State(initialValue: TodoStore(service: service))
         _calendarStore   = State(initialValue: CalendarStore(service: service))
@@ -38,6 +38,7 @@ struct CareBridgeApp: App {
             .environment(todoStore)
             .environment(calendarStore)
             .environment(medicationStore)
+            .environment(\.dataService, dataService)
             .preferredColorScheme(.light)
         }
         // SwiftData 離線快取容器

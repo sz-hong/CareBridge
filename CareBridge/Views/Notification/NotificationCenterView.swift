@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct NotificationCenterView: View {
-    @State private var notifications = AppNotification.samples
+    @Environment(\.dataService) private var service
+    @State private var notifications: [AppNotification] = []
     @State private var showUnreadOnly = false
 
     var displayedNotifications: [AppNotification] {
@@ -83,13 +84,15 @@ struct NotificationCenterView: View {
         .background(Color.brandBackground)
         .navigationTitle("通知中心")
         .navigationBarTitleDisplayMode(.large)
+        .task {
+            notifications = (try? await service.fetchNotifications()) ?? []
+        }
     }
 
     private func markAsRead(_ notification: AppNotification) {
         if let index = notifications.firstIndex(where: { $0.id == notification.id }) {
-            withAnimation {
-                notifications[index].isRead = true
-            }
+            withAnimation { notifications[index].isRead = true }
+            Task { try? await service.markNotificationRead(id: notification.id) }
         }
     }
 

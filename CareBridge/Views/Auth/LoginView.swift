@@ -1,4 +1,5 @@
 import SwiftUI
+import LocalAuthentication
 
 struct LoginView: View {
     @Binding var isLoggedIn: Bool
@@ -7,6 +8,10 @@ struct LoginView: View {
     @State private var password = ""
     @State private var showJoinFamily = false
     @State private var showForgotPassword = false
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+
+    @Environment(\.dataService) private var service
 
     var body: some View {
         ZStack {
@@ -86,25 +91,38 @@ struct LoginView: View {
                             .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
                         }
 
+                        // Error message
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.system(size: 13))
+                                .foregroundStyle(.red)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
                         // Login button
                         Button {
-                            withAnimation { isLoggedIn = true }
+                            Task { await performLogin() }
                         } label: {
                             HStack {
                                 Spacer()
-                                Text("登入 Login")
-                                    .font(.system(size: 17, weight: .semibold))
-                                Image(systemName: "arrow.right")
-                                    .font(.system(size: 15, weight: .semibold))
+                                if isLoading {
+                                    ProgressView().tint(.white)
+                                } else {
+                                    Text("登入 Login")
+                                        .font(.system(size: 17, weight: .semibold))
+                                    Image(systemName: "arrow.right")
+                                        .font(.system(size: 15, weight: .semibold))
+                                }
                                 Spacer()
                             }
                             .foregroundStyle(.white)
                             .padding(.vertical, 16)
                             .background(
-                                Capsule().fill(Color.brandTeal)
+                                Capsule().fill(canLogin ? Color.brandTeal : Color.gray)
                             )
                         }
                         .buttonStyle(.plain)
+                        .disabled(!canLogin || isLoading)
 
                         // Fast access
                         VStack(spacing: 12) {
@@ -113,22 +131,28 @@ struct LoginView: View {
                                 .foregroundStyle(.secondary)
 
                             HStack(spacing: 32) {
-                                VStack(spacing: 6) {
-                                    Image(systemName: "faceid")
-                                        .font(.system(size: 28))
-                                        .foregroundStyle(Color.brandTeal)
-                                    Text("FACE ID")
-                                        .font(.system(size: 10, weight: .medium))
-                                        .foregroundStyle(.secondary)
+                                Button { Task { await performBiometricLogin() } } label: {
+                                    VStack(spacing: 6) {
+                                        Image(systemName: "faceid")
+                                            .font(.system(size: 28))
+                                            .foregroundStyle(Color.brandTeal)
+                                        Text("FACE ID")
+                                            .font(.system(size: 10, weight: .medium))
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
-                                VStack(spacing: 6) {
-                                    Image(systemName: "touchid")
-                                        .font(.system(size: 28))
-                                        .foregroundStyle(Color.brandTeal)
-                                    Text("TOUCH ID")
-                                        .font(.system(size: 10, weight: .medium))
-                                        .foregroundStyle(.secondary)
+                                .buttonStyle(.plain)
+                                Button { Task { await performBiometricLogin() } } label: {
+                                    VStack(spacing: 6) {
+                                        Image(systemName: "touchid")
+                                            .font(.system(size: 28))
+                                            .foregroundStyle(Color.brandTeal)
+                                        Text("TOUCH ID")
+                                            .font(.system(size: 10, weight: .medium))
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
+                                .buttonStyle(.plain)
                             }
                         }
                         .frame(maxWidth: .infinity)
@@ -179,6 +203,52 @@ struct LoginView: View {
         }
         .sheet(isPresented: $showForgotPassword) {
             ForgotPasswordView()
+        }
+    }
+
+    private var canLogin: Bool {
+        !email.trimmingCharacters(in: .whitespaces).isEmpty &&
+        !password.isEmpty
+    }
+
+    private func performLogin() async {
+        errorMessage = nil
+        isLoading = true
+        do {
+            let response = try await service.login(email: email, password: password)
+            userRole = response.user.role
+            await MainActor.run { withAnimation { isLoggedIn = true } }
+        } catch {
+            print("🔴 Login failed: \(error)")
+            if let decodingError = error as? DecodingError {
+                print("🔴 DecodingError detail: \(decodingError)")
+            }
+            await MainActor.run {
+                errorMessage = "帳號或密碼錯誤，請重試"
+                isLoading = false
+            }
+        }
+    }
+
+    private func performBiometricLogin() async {
+        let context = LAContext()
+        var authError: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &authError) else {
+            await MainActor.run { errorMessage = "此裝置不支援生物辨識" }
+            return
+        }
+        do {
+            let success = try await context.evaluatePolicy(
+                .deviceOwnerAuthenticationWithBiometrics,
+                localizedReason: "使用生物辨識登入 CareBridge"
+            )
+            if success {
+                let response = try await service.login(email: "mock@carebridge.com", password: "mock")
+                userRole = response.user.role
+                await MainActor.run { withAnimation { isLoggedIn = true } }
+            }
+        } catch {
+            await MainActor.run { errorMessage = "生物辨識失敗，請使用帳號密碼登入" }
         }
     }
 }

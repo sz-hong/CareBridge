@@ -2,15 +2,24 @@ import SwiftUI
 import QuickLook
 
 struct DocumentsView: View {
-    @State private var documents = AppDocument.samples
+    @Environment(\.dataService) private var service
+    @State private var documents: [AppDocument] = []
     @State private var selectedCategory = "全部"
     @State private var showUpload = false
     @State private var previewURL: URL? = nil
 
     private let categories = ["全部", "保險", "醫療", "證件", "合約", "其他"]
 
+    // 中文標籤 → API 英文值
+    private let categoryAPIMap = [
+        "保險": "insurance", "醫療": "medical",
+        "證件": "id_document", "合約": "contract", "其他": "other"
+    ]
+
     var filteredDocuments: [AppDocument] {
-        selectedCategory == "全部" ? documents : documents.filter { $0.category == selectedCategory }
+        guard selectedCategory != "全部" else { return documents }
+        let apiValue = categoryAPIMap[selectedCategory] ?? selectedCategory
+        return documents.filter { $0.category == apiValue || $0.category == selectedCategory }
     }
 
     var body: some View {
@@ -80,6 +89,9 @@ struct DocumentsView: View {
                 documents.insert(newDoc, at: 0)
             }
         }
+        .task {
+            documents = (try? await service.fetchDocuments()) ?? []
+        }
     }
 }
 
@@ -103,7 +115,7 @@ struct DocumentRow: View {
                 Text(document.title)
                     .font(.system(size: 15, weight: .medium))
                 HStack(spacing: 8) {
-                    Text(document.category)
+                    Text(document.categoryDisplayName)
                         .font(.system(size: 12, weight: .medium))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
@@ -141,11 +153,15 @@ struct UploadDocumentView: View {
     let onUpload: (AppDocument) -> Void
 
     @State private var title = ""
-    @State private var category = "醫療"
+    @State private var category = "medical"
     @State private var showFilePicker = false
     @State private var selectedFileName: String? = nil
     @State private var selectedFileSize: String? = nil
-    private let categories = ["保險", "醫療", "證件", "合約", "其他"]
+    // API values as binding values, Chinese for display
+    private let categories: [(api: String, display: String)] = [
+        ("insurance", "保險"), ("medical", "醫療"),
+        ("id_document", "證件"), ("contract", "合約"), ("other", "其他")
+    ]
 
     var body: some View {
         NavigationStack {
@@ -197,8 +213,8 @@ struct UploadDocumentView: View {
                     }
                     Section("分類") {
                         Picker("分類", selection: $category) {
-                            ForEach(categories, id: \.self) { cat in
-                                Text(cat).tag(cat)
+                            ForEach(categories, id: \.api) { cat in
+                                Text(cat.display).tag(cat.api)
                             }
                         }
                     }

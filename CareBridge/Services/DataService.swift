@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 // MARK: - Auth Response
 struct AuthTokens: Codable {
@@ -100,4 +101,20 @@ protocol DataService {
 
     // SOS
     func triggerSOS(location: String?) async throws
+
+    // Push Notifications
+    func registerPushToken(_ token: String) async throws
+}
+
+// MARK: - Environment Key
+
+private struct DataServiceKey: EnvironmentKey {
+    static let defaultValue: DataService = MockDataService()
+}
+
+extension EnvironmentValues {
+    var dataService: DataService {
+        get { self[DataServiceKey.self] }
+        set { self[DataServiceKey.self] = newValue }
+    }
 }

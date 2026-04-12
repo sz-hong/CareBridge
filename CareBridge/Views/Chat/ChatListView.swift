@@ -4,10 +4,11 @@ struct ChatListView: View {
     @Binding var showProfile: Bool
     @Binding var isInChatDetail: Bool
     let userRole: UserRole
+    @Environment(\.dataService) private var service
     @State private var showPurchaseRequests = false
     @State private var showLeaveRequests = false
     @State private var showNotifications = false
-    @State private var chatRooms = ChatRoom.samples
+    @State private var chatRooms: [ChatRoom] = []
     @State private var navPath = NavigationPath()
 
     var body: some View {
@@ -113,6 +114,9 @@ struct ChatListView: View {
             }
             .onChange(of: navPath.count) { _, newCount in
                 isInChatDetail = newCount > 0
+            }
+            .task {
+                chatRooms = (try? await service.fetchChatRooms()) ?? []
             }
         }
     }
@@ -272,7 +276,8 @@ class ChatWebSocket {
 
 struct ChatDetailView: View {
     let room: ChatRoom
-    @State private var messages = ChatMessage.samples
+    @Environment(\.dataService) private var service
+    @State private var messages: [ChatMessage] = []
     @State private var inputText = ""
     @State private var isRecording = false
     @FocusState private var isInputFocused: Bool
@@ -314,7 +319,8 @@ struct ChatDetailView: View {
         .background(Color.brandBackground)
         .navigationTitle(room.name)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
+        .task {
+            messages = (try? await service.fetchMessages(roomId: room.id)) ?? []
             socket.connect(roomId: room.id)
             socket.onReceive = { msg in
                 guard !messages.contains(where: { $0.id == msg.id }) else { return }

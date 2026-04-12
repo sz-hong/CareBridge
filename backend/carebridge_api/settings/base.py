@@ -19,6 +19,7 @@ ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(','
 # ==============================================================================
 
 DJANGO_APPS = [
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -28,6 +29,7 @@ DJANGO_APPS = [
 ]
 
 THIRD_PARTY_APPS = [
+    'channels',
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
@@ -85,6 +87,15 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'carebridge_api.wsgi.application'
 ASGI_APPLICATION = 'carebridge_api.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            'hosts': [os.environ.get('REDIS_URL', 'redis://localhost:6379/2')],
+        },
+    },
+}
 
 # ==============================================================================
 # Authentication
