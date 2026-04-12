@@ -1,3 +1,11 @@
-from django.urls import path
+from django.urls import include, path
+from rest_framework.routers import DefaultRouter
 
-urlpatterns = []
+from .views import CareLogViewSet
+
+router = DefaultRouter(trailing_slash=False)
+router.register('', CareLogViewSet, basename='care-log')
+
+urlpatterns = [
+    path('', include(router.urls)),
+]

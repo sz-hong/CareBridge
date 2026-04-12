@@ -17,11 +17,13 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'carebridge_api.settings')
 
 django_asgi_app = get_asgi_application()
 
+from apps.chat.routing import websocket_urlpatterns as chat_ws_urlpatterns
+
 application = ProtocolTypeRouter({
     "http": django_asgi_app,
     "websocket": AuthMiddlewareStack(
-        URLRouter([
-            # WebSocket URL routes go here
-        ]),
+        URLRouter(
+            chat_ws_urlpatterns
+        ),
     ),
 })
