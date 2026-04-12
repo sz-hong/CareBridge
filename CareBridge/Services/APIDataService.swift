@@ -9,7 +9,7 @@ class APIDataService: DataService {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    init(baseURL: String = "https://api.carebridge.example.com/v1") {
+    init(baseURL: String = "http://127.0.0.1:8000/api/v1") {
         self.baseURL = baseURL
         self.decoder = JSONDecoder()
         self.decoder.dateDecodingStrategy = .iso8601
@@ -72,105 +72,105 @@ class APIDataService: DataService {
 
     // MARK: - Auth
     func login(email: String, password: String) async throws -> AuthResponse {
-        let result: AuthResponse = try await post(path: "/auth/login", body: ["email": email, "password": password])
+        let result: AuthResponse = try await post(path: "/auth/login/", body: ["email": email, "password": password])
         authToken = result.token
         return result
     }
 
     func joinFamily(inviteCode: String) async throws -> AuthResponse {
-        let result: AuthResponse = try await post(path: "/auth/join-family", body: ["inviteCode": inviteCode])
+        let result: AuthResponse = try await post(path: "/auth/join-family/", body: ["inviteCode": inviteCode])
         authToken = result.token
         return result
     }
 
     func logout() async throws {
-        let _: EmptyResponse = try await post(path: "/auth/logout")
+        let _: EmptyResponse = try await post(path: "/auth/logout/")
         authToken = nil
     }
 
     // MARK: - Profile
-    func fetchProfile() async throws -> UserProfile { try await get(path: "/profile") }
-    func updateProfile(_ profile: UserProfile) async throws -> UserProfile { try await put(path: "/profile", body: profile) }
+    func fetchProfile() async throws -> UserProfile { try await get(path: "/auth/me/") }
+    func updateProfile(_ profile: UserProfile) async throws -> UserProfile { try await put(path: "/auth/me/", body: profile) }
 
     // MARK: - Health
-    func fetchHealthData(elderId: String) async throws -> HealthData { try await get(path: "/health/\(elderId)/latest") }
-    func fetchWeeklySteps(elderId: String) async throws -> [Int] { try await get(path: "/health/\(elderId)/weekly-steps") }
+    func fetchHealthData(elderId: String) async throws -> HealthData { try await get(path: "/health-data/dashboard/") }
+    func fetchWeeklySteps(elderId: String) async throws -> [Int] { try await get(path: "/health-data/weekly-steps/") }
 
     // MARK: - Chat
-    func fetchChatRooms() async throws -> [ChatRoom] { try await get(path: "/chat/rooms") }
-    func fetchMessages(roomId: String) async throws -> [ChatMessage] { try await get(path: "/chat/rooms/\(roomId)/messages") }
+    func fetchChatRooms() async throws -> [ChatRoom] { try await get(path: "/chats/") }
+    func fetchMessages(roomId: String) async throws -> [ChatMessage] { try await get(path: "/chats/\(roomId)/messages/") }
     func sendMessage(roomId: String, content: String) async throws -> ChatMessage {
-        try await post(path: "/chat/rooms/\(roomId)/messages", body: ["content": content])
+        try await post(path: "/chats/\(roomId)/messages/", body: ["content": content])
     }
 
     // MARK: - Care Log
     func fetchCareLogEntries(date: Date?) async throws -> [CareLogEntry] {
         if let date {
             let dateStr = ISO8601DateFormatter().string(from: date)
-            return try await get(path: "/care-log?date=\(dateStr)")
+            return try await get(path: "/care-logs/?date=\(dateStr)")
         }
-        return try await get(path: "/care-log")
+        return try await get(path: "/care-logs/")
     }
-    func createCareLogEntry(_ entry: CareLogEntry) async throws -> CareLogEntry { try await post(path: "/care-log", body: entry) }
+    func createCareLogEntry(_ entry: CareLogEntry) async throws -> CareLogEntry { try await post(path: "/care-logs/", body: entry) }
 
     // MARK: - Medication
-    func fetchMedications(elderId: String) async throws -> [Medication] { try await get(path: "/medications?elderId=\(elderId)") }
-    func createMedication(_ medication: Medication) async throws -> Medication { try await post(path: "/medications", body: medication) }
-    func updateMedication(_ medication: Medication) async throws -> Medication { try await put(path: "/medications/\(medication.id)", body: medication) }
+    func fetchMedications(elderId: String) async throws -> [Medication] { try await get(path: "/medications/") }
+    func createMedication(_ medication: Medication) async throws -> Medication { try await post(path: "/medications/", body: medication) }
+    func updateMedication(_ medication: Medication) async throws -> Medication { try await put(path: "/medications/\(medication.id)/", body: medication) }
 
     // MARK: - Expenses
-    func fetchExpenses(month: Date?) async throws -> [Expense] { try await get(path: "/expenses") }
-    func fetchSpendingSummary(month: Date?) async throws -> SpendingSummary { try await get(path: "/expenses/summary") }
-    func createExpense(_ expense: Expense) async throws -> Expense { try await post(path: "/expenses", body: expense) }
+    func fetchExpenses(month: Date?) async throws -> [Expense] { try await get(path: "/expenses/") }
+    func fetchSpendingSummary(month: Date?) async throws -> SpendingSummary { try await get(path: "/expenses/monthly/") }
+    func createExpense(_ expense: Expense) async throws -> Expense { try await post(path: "/expenses/", body: expense) }
 
     // MARK: - Todo
-    func fetchTodos() async throws -> [TodoItem] { try await get(path: "/todos") }
-    func createTodo(_ todo: TodoItem) async throws -> TodoItem { try await post(path: "/todos", body: todo) }
-    func updateTodo(_ todo: TodoItem) async throws -> TodoItem { try await put(path: "/todos/\(todo.id)", body: todo) }
+    func fetchTodos() async throws -> [TodoItem] { try await get(path: "/todos/") }
+    func createTodo(_ todo: TodoItem) async throws -> TodoItem { try await post(path: "/todos/", body: todo) }
+    func updateTodo(_ todo: TodoItem) async throws -> TodoItem { try await put(path: "/todos/\(todo.id)/", body: todo) }
 
     // MARK: - Calendar
-    func fetchCalendarEvents(month: Date) async throws -> [CalendarEvent] { try await get(path: "/calendar") }
-    func createCalendarEvent(_ event: CalendarEvent) async throws -> CalendarEvent { try await post(path: "/calendar", body: event) }
-    func createCalendarEvents(_ events: [CalendarEvent]) async throws -> [CalendarEvent] { try await post(path: "/calendar/batch", body: events) }
+    func fetchCalendarEvents(month: Date) async throws -> [CalendarEvent] { try await get(path: "/events/") }
+    func createCalendarEvent(_ event: CalendarEvent) async throws -> CalendarEvent { try await post(path: "/events/", body: event) }
+    func createCalendarEvents(_ events: [CalendarEvent]) async throws -> [CalendarEvent] { try await post(path: "/events/batch/", body: events) }
 
     // MARK: - Leave
-    func fetchLeaveRequests() async throws -> [LeaveRequest] { try await get(path: "/leave") }
-    func createLeaveRequest(_ request: LeaveRequest) async throws -> LeaveRequest { try await post(path: "/leave", body: request) }
+    func fetchLeaveRequests() async throws -> [LeaveRequest] { try await get(path: "/leaves/") }
+    func createLeaveRequest(_ request: LeaveRequest) async throws -> LeaveRequest { try await post(path: "/leaves/", body: request) }
     func updateLeaveStatus(id: String, status: LeaveStatus) async throws -> LeaveRequest {
-        try await patch(path: "/leave/\(id)/status", body: ["status": status.rawValue])
+        try await patch(path: "/leaves/\(id)/status/", body: ["status": status.rawValue])
     }
 
     // MARK: - Documents
-    func fetchDocuments() async throws -> [AppDocument] { try await get(path: "/documents") }
+    func fetchDocuments() async throws -> [AppDocument] { try await get(path: "/documents/") }
     func uploadDocument(title: String, category: String, fileData: Data) async throws -> AppDocument {
-        try await post(path: "/documents", body: ["title": title, "category": category])
+        try await post(path: "/documents/", body: ["title": title, "category": category])
     }
-    func deleteDocument(id: String) async throws { try await delete(path: "/documents/\(id)") }
+    func deleteDocument(id: String) async throws { try await delete(path: "/documents/\(id)/") }
 
     // MARK: - Notifications
-    func fetchNotifications() async throws -> [AppNotification] { try await get(path: "/notifications") }
+    func fetchNotifications() async throws -> [AppNotification] { try await get(path: "/notifications/") }
     func markNotificationRead(id: String) async throws {
-        let _: EmptyResponse = try await patch(path: "/notifications/\(id)/read")
+        let _: EmptyResponse = try await patch(path: "/notifications/\(id)/read/")
     }
 
     // MARK: - Purchase Requests
-    func fetchPurchaseRequests() async throws -> [PurchaseRequest] { try await get(path: "/purchase-requests") }
-    func createPurchaseRequest(_ request: PurchaseRequest) async throws -> PurchaseRequest { try await post(path: "/purchase-requests", body: request) }
+    func fetchPurchaseRequests() async throws -> [PurchaseRequest] { try await get(path: "/board/") }
+    func createPurchaseRequest(_ request: PurchaseRequest) async throws -> PurchaseRequest { try await post(path: "/board/", body: request) }
     func updatePurchaseRequestStatus(id: String, status: String) async throws -> PurchaseRequest {
-        try await patch(path: "/purchase-requests/\(id)/status", body: ["status": status])
+        try await patch(path: "/board/\(id)/status/", body: ["status": status])
     }
 
     // MARK: - AI
     func sendAIMessage(content: String) async throws -> AIMessage {
-        try await post(path: "/ai/chat", body: ["content": content])
+        try await post(path: "/ai/chat/", body: ["content": content])
     }
 
     // MARK: - First Aid
-    func fetchFirstAidScenarios() async throws -> [FirstAidScenario] { try await get(path: "/first-aid") }
+    func fetchFirstAidScenarios() async throws -> [FirstAidScenario] { try await get(path: "/ai/first-aid/") }
 
     // MARK: - SOS
     func triggerSOS(location: String?) async throws {
-        let _: EmptyResponse = try await post(path: "/sos", body: ["location": location ?? ""])
+        let _: EmptyResponse = try await post(path: "/sos/trigger/", body: ["location": location ?? ""])
     }
 }
 
