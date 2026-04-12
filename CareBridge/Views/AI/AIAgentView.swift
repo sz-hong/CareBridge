@@ -129,18 +129,65 @@ struct AIAgentView: View {
         messages.append(AIMessage(id: UUID().uuidString, content: text, isUser: true, timestamp: Date()))
         inputText = ""
         isLoading = true
-        Task {
-            try? await Task.sleep(for: .seconds(1.5))
+        Task { await streamAIResponse(prompt: text) }
+    }
+
+    /// SSE 串流接收 AI 回應，即時更新畫面；失敗時 fallback 到 mock
+    private func streamAIResponse(prompt: String) async {
+        let replyId = UUID().uuidString
+        await MainActor.run {
+            messages.append(AIMessage(id: replyId, content: "", isUser: false, timestamp: Date()))
+        }
+
+        do {
+            guard let url = URL(string: "http://127.0.0.1:8000/api/v1/ai/chat/") else {
+                throw URLError(.badURL)
+            }
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+            if let token = KeychainService.accessToken {
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+            request.httpBody = try? JSONEncoder().encode(["message": prompt])
+
+            let (bytes, _) = try await URLSession.shared.bytes(for: request)
+            var accumulated = ""
+
+            for try await line in bytes.lines {
+                guard line.hasPrefix("data: ") else { continue }
+                let payload = String(line.dropFirst(6))
+                if let data = payload.data(using: .utf8),
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    if let type_ = json["type"] as? String, type_ == "done" { break }
+                    if let type_ = json["type"] as? String, type_ == "token",
+                       let tokenStr = json["content"] as? String {
+                        accumulated += tokenStr
+                        let updated = accumulated
+                        await MainActor.run {
+                            if let idx = messages.firstIndex(where: { $0.id == replyId }) {
+                                messages[idx] = AIMessage(id: replyId, content: updated, isUser: false, timestamp: Date())
+                            }
+                        }
+                    }
+                }
+            }
+        } catch {
+            // Fallback：後端未就緒時顯示 mock 回應
             await MainActor.run {
-                isLoading = false
-                messages.append(AIMessage(
-                    id: UUID().uuidString,
-                    content: "根據您的問題，我正在分析相關照護數據。目前長者的整體狀態穩定，建議繼續維持現有的照護計畫。如需更詳細的分析，請提供更多資訊。",
-                    isUser: false,
-                    timestamp: Date()
-                ))
+                if let idx = messages.firstIndex(where: { $0.id == replyId }) {
+                    messages[idx] = AIMessage(
+                        id: replyId,
+                        content: "根據您的問題，我正在分析相關照護數據。目前長者的整體狀態穩定，建議繼續維持現有的照護計畫。如需更詳細的分析，請提供更多資訊。",
+                        isUser: false,
+                        timestamp: Date()
+                    )
+                }
             }
         }
+
+        await MainActor.run { isLoading = false }
     }
 }
 

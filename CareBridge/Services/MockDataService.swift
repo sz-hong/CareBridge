@@ -6,10 +6,10 @@ class MockDataService: DataService {
     // MARK: - Auth
     func login(email: String, password: String) async throws -> AuthResponse {
         AuthResponse(
-            token: "mock-token-\(UUID().uuidString)",
             user: UserProfile(id: "u1", name: "Hank Chen", email: email,
                               phone: "+886 912-345-678", birthday: "1990/05/15",
-                              role: .family, familyId: "f1", familyName: "Chen Family")
+                              role: .family, family: FamilyInfo(id: "f1", name: "Chen Family")),
+            tokens: AuthTokens(access: "mock-access-\(UUID().uuidString)", refresh: "mock-refresh")
         )
     }
 
@@ -23,7 +23,7 @@ class MockDataService: DataService {
     func fetchProfile() async throws -> UserProfile {
         UserProfile(id: "u1", name: "Hank Chen", email: "hank@carebridge.com",
                     phone: "+886 912-345-678", birthday: "1990/05/15",
-                    role: .family, familyId: "f1", familyName: "Chen Family")
+                    role: .family, family: FamilyInfo(id: "f1", name: "Chen Family"))
     }
 
     func updateProfile(_ profile: UserProfile) async throws -> UserProfile { profile }
@@ -37,7 +37,7 @@ class MockDataService: DataService {
     func fetchMessages(roomId: String) async throws -> [ChatMessage] { ChatMessage.samples }
     func sendMessage(roomId: String, content: String) async throws -> ChatMessage {
         ChatMessage(id: UUID().uuidString, sender: "我", senderRole: .family,
-                    content: content, timestamp: Date(), isMe: true)
+                    content: content, translatedContent: nil, timestamp: Date(), isMe: true)
     }
 
     // MARK: - Care Log

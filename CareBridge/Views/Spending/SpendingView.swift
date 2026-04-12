@@ -1,6 +1,7 @@
 import SwiftUI
 import Charts
 import Vision
+import VisionKit
 import PhotosUI
 import UIKit
 
@@ -8,8 +9,13 @@ struct SpendingView: View {
     @Binding var showProfile: Bool
     let userRole: UserRole
     @State private var expenses = Expense.samples
-    @State private var showReceiptScanner = false
+    @State private var showDocumentCamera = false   // 直接開啟掃描器
+    @State private var showOCRConfirmation = false
+    @State private var pendingOCRResult: OCRResult? = nil
+    @State private var receiptStage: ScanStage = .idle
     @State private var showNotifications = false
+    @State private var showExportSheet = false
+    @State private var exportItems: [Any] = []
 
     var body: some View {
         NavigationStack {
@@ -70,8 +76,11 @@ struct SpendingView: View {
                                     .offset(x: 2, y: -2)
                             }
                         }
-                        Button { } label: {
-                            Image(systemName: "globe")
+                        Button {
+                            exportItems = [generateCSV()]
+                            showExportSheet = true
+                        } label: {
+                            Image(systemName: "square.and.arrow.up")
                                 .font(.system(size: 20))
                                 .foregroundStyle(Color.brandTeal)
                         }
@@ -82,29 +91,80 @@ struct SpendingView: View {
                 if userRole == .caregiver {
                     HStack(spacing: 12) {
                         Button {
-                            showReceiptScanner = true
+                            showDocumentCamera = true
                         } label: {
                             HStack(spacing: 8) {
-                                Image(systemName: "camera.fill")
+                                Image(systemName: receiptStage == .idle ? "doc.viewfinder.fill" : "ellipsis")
                                     .font(.system(size: 16))
-                                Text("拍攝收據")
+                                Text(receiptStage == .idle ? "拍攝收據" : receiptStage.label)
                                     .font(.system(size: 15, weight: .semibold))
                             }
                             .foregroundStyle(.white)
                             .padding(.horizontal, 20)
                             .padding(.vertical, 12)
-                            .background(Capsule().fill(Color.brandTeal))
+                            .background(Capsule().fill(receiptStage == .idle ? Color.brandTeal : Color.gray))
                         }
+                        .disabled(receiptStage != .idle)
                     }
                     .padding(.trailing, 16)
                     .padding(.bottom, 24)
                 }
             }
-            .sheet(isPresented: $showReceiptScanner) {
-                ReceiptScannerView()
+            // 直接開啟原生文件掃描器
+            .fullScreenCover(isPresented: $showDocumentCamera) {
+                DocumentCameraView(
+                    onCapture: { image in
+                        showDocumentCamera = false
+                        processReceipt(image)
+                    },
+                    onCancel: { showDocumentCamera = false }
+                )
+                .ignoresSafeArea()
+            }
+            // 掃描完成後顯示確認頁
+            .sheet(isPresented: $showOCRConfirmation) {
+                if let result = pendingOCRResult {
+                    OCRConfirmationView(ocrResult: result) { newExpense in
+                        expenses.insert(newExpense, at: 0)
+                    }
+                }
+            }
+            .sheet(isPresented: $showExportSheet) {
+                ShareSheet(items: exportItems)
             }
             .navigationDestination(isPresented: $showNotifications) {
                 NotificationCenterView()
+            }
+        }
+    }
+
+    // MARK: - CSV Export
+
+    private func generateCSV() -> URL {
+        var csv = "日期,名稱,類別,金額(TWD)\n"
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        for exp in expenses {
+            csv += "\(fmt.string(from: exp.date)),\(exp.title),\(exp.category),\(Int(exp.amount))\n"
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("CareBridge_消費記錄.csv")
+        try? csv.write(to: url, atomically: true, encoding: .utf8)
+        return url
+    }
+
+    // MARK: - Process Receipt (去背 + OCR)
+
+    private func processReceipt(_ image: UIImage) {
+        Task {
+            await MainActor.run { receiptStage = .removingBackground }
+            let bgRemoved = await BackgroundRemover.remove(from: image)
+            await MainActor.run { receiptStage = .recognizingText }
+            var result = await OCRProcessor.recognize(image: image)
+            result.image = bgRemoved
+            await MainActor.run {
+                receiptStage = .idle
+                pendingOCRResult = result
+                showOCRConfirmation = true
             }
         }
     }
@@ -263,9 +323,28 @@ struct ExpenseRow: View {
 
             Spacer()
 
-            Text("- TWD \(Int(expense.amount).formatted())")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.primary)
+            HStack(spacing: 10) {
+                Text("- TWD \(Int(expense.amount).formatted())")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.primary)
+
+                // 去背發票縮圖（有掃描才顯示）
+                if let img = expense.receiptImage {
+                    Image(uiImage: img)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 32, height: 44)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 4)
+                                .stroke(Color(.systemGray4), lineWidth: 0.5)
+                        )
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color(.systemGray6))
+                        )
+                }
+            }
         }
         .padding(.vertical, 4)
     }
@@ -445,47 +524,90 @@ enum OCRProcessor {
     }
 }
 
-// MARK: - Camera Picker（UIImagePickerController 包裝）
-struct CameraPickerView: UIViewControllerRepresentable {
-    @Binding var capturedImage: UIImage?
-    @Environment(\.dismiss) private var dismiss
+// MARK: - Document Camera（VNDocumentCameraViewController 包裝）
 
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        // 模擬器沒有相機，自動 fallback 到相簿
-        picker.sourceType = UIImagePickerController.isSourceTypeAvailable(.camera) ? .camera : .photoLibrary
-        picker.delegate = context.coordinator
-        return picker
+struct DocumentCameraView: UIViewControllerRepresentable {
+    var onCapture: (UIImage) -> Void
+    var onCancel: () -> Void
+
+    func makeUIViewController(context: Context) -> VNDocumentCameraViewController {
+        let vc = VNDocumentCameraViewController()
+        vc.delegate = context.coordinator
+        return vc
     }
 
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
-
+    func updateUIViewController(_ uiViewController: VNDocumentCameraViewController, context: Context) {}
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let parent: CameraPickerView
-        init(_ parent: CameraPickerView) { self.parent = parent }
+    class Coordinator: NSObject, VNDocumentCameraViewControllerDelegate {
+        let parent: DocumentCameraView
+        init(_ parent: DocumentCameraView) { self.parent = parent }
 
-        func imagePickerController(_ picker: UIImagePickerController,
-                                   didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            parent.capturedImage = info[.originalImage] as? UIImage
-            parent.dismiss()
+        func documentCameraViewController(_ controller: VNDocumentCameraViewController,
+                                          didFinishWith scan: VNDocumentCameraScan) {
+            guard scan.pageCount > 0 else { parent.onCancel(); return }
+            parent.onCapture(scan.imageOfPage(at: 0))
         }
 
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            parent.dismiss()
+        func documentCameraViewControllerDidCancel(_ controller: VNDocumentCameraViewController) {
+            parent.onCancel()
+        }
+
+        func documentCameraViewController(_ controller: VNDocumentCameraViewController,
+                                          didFailWithError error: Error) {
+            parent.onCancel()
+        }
+    }
+}
+
+// MARK: - Background Remover（VNGenerateForegroundInstanceMaskRequest）
+
+enum BackgroundRemover {
+    /// 使用 Vision 框架移除影像背景，保留發票前景並輸出透明背景 UIImage
+    static func remove(from image: UIImage) async -> UIImage {
+        guard let cgImage = image.cgImage else { return image }
+        let request = VNGenerateForegroundInstanceMaskRequest()
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        do {
+            try handler.perform([request])
+            guard let result = request.results?.first as? VNInstanceMaskObservation else { return image }
+            let maskedBuffer = try result.generateMaskedImage(
+                ofInstances: result.allInstances,
+                from: handler,
+                croppedToInstancesExtent: false
+            )
+            let ciImage = CIImage(cvPixelBuffer: maskedBuffer)
+            let context = CIContext()
+            guard let cgOut = context.createCGImage(ciImage, from: ciImage.extent) else { return image }
+            return UIImage(cgImage: cgOut, scale: image.scale, orientation: image.imageOrientation)
+        } catch {
+            return image   // 去背失敗時原圖退回
         }
     }
 }
 
 // MARK: - Receipt Scanner View
+
+private enum ScanStage {
+    case idle, removingBackground, recognizingText
+    var label: String {
+        switch self {
+        case .idle: return ""
+        case .removingBackground: return "去背中…"
+        case .recognizingText: return "OCR 辨識中…"
+        }
+    }
+}
+
 struct ReceiptScannerView: View {
+    var onAdd: (Expense) -> Void
     @Environment(\.dismiss) private var dismiss
 
     @State private var showCamera = false
     @State private var selectedPhotoItem: PhotosPickerItem? = nil
-    @State private var capturedImage: UIImage? = nil
-    @State private var isProcessing = false
+    @State private var originalImage: UIImage? = nil       // 原始掃描圖（供 OCR）
+    @State private var processedImage: UIImage? = nil      // 去背後圖（顯示 + 存入記錄）
+    @State private var stage: ScanStage = .idle
     @State private var ocrResult: OCRResult? = nil
     @State private var showOCRConfirmation = false
 
@@ -494,64 +616,59 @@ struct ReceiptScannerView: View {
             VStack(spacing: 24) {
                 Spacer()
 
-                // 預覽區域：拍攝前顯示導引框，拍攝後顯示縮圖
+                // 預覽區域
                 ZStack {
-                    if let image = capturedImage {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(height: 280)
+                    // 背景（棋盤格顯示透明感）
+                    if processedImage != nil {
+                        CheckerboardBackground()
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                     } else {
                         RoundedRectangle(cornerRadius: 16)
                             .fill(Color(.systemGray6))
-                            .frame(height: 280)
-                            .overlay {
-                                VStack(spacing: 12) {
-                                    Image(systemName: "camera.fill")
-                                        .font(.system(size: 48))
-                                        .foregroundStyle(Color.brandTeal)
-                                    Text("對準收據拍攝")
-                                        .font(.system(size: 16))
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        // 導引框
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(Color.brandTeal, lineWidth: 3)
-                            .frame(width: 220, height: 160)
                     }
 
-                    // OCR 處理中 overlay
-                    if isProcessing {
+                    if let img = processedImage {
+                        Image(uiImage: img)
+                            .resizable()
+                            .scaledToFit()
+                            .padding(8)
+                    } else if originalImage == nil {
+                        VStack(spacing: 12) {
+                            Image(systemName: "doc.viewfinder")
+                                .font(.system(size: 48))
+                                .foregroundStyle(Color.brandTeal)
+                            Text("點下方按鈕掃描發票")
+                                .font(.system(size: 15))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    // 處理中 overlay
+                    if stage != .idle {
                         RoundedRectangle(cornerRadius: 16)
-                            .fill(.black.opacity(0.5))
-                            .frame(height: 280)
+                            .fill(.black.opacity(0.55))
                             .overlay {
                                 VStack(spacing: 14) {
-                                    ProgressView()
-                                        .tint(.white)
-                                        .scaleEffect(1.5)
-                                    Text("OCR 辨識中…")
+                                    ProgressView().tint(.white).scaleEffect(1.5)
+                                    Text(stage.label)
                                         .font(.system(size: 15, weight: .medium))
                                         .foregroundStyle(.white)
                                 }
                             }
                     }
                 }
+                .frame(height: 300)
                 .padding(.horizontal, 32)
 
-                Text("Vision OCR 自動辨識收據金額與品項")
-                    .font(.system(size: 14))
+                Text("自動去背 + Vision OCR 辨識金額與品項")
+                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
 
-                // 拍攝按鈕
-                Button {
-                    showCamera = true
-                } label: {
+                // 掃描按鈕
+                Button { showCamera = true } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: "camera.fill")
-                        Text("拍攝收據")
+                        Image(systemName: "doc.viewfinder.fill")
+                        Text(originalImage == nil ? "掃描發票" : "重新掃描")
                     }
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white)
@@ -560,17 +677,19 @@ struct ReceiptScannerView: View {
                     .background(Capsule().fill(Color.brandTeal))
                 }
                 .buttonStyle(.plain)
+                .disabled(stage != .idle)
 
-                // 從相簿選擇
+                // 相簿（模擬器備用）
                 PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
                     Text("從相簿選擇")
                         .font(.system(size: 15))
                         .foregroundStyle(Color.brandTeal)
                 }
+                .disabled(stage != .idle)
 
                 Spacer()
             }
-            .navigationTitle("拍攝收據")
+            .navigationTitle("掃描發票")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -579,40 +698,75 @@ struct ReceiptScannerView: View {
                     }
                 }
             }
-            // 相機
+            // 文件掃描器（原生 UI）
             .fullScreenCover(isPresented: $showCamera) {
-                CameraPickerView(capturedImage: $capturedImage).ignoresSafeArea()
+                DocumentCameraView(
+                    onCapture: { image in
+                        showCamera = false
+                        processReceipt(image)
+                    },
+                    onCancel: { showCamera = false }
+                )
+                .ignoresSafeArea()
             }
-            // 拍攝完成 → 跑 OCR
-            .onChange(of: capturedImage) { _, newImage in
-                guard let img = newImage else { return }
-                runOCR(on: img)
-            }
-            // 相簿選完 → 解碼 → 跑 OCR
+            // 相簿選取
             .onChange(of: selectedPhotoItem) { _, item in
                 Task {
                     guard let data = try? await item?.loadTransferable(type: Data.self),
                           let img = UIImage(data: data) else { return }
-                    capturedImage = img
+                    processReceipt(img)
                 }
             }
-            // OCR 完成 → 跳確認頁
+            // 確認頁
             .sheet(isPresented: $showOCRConfirmation) {
                 if let result = ocrResult {
-                    OCRConfirmationView(ocrResult: result) { dismiss() }
+                    OCRConfirmationView(ocrResult: result, onSave: { expense in
+                        onAdd(expense)
+                        dismiss()
+                    })
                 }
             }
         }
     }
 
-    private func runOCR(on image: UIImage) {
-        isProcessing = true
-        Task.detached(priority: .userInitiated) {
-            let result = await OCRProcessor.recognize(image: image)
+    /// 去背 → OCR → 顯示確認頁
+    private func processReceipt(_ image: UIImage) {
+        originalImage = image
+        processedImage = nil
+
+        Task {
+            // Step 1: 去背
+            await MainActor.run { stage = .removingBackground }
+            let bgRemoved = await BackgroundRemover.remove(from: image)
+            await MainActor.run { processedImage = bgRemoved }
+
+            // Step 2: OCR（在原圖上執行以保留最佳辨識率）
+            await MainActor.run { stage = .recognizingText }
+            var result = await OCRProcessor.recognize(image: image)
+            result.image = bgRemoved   // 在確認頁顯示去背版
+
             await MainActor.run {
-                isProcessing = false
+                stage = .idle
                 ocrResult = result
                 showOCRConfirmation = true
+            }
+        }
+    }
+}
+
+// 棋盤格背景（顯示透明感）
+private struct CheckerboardBackground: View {
+    var body: some View {
+        Canvas { ctx, size in
+            let tile: CGFloat = 10
+            for row in 0...Int(size.height / tile) {
+                for col in 0...Int(size.width / tile) {
+                    let isLight = (row + col) % 2 == 0
+                    ctx.fill(
+                        Path(CGRect(x: CGFloat(col) * tile, y: CGFloat(row) * tile, width: tile, height: tile)),
+                        with: .color(isLight ? Color(.systemGray5) : Color(.systemGray6))
+                    )
+                }
             }
         }
     }
@@ -622,18 +776,18 @@ struct ReceiptScannerView: View {
 struct OCRConfirmationView: View {
     @Environment(\.dismiss) private var dismiss
     let ocrResult: OCRResult
-    let onSave: () -> Void
+    let onSave: (Expense) -> Void
 
     @State private var storeName: String
     @State private var totalAmount: String
     @State private var receiptDate: Date
-    @State private var category = "日常用品"
+    @State private var category = "日常飲食"
     @State private var note = ""
     @State private var showRawText = false
 
-    private let categories = ["日常用品", "食品", "醫療用品", "交通", "其他"]
+    private let categories = ["醫療保健", "日常飲食", "生活用品", "交通", "其他"]
 
-    init(ocrResult: OCRResult, onSave: @escaping () -> Void) {
+    init(ocrResult: OCRResult, onSave: @escaping (Expense) -> Void) {
         self.ocrResult = ocrResult
         self.onSave = onSave
         _storeName = State(initialValue: ocrResult.storeName)
@@ -713,13 +867,37 @@ struct OCRConfirmationView: View {
                     Button("取消") { dismiss() }.foregroundStyle(.secondary)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("儲存") { dismiss(); onSave() }
-                        .bold().foregroundStyle(Color.brandTeal)
-                        .disabled(storeName.isEmpty && totalAmount.isEmpty)
+                    Button("儲存") {
+                        let expense = Expense(
+                            id: UUID().uuidString,
+                            title: storeName.isEmpty ? "未命名收據" : storeName,
+                            amount: Double(totalAmount) ?? 0,
+                            category: category,
+                            date: receiptDate,
+                            hasReceipt: true,
+                            receiptImage: ocrResult.image
+                        )
+                        dismiss()
+                        onSave(expense)
+                    }
+                    .bold().foregroundStyle(Color.brandTeal)
+                    .disabled(storeName.isEmpty && totalAmount.isEmpty)
                 }
             }
         }
     }
+}
+
+// MARK: - ShareSheet (UIActivityViewController 包裝)
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 #Preview {

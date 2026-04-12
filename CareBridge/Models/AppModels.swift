@@ -3,22 +3,41 @@ import Foundation
 
 // MARK: - User Roles
 enum UserRole: String, CaseIterable, Codable {
-    case caregiver = "看護"
-    case family = "家屬"
-    case elder = "長者"
+    case caregiver = "caregiver"
+    case family = "family_member"
+    case elder = "elder"
+
+    var displayName: String {
+        switch self {
+        case .caregiver: return "看護"
+        case .family:    return "家屬"
+        case .elder:     return "長者"
+        }
+    }
 }
 
 // MARK: - User Profile
+struct FamilyInfo: Codable {
+    var id: String
+    var name: String
+}
+
 struct UserProfile: Identifiable, Codable {
     var id: String
     var name: String
     var email: String
-    var phone: String
-    var birthday: String
+    var phone: String?
+    var birthday: String?
+    var language: String?
     var role: UserRole
-    var familyId: String
-    var familyName: String
-    var avatarURL: String?
+    var avatarUrl: String?
+    var family: FamilyInfo?
+    var isPrimary: Bool?
+
+    // Backward-compat computed properties used by views
+    var familyId: String   { family?.id   ?? "" }
+    var familyName: String { family?.name ?? "" }
+    var avatarURL: String? { avatarUrl }
 }
 
 // MARK: - Health Data
@@ -57,13 +76,58 @@ struct HealthData: Identifiable, Codable {
 // MARK: - Chat Message
 struct ChatMessage: Identifiable, Codable {
     var id: String
-    var sender: String
-    var senderRole: UserRole
+    var sender: String          // API: sender.name
+    var senderRole: UserRole    // local only (not from API)
     var content: String
-    var translatedContent: String?
-    var timestamp: Date
-    var isMe: Bool
+    var translatedContent: String?  // API: translations["zh-TW"]
+    var timestamp: Date         // API: sent_at
+    var isMe: Bool              // local only (not from API)
     var imageURL: String?
+
+    // MARK: Custom Coding (API field mapping)
+    private enum CodingKeys: String, CodingKey {
+        case id, content, translations, isMe, senderRole, imageURL
+        case sender
+        case timestamp = "sent_at"
+    }
+    private enum SenderKeys: String, CodingKey { case name }
+
+    init(id: String, sender: String, senderRole: UserRole, content: String,
+         translatedContent: String?, timestamp: Date, isMe: Bool, imageURL: String? = nil) {
+        self.id = id; self.sender = sender; self.senderRole = senderRole
+        self.content = content; self.translatedContent = translatedContent
+        self.timestamp = timestamp; self.isMe = isMe; self.imageURL = imageURL
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id        = try c.decode(String.self, forKey: .id)
+        content   = try c.decodeIfPresent(String.self, forKey: .content) ?? ""
+        timestamp = try c.decode(Date.self, forKey: .timestamp)
+        imageURL  = try c.decodeIfPresent(String.self, forKey: .imageURL)
+        isMe      = (try? c.decodeIfPresent(Bool.self, forKey: .isMe)) ?? false
+        senderRole = (try? c.decodeIfPresent(UserRole.self, forKey: .senderRole)) ?? .caregiver
+        // Nested sender object → extract name
+        if let senderC = try? c.nestedContainer(keyedBy: SenderKeys.self, forKey: .sender) {
+            sender = (try? senderC.decode(String.self, forKey: .name)) ?? ""
+        } else {
+            sender = (try? c.decode(String.self, forKey: .sender)) ?? ""
+        }
+        // translations dict → pick zh-TW
+        if let dict = try? c.decode([String: String].self, forKey: .translations) {
+            translatedContent = dict["zh-TW"]
+        } else {
+            translatedContent = nil
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(content, forKey: .content)
+        try c.encode(timestamp, forKey: .timestamp)
+        try c.encodeIfPresent(imageURL, forKey: .imageURL)
+    }
 
     static var samples: [ChatMessage] {
         [
@@ -112,11 +176,21 @@ struct ChatRoom: Identifiable, Hashable, Codable {
 
 // MARK: - Care Log
 enum CareLogType: String, CaseIterable, Codable {
-    case medication = "用藥"
-    case vital = "生理"
-    case meal = "飲食"
-    case activity = "活動"
-    case note = "備註"
+    case medication = "medication"
+    case vital      = "vital"
+    case meal       = "meal"
+    case activity   = "activity"
+    case note       = "note"
+
+    var displayName: String {
+        switch self {
+        case .medication: return "用藥"
+        case .vital:      return "生理"
+        case .meal:       return "飲食"
+        case .activity:   return "活動"
+        case .note:       return "備註"
+        }
+    }
 
     var icon: String {
         switch self {
@@ -152,10 +226,102 @@ enum CareLogType: String, CaseIterable, Codable {
 struct CareLogEntry: Identifiable, Codable {
     var id: String
     var type: CareLogType
-    var title: String
-    var detail: String
-    var timestamp: Date
-    var hasPhoto: Bool
+    var title: String       // generated from API content JSONB
+    var detail: String      // generated from API content JSONB
+    var timestamp: Date     // API: timestamp
+    var hasPhoto: Bool      // derived from photo_url != nil
+
+    // MARK: Custom Coding
+    private enum CodingKeys: String, CodingKey {
+        case id, type, content, timestamp
+        case photoUrl = "photo_url"
+    }
+
+    // Nested content fields (covers all care log types)
+    private struct Content: Codable {
+        var medicationName: String?
+        var dosage: String?
+        var bloodPressureSystolic: Double?
+        var bloodPressureDiastolic: Double?
+        var bloodSugar: Double?
+        var temperature: Double?
+        var note: String?
+        var mealType: String?
+        var description: String?
+        var appetite: String?
+        var activityType: String?
+        var durationMinutes: Int?
+        var text: String?
+        var textTranslated: String?
+
+        enum CodingKeys: String, CodingKey {
+            case medicationName = "medication_name"
+            case dosage, note, description, appetite, temperature, text
+            case bloodPressureSystolic = "blood_pressure_systolic"
+            case bloodPressureDiastolic = "blood_pressure_diastolic"
+            case bloodSugar = "blood_sugar"
+            case mealType = "meal_type"
+            case activityType = "activity_type"
+            case durationMinutes = "duration_minutes"
+            case textTranslated = "text_translated"
+        }
+    }
+
+    init(id: String, type: CareLogType, title: String, detail: String, timestamp: Date, hasPhoto: Bool) {
+        self.id = id; self.type = type; self.title = title
+        self.detail = detail; self.timestamp = timestamp; self.hasPhoto = hasPhoto
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id        = try c.decode(String.self, forKey: .id)
+        type      = try c.decode(CareLogType.self, forKey: .type)
+        timestamp = try c.decode(Date.self, forKey: .timestamp)
+        hasPhoto  = (try? c.decodeIfPresent(String.self, forKey: .photoUrl)) != nil
+
+        let content = (try? c.decode(Content.self, forKey: .content)) ?? Content()
+        switch type {
+        case .medication:
+            title  = content.medicationName ?? "用藥紀錄"
+            detail = [content.dosage, content.note].compactMap { $0 }.joined(separator: "｜")
+        case .vital:
+            title  = "生理指標測量"
+            var parts: [String] = []
+            if let s = content.bloodPressureSystolic, let d = content.bloodPressureDiastolic {
+                parts.append("血壓 \(Int(s))/\(Int(d)) mmHg")
+            }
+            if let bs = content.bloodSugar { parts.append("血糖 \(bs)") }
+            if let t  = content.temperature { parts.append("體溫 \(t)°C") }
+            if let n  = content.note        { parts.append(n) }
+            detail = parts.joined(separator: "｜")
+        case .meal:
+            title  = "飲食紀錄"
+            detail = [content.description, content.appetite.map { "食慾：\($0)" }].compactMap { $0 }.joined(separator: "｜")
+        case .activity:
+            title  = content.activityType ?? "活動紀錄"
+            detail = content.durationMinutes.map { "持續 \($0) 分鐘" } ?? (content.note ?? "")
+        case .note:
+            title  = "備註"
+            detail = content.text ?? content.textTranslated ?? ""
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(type, forKey: .type)
+        try c.encode(timestamp, forKey: .timestamp)
+        // Encode minimal content based on type
+        var content: [String: String] = [:]
+        switch type {
+        case .note:       content["text"] = detail
+        case .vital:      content["note"] = detail
+        case .meal:       content["description"] = detail
+        case .activity:   content["note"] = detail
+        case .medication: content["medication_name"] = title
+        }
+        try c.encode(content, forKey: .content)
+    }
 
     static var samples: [CareLogEntry] {
         let cal = Calendar.current
@@ -412,6 +578,50 @@ struct Expense: Identifiable, Codable {
     var category: String
     var date: Date
     var hasReceipt: Bool
+    /// 去背後的發票圖片，僅存在記憶體中（不序列化至 JSON/API）
+    var receiptImage: UIImage? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case id, category, date
+        case title = "store_name"
+        case amount = "total_amount"
+        case hasReceipt = "image_url"
+    }
+
+    init(id: String, title: String, amount: Double, category: String, date: Date, hasReceipt: Bool, receiptImage: UIImage? = nil) {
+        self.id = id; self.title = title; self.amount = amount
+        self.category = category; self.date = date; self.hasReceipt = hasReceipt
+        self.receiptImage = receiptImage
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id       = try c.decode(String.self, forKey: .id)
+        title    = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        category = try c.decodeIfPresent(String.self, forKey: .category) ?? ""
+        // total_amount may arrive as String ("339.00") or Number
+        if let s = try? c.decode(String.self, forKey: .amount) {
+            amount = Double(s) ?? 0
+        } else {
+            amount = try c.decodeIfPresent(Double.self, forKey: .amount) ?? 0
+        }
+        // date is "yyyy-MM-dd"
+        let dateStr = try c.decode(String.self, forKey: .date)
+        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
+        date = df.date(from: dateStr) ?? Date()
+        // image_url non-nil means receipt exists
+        hasReceipt = (try c.decodeIfPresent(String.self, forKey: .hasReceipt)) != nil
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id,       forKey: .id)
+        try c.encode(title,    forKey: .title)
+        try c.encode(amount,   forKey: .amount)
+        try c.encode(category, forKey: .category)
+        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
+        try c.encode(df.string(from: date), forKey: .date)
+    }
 
     var categoryIcon: String {
         switch category {
@@ -458,15 +668,23 @@ struct Expense: Identifiable, Codable {
 
 // MARK: - Todo
 enum Priority: String, CaseIterable, Codable {
-    case high = "高"
-    case medium = "中"
-    case low = "低"
+    case high   = "high"
+    case medium = "medium"
+    case low    = "low"
+
+    var displayName: String {
+        switch self {
+        case .high:   return "高"
+        case .medium: return "中"
+        case .low:    return "低"
+        }
+    }
 
     var color: Color {
         switch self {
-        case .high: return .red
+        case .high:   return .red
         case .medium: return .orange
-        case .low: return .green
+        case .low:    return .green
         }
     }
 }
@@ -474,10 +692,51 @@ enum Priority: String, CaseIterable, Codable {
 struct TodoItem: Identifiable, Codable {
     var id: String
     var title: String
-    var assignee: String
+    var assignee: String    // API: assignee.name
     var priority: Priority
-    var dueDate: Date?
-    var isCompleted: Bool
+    var dueDate: Date?      // API: due_date (date-only string)
+    var isCompleted: Bool   // API: status == "completed"
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, priority
+        case dueDate = "due_date"
+        case assignee, status
+    }
+    private enum AssigneeKeys: String, CodingKey { case name }
+
+    init(id: String, title: String, assignee: String, priority: Priority, dueDate: Date?, isCompleted: Bool) {
+        self.id = id; self.title = title; self.assignee = assignee
+        self.priority = priority; self.dueDate = dueDate; self.isCompleted = isCompleted
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id       = try c.decode(String.self, forKey: .id)
+        title    = try c.decode(String.self, forKey: .title)
+        priority = try c.decode(Priority.self, forKey: .priority)
+        if let dateStr = try? c.decodeIfPresent(String.self, forKey: .dueDate) {
+            let fmt = DateFormatter()
+            fmt.dateFormat = "yyyy-MM-dd"
+            dueDate = fmt.date(from: dateStr ?? "")
+        } else {
+            dueDate = nil
+        }
+        let status = try c.decodeIfPresent(String.self, forKey: .status) ?? "pending"
+        isCompleted = (status == "completed")
+        if let ac = try? c.nestedContainer(keyedBy: AssigneeKeys.self, forKey: .assignee) {
+            assignee = (try? ac.decode(String.self, forKey: .name)) ?? ""
+        } else {
+            assignee = (try? c.decode(String.self, forKey: .assignee)) ?? ""
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+        try c.encode(priority, forKey: .priority)
+        try c.encode(isCompleted ? "completed" : "pending", forKey: .status)
+    }
 
     static var samples: [TodoItem] {
         [
@@ -498,9 +757,14 @@ struct TodoItem: Identifiable, Codable {
 struct CalendarEvent: Identifiable, Codable {
     var id: String
     var title: String
-    var date: Date
+    var date: Date      // API: start_time
     var location: String?
-    var type: String
+    var type: String    // API types: "medical" / "medication" / "rehab" / "leave" / "personal" / "other"
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, location, type
+        case date = "start_time"
+    }
 
     var typeIcon: String {
         switch type {
@@ -538,13 +802,21 @@ struct CalendarEvent: Identifiable, Codable {
 
 // MARK: - Leave Request
 enum LeaveStatus: String, Codable {
-    case pending = "待審核"
-    case approved = "已核准"
-    case rejected = "已駁回"
+    case pending  = "pending"
+    case approved = "approved"
+    case rejected = "rejected"
+
+    var displayName: String {
+        switch self {
+        case .pending:  return "待審核"
+        case .approved: return "已核准"
+        case .rejected: return "已駁回"
+        }
+    }
 
     var color: Color {
         switch self {
-        case .pending: return .orange
+        case .pending:  return .orange
         case .approved: return .green
         case .rejected: return .red
         }
@@ -553,11 +825,17 @@ enum LeaveStatus: String, Codable {
 
 struct LeaveRequest: Identifiable, Codable {
     var id: String
-    var type: String
-    var startDate: Date
-    var endDate: Date
+    var type: String        // API: "personal" / "sick" / "emergency"
+    var startDate: Date     // API: start_date (date-only)
+    var endDate: Date       // API: end_date (date-only)
     var reason: String
     var status: LeaveStatus
+
+    private enum CodingKeys: String, CodingKey {
+        case id, type, reason, status
+        case startDate = "start_date"
+        case endDate   = "end_date"
+    }
 
     static var samples: [LeaveRequest] {
         [
@@ -577,10 +855,40 @@ struct LeaveRequest: Identifiable, Codable {
 struct AppDocument: Identifiable, Codable {
     var id: String
     var title: String
-    var category: String
-    var fileSize: String
-    var uploadDate: Date
-    var localURL: URL?    // 本地暫存路徑，供 QuickLook 預覽用
+    var category: String    // API: "insurance" / "medical" / "id_document" / "contract" / "other"
+    var fileSize: String    // derived from API file_size (Int bytes)
+    var uploadDate: Date    // API: created_at
+    var localURL: URL?      // 本地暫存路徑，供 QuickLook 預覽用（非 API 欄位）
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, category
+        case fileSizeBytes = "file_size"
+        case uploadDate    = "created_at"
+    }
+
+    init(id: String, title: String, category: String, fileSize: String, uploadDate: Date, localURL: URL? = nil) {
+        self.id = id; self.title = title; self.category = category
+        self.fileSize = fileSize; self.uploadDate = uploadDate; self.localURL = localURL
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id         = try c.decode(String.self, forKey: .id)
+        title      = try c.decode(String.self, forKey: .title)
+        category   = try c.decode(String.self, forKey: .category)
+        uploadDate = try c.decode(Date.self, forKey: .uploadDate)
+        localURL   = nil
+        let bytes  = (try? c.decodeIfPresent(Int.self, forKey: .fileSizeBytes)) ?? 0
+        let mb     = Double(bytes) / 1_048_576
+        fileSize   = mb >= 1 ? String(format: "%.1f MB", mb) : String(format: "%.0f KB", Double(bytes) / 1024)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+        try c.encode(category, forKey: .category)
+    }
 
     var categoryIcon: String {
         switch category {
@@ -616,35 +924,47 @@ struct AppDocument: Identifiable, Codable {
 
 // MARK: - Notification
 enum NotificationCategory: String, Codable {
-    case health = "健康警示"
-    case medication = "用藥提醒"
-    case leave = "請假申請"
-    case chat = "聊天訊息"
-    case sos = "SOS 緊急"
-    case todo = "代辦指派"
-    case purchase = "採購需求"
+    case health              = "health_alert"
+    case medication          = "medication_reminder"
+    case medicationConfirmed = "medication_confirmed"
+    case leave               = "leave_request"
+    case leaveApproved       = "leave_approved"
+    case leaveRejected       = "leave_rejected"
+    case purchase            = "board_request"
+    case purchaseApproved    = "board_approved"
+    case expenseScanned      = "expense_scanned"
+    case sos                 = "sos_triggered"
+    case eventReminder       = "event_reminder"
+    case todo                = "todo_assigned"
+    case chat                = "chat_message"
 
     var icon: String {
         switch self {
         case .health: return "heart.fill"
-        case .medication: return "pills.fill"
-        case .leave: return "calendar.badge.exclamationmark"
+        case .medication, .medicationConfirmed: return "pills.fill"
+        case .leave, .leaveApproved, .leaveRejected: return "calendar.badge.exclamationmark"
         case .chat: return "message.fill"
         case .sos: return "sos"
         case .todo: return "checkmark.circle.fill"
-        case .purchase: return "cart.fill"
+        case .purchase, .purchaseApproved: return "cart.fill"
+        case .expenseScanned: return "doc.text.viewfinder"
+        case .eventReminder: return "calendar"
         }
     }
 
     var color: Color {
         switch self {
         case .health: return .red
-        case .medication: return Color(red: 0.0, green: 0.55, blue: 0.6)
+        case .medication, .medicationConfirmed: return Color(red: 0.0, green: 0.55, blue: 0.6)
         case .leave: return .orange
+        case .leaveApproved: return .green
+        case .leaveRejected: return .red
         case .chat: return .green
         case .sos: return .red
         case .todo: return .purple
-        case .purchase: return .blue
+        case .purchase, .purchaseApproved: return .blue
+        case .expenseScanned: return .teal
+        case .eventReminder: return .orange
         }
     }
 }
@@ -656,6 +976,13 @@ struct AppNotification: Identifiable, Codable {
     var body: String
     var timestamp: Date
     var isRead: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, body
+        case category = "type"
+        case isRead = "is_read"
+        case timestamp = "created_at"
+    }
 
     static var samples: [AppNotification] {
         [

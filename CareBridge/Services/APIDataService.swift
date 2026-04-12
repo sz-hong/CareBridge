@@ -13,8 +13,11 @@ class APIDataService: DataService {
         self.baseURL = baseURL
         self.decoder = JSONDecoder()
         self.decoder.dateDecodingStrategy = .iso8601
+        self.decoder.keyDecodingStrategy = .convertFromSnakeCase
         self.encoder = JSONEncoder()
         self.encoder.dateEncodingStrategy = .iso8601
+        self.encoder.keyEncodingStrategy = .convertToSnakeCase
+        self.authToken = KeychainService.accessToken
     }
 
     // MARK: - Generic Request Helpers
@@ -73,19 +76,24 @@ class APIDataService: DataService {
     // MARK: - Auth
     func login(email: String, password: String) async throws -> AuthResponse {
         let result: AuthResponse = try await post(path: "/auth/login/", body: ["email": email, "password": password])
-        authToken = result.token
+        authToken = result.tokens.access
+        KeychainService.accessToken = result.tokens.access
+        KeychainService.refreshToken = result.tokens.refresh
         return result
     }
 
     func joinFamily(inviteCode: String) async throws -> AuthResponse {
-        let result: AuthResponse = try await post(path: "/auth/join-family/", body: ["inviteCode": inviteCode])
-        authToken = result.token
+        let result: AuthResponse = try await post(path: "/auth/join-family/", body: ["invite_code": inviteCode])
+        authToken = result.tokens.access
+        KeychainService.accessToken = result.tokens.access
+        KeychainService.refreshToken = result.tokens.refresh
         return result
     }
 
     func logout() async throws {
         let _: EmptyResponse = try await post(path: "/auth/logout/")
         authToken = nil
+        KeychainService.clearAll()
     }
 
     // MARK: - Profile
@@ -100,7 +108,7 @@ class APIDataService: DataService {
     func fetchChatRooms() async throws -> [ChatRoom] { try await get(path: "/chats/") }
     func fetchMessages(roomId: String) async throws -> [ChatMessage] { try await get(path: "/chats/\(roomId)/messages/") }
     func sendMessage(roomId: String, content: String) async throws -> ChatMessage {
-        try await post(path: "/chats/\(roomId)/messages/", body: ["content": content])
+        try await post(path: "/chats/\(roomId)/messages/", body: ["type": "text", "content": content])
     }
 
     // MARK: - Care Log
@@ -150,7 +158,7 @@ class APIDataService: DataService {
     // MARK: - Notifications
     func fetchNotifications() async throws -> [AppNotification] { try await get(path: "/notifications/") }
     func markNotificationRead(id: String) async throws {
-        let _: EmptyResponse = try await patch(path: "/notifications/\(id)/read/")
+        let _: EmptyResponse = try await put(path: "/notifications/\(id)/read/")
     }
 
     // MARK: - Purchase Requests
@@ -162,7 +170,15 @@ class APIDataService: DataService {
 
     // MARK: - AI
     func sendAIMessage(content: String) async throws -> AIMessage {
-        try await post(path: "/ai/chat/", body: ["content": content])
+        try await post(path: "/ai/chat/", body: ["message": content])
+    }
+
+    // MARK: - Push Token
+    func registerPushToken(_ token: String) async throws {
+        let _: EmptyResponse = try await post(path: "/notifications/device/", body: [
+            "device_token": token,
+            "platform": "ios"
+        ])
     }
 
     // MARK: - First Aid

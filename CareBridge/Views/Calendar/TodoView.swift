@@ -104,7 +104,7 @@ struct TodoView: View {
                     id: UUID().uuidString,
                     type: .note,
                     title: "待辦完成：\(todo.title)",
-                    detail: "負責人：\(todo.assignee)｜優先度：\(todo.priority.rawValue)",
+                    detail: "負責人：\(todo.assignee)｜優先度：\(todo.priority.displayName)",
                     timestamp: Date(),
                     hasPhoto: false
                 )
@@ -181,7 +181,7 @@ struct TodoRow: View {
 
             // Priority badge
             if !todo.isCompleted {
-                Text(todo.priority.rawValue)
+                Text(todo.priority.displayName)
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(todo.priority.color)
                     .padding(.horizontal, 8)
@@ -223,7 +223,7 @@ struct AddTodoView: View {
                         ForEach(Priority.allCases, id: \.self) { p in
                             HStack {
                                 Circle().fill(p.color).frame(width: 8, height: 8)
-                                Text(p.rawValue)
+                                Text(p.displayName)
                             }
                             .tag(p)
                         }

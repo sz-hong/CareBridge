@@ -1,21 +1,103 @@
 import SwiftUI
 import Charts
+import HealthKit
+
+// MARK: - HealthKit Manager
+
+@Observable
+class HealthKitManager {
+    private let store = HKHealthStore()
+
+    var heartRate: Double = 72
+    var bloodOxygen: Double = 97.5
+    var bloodPressureSystolic: Double = 118
+    var bloodPressureDiastolic: Double = 75
+    var bloodSugar: Double = 5.8
+    var isAuthorized = false
+
+    var heartRateHistory: [(String, Int)] = [
+        ("Mon", 74), ("Tue", 78), ("Wed", 82), ("Thu", 112),
+        ("Fri", 76), ("Sat", 72), ("Sun", 71)
+    ]
+    var bloodOxygenHistory: [(String, Double)] = [
+        ("Mon", 97.5), ("Tue", 98.0), ("Wed", 96.8), ("Thu", 95.2),
+        ("Fri", 97.8), ("Sat", 98.2), ("Sun", 97.6)
+    ]
+
+    var heartRateStatus: String { heartRate > 100 || heartRate < 55 ? "異常" : "正常" }
+    var bloodOxygenStatus: String { bloodOxygen < 94 ? "偏低" : bloodOxygen >= 98 ? "最佳" : "正常" }
+
+    func requestAuthorization() async {
+        guard HKHealthStore.isHealthDataAvailable() else { return }
+        let readTypes: Set<HKObjectType> = [
+            HKObjectType.quantityType(forIdentifier: .heartRate)!,
+            HKObjectType.quantityType(forIdentifier: .oxygenSaturation)!,
+            HKObjectType.quantityType(forIdentifier: .bloodGlucose)!,
+            HKObjectType.quantityType(forIdentifier: .bloodPressureSystolic)!,
+            HKObjectType.quantityType(forIdentifier: .bloodPressureDiastolic)!,
+        ]
+        do {
+            try await store.requestAuthorization(toShare: [], read: readTypes)
+            isAuthorized = true
+            await loadLatestValues()
+        } catch { /* 授權失敗時保留 sample 預設值 */ }
+    }
+
+    func loadLatestValues() async {
+        async let hr   = fetchLatest(.heartRate, unit: HKUnit(from: "count/min"))
+        async let spo2 = fetchLatest(.oxygenSaturation, unit: .percent())
+        async let sys  = fetchLatest(.bloodPressureSystolic, unit: .millimeterOfMercury())
+        async let dia  = fetchLatest(.bloodPressureDiastolic, unit: .millimeterOfMercury())
+        async let bg   = fetchLatest(.bloodGlucose, unit: HKUnit(from: "mmol/L"))
+        let (hrV, spo2V, sysV, diaV, bgV) = await (hr, spo2, sys, dia, bg)
+        if let v = hrV   { heartRate = v }
+        if let v = spo2V { bloodOxygen = v * 100 }
+        if let v = sysV  { bloodPressureSystolic = v }
+        if let v = diaV  { bloodPressureDiastolic = v }
+        if let v = bgV   { bloodSugar = v }
+
+        if let hist = await fetchWeekly(.heartRate, unit: HKUnit(from: "count/min")) {
+            heartRateHistory = hist.map { ($0.0, Int($0.1)) }
+        }
+        if let hist = await fetchWeekly(.oxygenSaturation, unit: .percent()) {
+            bloodOxygenHistory = hist.map { ($0.0, $0.1 * 100) }
+        }
+    }
+
+    private func fetchLatest(_ id: HKQuantityTypeIdentifier, unit: HKUnit) async -> Double? {
+        guard let type = HKQuantityType.quantityType(forIdentifier: id) else { return nil }
+        return await withCheckedContinuation { cont in
+            let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
+            let q = HKSampleQuery(sampleType: type, predicate: nil, limit: 1, sortDescriptors: [sort]) { _, samples, _ in
+                cont.resume(returning: (samples?.first as? HKQuantitySample)?.quantity.doubleValue(for: unit))
+            }
+            store.execute(q)
+        }
+    }
+
+    private func fetchWeekly(_ id: HKQuantityTypeIdentifier, unit: HKUnit) async -> [(String, Double)]? {
+        guard let type = HKQuantityType.quantityType(forIdentifier: id) else { return nil }
+        let weekAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date())!
+        let predicate = HKQuery.predicateForSamples(withStart: weekAgo, end: Date())
+        let fmt = DateFormatter(); fmt.dateFormat = "E"
+        return await withCheckedContinuation { cont in
+            let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
+            let q = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: [sort]) { _, samples, _ in
+                guard let s = samples as? [HKQuantitySample], !s.isEmpty else { cont.resume(returning: nil); return }
+                cont.resume(returning: s.map { (fmt.string(from: $0.startDate), $0.quantity.doubleValue(for: unit)) })
+            }
+            store.execute(q)
+        }
+    }
+}
+
+// MARK: - Health Monitor View
 
 struct HealthMonitorView: View {
     @State private var selectedRange = 0 // 0=日, 1=週, 2=月
     private let rangeLabels = ["日", "週", "月"]
     @State private var showThresholdSettings = false
-
-    // Sample heart rate data for the week
-    private let heartRateData: [(String, Int)] = [
-        ("Mon", 74), ("Tue", 78), ("Wed", 82), ("Thu", 112),
-        ("Fri", 76), ("Sat", 72), ("Sun", 71),
-    ]
-
-    private let bloodOxygenData: [(String, Double)] = [
-        ("Mon", 97.5), ("Tue", 98.0), ("Wed", 96.8), ("Thu", 95.2),
-        ("Fri", 97.8), ("Sat", 98.2), ("Sun", 97.6),
-    ]
+    @State private var healthKit = HealthKitManager()
 
     var body: some View {
         ScrollView {
@@ -30,27 +112,40 @@ struct HealthMonitorView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
 
-                // Current vitals summary
+                // Current vitals summary (HealthKit 即時數值)
                 HStack(spacing: 12) {
-                    vitalCard(title: "心率", value: "72", unit: "bpm",
-                              icon: "heart.fill", color: .red, status: "正常")
-                    vitalCard(title: "血氧", value: "97.5", unit: "%",
-                              icon: "wind", color: Color.brandTeal, status: "最佳")
+                    vitalCard(title: "心率",
+                              value: "\(Int(healthKit.heartRate))",
+                              unit: "bpm",
+                              icon: "heart.fill", color: .red,
+                              status: healthKit.heartRateStatus)
+                    vitalCard(title: "血氧",
+                              value: String(format: "%.1f", healthKit.bloodOxygen),
+                              unit: "%",
+                              icon: "wind", color: Color.brandTeal,
+                              status: healthKit.bloodOxygenStatus)
                 }
                 .padding(.horizontal, 16)
 
                 HStack(spacing: 12) {
-                    vitalCard(title: "血壓", value: "118/75", unit: "mmHg",
-                              icon: "waveform.path.ecg", color: .blue, status: "正常")
-                    vitalCard(title: "血糖", value: "5.8", unit: "mmol/L",
-                              icon: "drop.fill", color: .orange, status: "正常")
+                    vitalCard(title: "血壓",
+                              value: "\(Int(healthKit.bloodPressureSystolic))/\(Int(healthKit.bloodPressureDiastolic))",
+                              unit: "mmHg",
+                              icon: "waveform.path.ecg", color: .blue,
+                              status: "正常")
+                    vitalCard(title: "血糖",
+                              value: String(format: "%.1f", healthKit.bloodSugar),
+                              unit: "mmol/L",
+                              icon: "drop.fill", color: .orange,
+                              status: "正常")
                 }
                 .padding(.horizontal, 16)
 
-                // Heart Rate Chart
-                chartCard(title: "心率趨勢", subtitle: "過去7天 (bpm)", hasAnomaly: true) {
+                // Heart Rate Chart（HealthKit 歷史資料）
+                chartCard(title: "心率趨勢", subtitle: "過去7天 (bpm)",
+                          hasAnomaly: healthKit.heartRateHistory.contains(where: { $0.1 > 100 })) {
                     Chart {
-                        ForEach(heartRateData, id: \.0) { day, rate in
+                        ForEach(healthKit.heartRateHistory, id: \.0) { day, rate in
                             BarMark(x: .value("Day", day),
                                     y: .value("BPM", rate))
                             .foregroundStyle(rate > 100 ? Color.red : Color.brandTeal)
@@ -67,10 +162,11 @@ struct HealthMonitorView: View {
                     .chartYScale(domain: 40...140)
                 }
 
-                // Blood Oxygen Chart
-                chartCard(title: "血氧趨勢", subtitle: "過去7天 (%)", hasAnomaly: false) {
+                // Blood Oxygen Chart（HealthKit 歷史資料）
+                chartCard(title: "血氧趨勢", subtitle: "過去7天 (%)",
+                          hasAnomaly: healthKit.bloodOxygenHistory.contains(where: { $0.1 < 95 })) {
                     Chart {
-                        ForEach(bloodOxygenData, id: \.0) { day, value in
+                        ForEach(healthKit.bloodOxygenHistory, id: \.0) { day, value in
                             LineMark(x: .value("Day", day),
                                      y: .value("SpO2", value))
                             .foregroundStyle(Color.brandTeal)
@@ -119,6 +215,7 @@ struct HealthMonitorView: View {
         .background(Color.brandBackground)
         .navigationTitle("健康監測")
         .navigationBarTitleDisplayMode(.large)
+        .task { await healthKit.requestAuthorization() }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

@@ -1,9 +1,14 @@
 import Foundation
 
 // MARK: - Auth Response
+struct AuthTokens: Codable {
+    var access: String
+    var refresh: String
+}
+
 struct AuthResponse: Codable {
-    var token: String
     var user: UserProfile
+    var tokens: AuthTokens
 }
 
 // MARK: - Generic API Response
