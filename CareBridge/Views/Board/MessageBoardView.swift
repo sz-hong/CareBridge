@@ -2,7 +2,8 @@ import SwiftUI
 
 struct MessageBoardView: View {
     var userRole: UserRole = .family
-    @State private var requests = PurchaseRequest.samples
+    @Environment(\.dataService) private var service
+    @State private var requests: [PurchaseRequest] = []
     @State private var selectedCategory = "全部"
     @State private var showAddRequest = false
     private let categories = ["全部", "食品", "日用品", "醫療用品", "其他"]
@@ -66,6 +67,9 @@ struct MessageBoardView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.brandBackground)
         }
+        .task {
+            requests = (try? await service.fetchPurchaseRequests()) ?? []
+        }
     }
 
     private func updateStatus(_ request: PurchaseRequest, to status: String) {
@@ -106,7 +110,7 @@ struct PurchaseRequestCard: View {
                     .padding(.vertical, 4)
                     .background(Capsule().stroke(Color.brandTeal, lineWidth: 1))
                 Spacer()
-                Text(request.status)
+                Text(request.statusDisplayName)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(request.statusColor)
             }
@@ -163,7 +167,7 @@ struct PurchaseRequestCard: View {
             }
 
             // Action buttons (only for pending, family can approve/reject)
-            if request.status == "待確認" && userRole == .family {
+            if request.status == "pending" && userRole == .family {
                 HStack(spacing: 12) {
                     Button(action: onReject) {
                         HStack(spacing: 6) {

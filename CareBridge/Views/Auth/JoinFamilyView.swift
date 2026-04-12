@@ -4,9 +4,16 @@ struct JoinFamilyView: View {
     @Binding var isLoggedIn: Bool
     @Binding var userRole: UserRole
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dataService) private var service
     @State private var selectedRole: UserRole = .family
     @State private var inviteCode: [String] = ["", "", "", "", "", ""]
     @FocusState private var focusedField: Int?
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+
+    private var isCodeComplete: Bool {
+        inviteCode.allSatisfy { !$0.isEmpty }
+    }
 
     var body: some View {
         ZStack {
@@ -104,24 +111,36 @@ struct JoinFamilyView: View {
                             }
                         }
 
+                        // Error message
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.system(size: 13))
+                                .foregroundStyle(.red)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+
                         // Join button
                         Button {
-                            userRole = selectedRole
-                            withAnimation { isLoggedIn = true }
+                            Task { await performJoin() }
                         } label: {
                             HStack {
                                 Spacer()
-                                Text("Join Family / 加入家庭")
-                                    .font(.system(size: 16, weight: .semibold))
-                                Image(systemName: "arrow.right")
-                                    .font(.system(size: 14, weight: .semibold))
+                                if isLoading {
+                                    ProgressView().tint(.white)
+                                } else {
+                                    Text("Join Family / 加入家庭")
+                                        .font(.system(size: 16, weight: .semibold))
+                                    Image(systemName: "arrow.right")
+                                        .font(.system(size: 14, weight: .semibold))
+                                }
                                 Spacer()
                             }
                             .foregroundStyle(.white)
                             .padding(.vertical, 14)
-                            .background(Capsule().fill(Color.brandTeal))
+                            .background(Capsule().fill(isCodeComplete ? Color.brandTeal : Color.gray))
                         }
                         .buttonStyle(.plain)
+                        .disabled(!isCodeComplete || isLoading)
                     }
                     .padding(24)
                     .background(
@@ -185,6 +204,24 @@ struct JoinFamilyView: View {
                 }
             }
             .scrollIndicators(.hidden)
+        }
+    }
+
+    private func performJoin() async {
+        errorMessage = nil
+        isLoading = true
+        let code = inviteCode.joined()
+        do {
+            let response = try await service.joinFamily(inviteCode: code)
+            await MainActor.run {
+                userRole = response.user.role
+                withAnimation { isLoggedIn = true }
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = "邀請碼無效，請確認後重試"
+                isLoading = false
+            }
         }
     }
 

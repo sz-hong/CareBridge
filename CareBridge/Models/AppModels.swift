@@ -38,9 +38,74 @@ struct UserProfile: Identifiable, Codable {
     var familyId: String   { family?.id   ?? "" }
     var familyName: String { family?.name ?? "" }
     var avatarURL: String? { avatarUrl }
+
+    // MARK: Custom Coding
+    // NOTE: APIDataService uses .convertFromSnakeCase, which auto-converts
+    // JSON keys to camelCase BEFORE matching CodingKeys. So rawValues here
+    // must be camelCase (the decoder sees "familyId" not "family_id").
+    private enum CodingKeys: String, CodingKey {
+        case id, name, email, phone, birthday, language, role
+        case avatarUrl
+        case isPrimary
+        // flat fields from backend (JSON: family_id → auto-converted to familyId)
+        case flatFamilyId   = "familyId"
+        case flatFamilyName = "familyName"
+        // nested field (used by MockDataService / local cache)
+        case family
+    }
+
+    init(id: String, name: String, email: String, phone: String? = nil,
+         birthday: String? = nil, language: String? = nil,
+         role: UserRole, avatarUrl: String? = nil,
+         family: FamilyInfo? = nil, isPrimary: Bool? = nil) {
+        self.id = id; self.name = name; self.email = email
+        self.phone = phone; self.birthday = birthday; self.language = language
+        self.role = role; self.avatarUrl = avatarUrl
+        self.family = family; self.isPrimary = isPrimary
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id        = try c.decode(String.self, forKey: .id)
+        name      = try c.decode(String.self, forKey: .name)
+        email     = try c.decode(String.self, forKey: .email)
+        phone     = try c.decodeIfPresent(String.self, forKey: .phone)
+        birthday  = try c.decodeIfPresent(String.self, forKey: .birthday)
+        language  = try c.decodeIfPresent(String.self, forKey: .language)
+        role      = try c.decode(UserRole.self, forKey: .role)
+        avatarUrl = try c.decodeIfPresent(String.self, forKey: .avatarUrl)
+        isPrimary = try c.decodeIfPresent(Bool.self, forKey: .isPrimary)
+
+        // Try nested "family" first (MockDataService / local), fall back to flat fields
+        if let nested = try? c.decodeIfPresent(FamilyInfo.self, forKey: .family) {
+            family = nested
+        } else if let fid = try? c.decodeIfPresent(String.self, forKey: .flatFamilyId),
+                  let fname = try? c.decodeIfPresent(String.self, forKey: .flatFamilyName) {
+            family = FamilyInfo(id: fid, name: fname)
+        } else {
+            family = nil
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(email, forKey: .email)
+        try c.encodeIfPresent(phone, forKey: .phone)
+        try c.encodeIfPresent(language, forKey: .language)
+        try c.encode(role, forKey: .role)
+        try c.encodeIfPresent(avatarUrl, forKey: .avatarUrl)
+        try c.encodeIfPresent(isPrimary, forKey: .isPrimary)
+        try c.encodeIfPresent(family, forKey: .family)
+    }
 }
 
 // MARK: - Health Data
+// Backend `/health-data/dashboard/` returns a dict keyed by metric type, e.g.
+// {"heart_rate": {id, type, value, unit, recorded_at, ...},
+//  "blood_oxygen": {...}, "step_count": {...}, ...}
+// This struct flattens that dict into discrete typed fields for UI consumption.
 struct HealthData: Identifiable, Codable {
     var id: String
     var heartRate: Int
@@ -52,6 +117,59 @@ struct HealthData: Identifiable, Codable {
     var steps: Int
     var timestamp: Date
     var isAbnormal: Bool
+
+    init(id: String, heartRate: Int, bloodOxygen: Double,
+         bloodPressureSystolic: Int, bloodPressureDiastolic: Int,
+         bloodSugar: Double, temperature: Double, steps: Int,
+         timestamp: Date, isAbnormal: Bool) {
+        self.id = id; self.heartRate = heartRate; self.bloodOxygen = bloodOxygen
+        self.bloodPressureSystolic = bloodPressureSystolic
+        self.bloodPressureDiastolic = bloodPressureDiastolic
+        self.bloodSugar = bloodSugar; self.temperature = temperature
+        self.steps = steps; self.timestamp = timestamp; self.isAbnormal = isAbnormal
+    }
+
+    private struct Entry: Codable {
+        var id: String?
+        var value: Double?
+        var recordedAt: Date?
+        enum CodingKeys: String, CodingKey {
+            case id, value
+            case recordedAt = "recorded_at"
+        }
+    }
+
+    private struct DynamicKey: CodingKey {
+        var stringValue: String; var intValue: Int? { nil }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { return nil }
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: DynamicKey.self)
+        func entry(_ key: String) -> Entry? {
+            guard let k = DynamicKey(stringValue: key) else { return nil }
+            return try? c.decodeIfPresent(Entry.self, forKey: k)
+        }
+        let hr = entry("heart_rate")
+        let ox = entry("blood_oxygen")
+        let st = entry("step_count")
+        heartRate   = hr?.value.map { Int($0) } ?? 0
+        bloodOxygen = ox?.value ?? 0
+        steps       = st?.value.map { Int($0) } ?? 0
+        // Backend HealthData has no blood pressure / sugar / temperature types in current schema
+        bloodPressureSystolic = 0
+        bloodPressureDiastolic = 0
+        bloodSugar  = 0
+        temperature = 0
+        timestamp   = hr?.recordedAt ?? ox?.recordedAt ?? st?.recordedAt ?? Date()
+        id          = hr?.id ?? ox?.id ?? st?.id ?? UUID().uuidString
+        isAbnormal  = false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        // Read-only on client — dashboard endpoint is GET-only.
+    }
 
     static var sample: HealthData {
         HealthData(
@@ -155,12 +273,71 @@ struct ChatMessage: Identifiable, Codable {
 struct ChatRoom: Identifiable, Hashable, Codable {
     var id: String
     var name: String
-    var participants: [String]
-    var lastMessage: String
-    var lastMessageTime: Date
-    var unreadCount: Int
-    var isGroup: Bool
-    var avatarIcon: String
+    var participants: [String]       // API: members[].name
+    var lastMessage: String          // API: last_message.content
+    var lastMessageTime: Date        // API: last_message.sent_at
+    var unreadCount: Int             // API: unread_count
+    var isGroup: Bool                // API: type == "group"
+    var avatarIcon: String           // local-only (UI)
+
+    // MARK: Custom Coding (API field mapping)
+    private enum CodingKeys: String, CodingKey {
+        case id, name, type, members
+        case lastMessage = "last_message"
+        case unreadCount = "unread_count"
+    }
+    private enum MemberKeys: String, CodingKey { case name }
+    private enum LastMessageKeys: String, CodingKey {
+        case content
+        case sentAt = "sent_at"
+    }
+
+    init(id: String, name: String, participants: [String], lastMessage: String,
+         lastMessageTime: Date, unreadCount: Int, isGroup: Bool, avatarIcon: String) {
+        self.id = id; self.name = name; self.participants = participants
+        self.lastMessage = lastMessage; self.lastMessageTime = lastMessageTime
+        self.unreadCount = unreadCount; self.isGroup = isGroup; self.avatarIcon = avatarIcon
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id          = try c.decode(String.self, forKey: .id)
+        name        = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        unreadCount = (try? c.decodeIfPresent(Int.self, forKey: .unreadCount)) ?? 0
+        let type    = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? "direct"
+        isGroup     = (type == "group")
+        avatarIcon  = isGroup ? "person.3.fill" : "person.fill"
+
+        // members is [{id, name, role, avatar_url}] → extract names
+        var names: [String] = []
+        if var arr = try? c.nestedUnkeyedContainer(forKey: .members) {
+            while !arr.isAtEnd {
+                if let obj = try? arr.nestedContainer(keyedBy: MemberKeys.self),
+                   let n = try? obj.decode(String.self, forKey: .name) {
+                    names.append(n)
+                } else {
+                    _ = try? arr.decode(String.self)
+                }
+            }
+        }
+        participants = names
+
+        // last_message: nullable dict with content + sent_at
+        if let lm = try? c.nestedContainer(keyedBy: LastMessageKeys.self, forKey: .lastMessage) {
+            lastMessage     = (try? lm.decode(String.self, forKey: .content)) ?? ""
+            lastMessageTime = (try? lm.decode(Date.self, forKey: .sentAt)) ?? Date()
+        } else {
+            lastMessage = ""
+            lastMessageTime = Date()
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(isGroup ? "group" : "direct", forKey: .type)
+    }
 
     static var samples: [ChatRoom] {
         [
@@ -351,7 +528,7 @@ struct CareLogEntry: Identifiable, Codable {
 // MARK: - Care Log Store (shared state → API synced)
 @Observable
 class CareLogStore {
-    var entries: [CareLogEntry] = CareLogEntry.samples
+    var entries: [CareLogEntry] = []
     var isLoading = false
     private let service: DataService
 
@@ -387,7 +564,7 @@ class CareLogStore {
 // MARK: - Todo Store (shared state → API synced)
 @Observable
 class TodoStore {
-    var todos: [TodoItem] = TodoItem.samples
+    var todos: [TodoItem] = []
     var isLoading = false
     private let service: DataService
 
@@ -436,7 +613,7 @@ class TodoStore {
 // MARK: - Calendar Store (shared state → API synced)
 @Observable
 class CalendarStore {
-    var events: [CalendarEvent] = CalendarEvent.samples
+    var events: [CalendarEvent] = []
     var isLoading = false
     private let service: DataService
 
@@ -483,12 +660,8 @@ class CalendarStore {
 // MARK: - Medication Store (shared state → API synced)
 @Observable
 class MedicationStore {
-    var medications: [Medication] = Medication.samples
-    var doses: [DoseEntry] = [
-        DoseEntry(time: "08:00", name: "晨間藥物 x3", isDone: false),
-        DoseEntry(time: "14:00", name: "Metformin 500mg", isDone: false),
-        DoseEntry(time: "18:00", name: "晚間藥物 x2", isDone: false),
-    ]
+    var medications: [Medication] = []
+    var doses: [DoseEntry] = []
     var isLoading = false
     private let service: DataService
 
@@ -548,24 +721,92 @@ struct DoseEntry: Identifiable {
 struct Medication: Identifiable, Codable {
     var id: String
     var name: String
-    var nameTranslated: String
+    var nameTranslated: String       // API: name_translated (dict in backend; Swift keeps first value)
     var dosage: String
-    var frequency: String
+    var frequency: String            // "daily" / "twice_daily" / "weekly" / "as_needed"
     var times: [String]
-    var notes: String
-    var isActive: Bool
+    var instructions: String         // API: instructions (was previously `notes`)
+    var isActive: Bool               // API: is_active
+    var startDate: Date              // API: start_date (yyyy-MM-dd)
+    var endDate: Date?               // API: end_date
+    var reminderEnabled: Bool        // API: reminder_enabled
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, dosage, frequency, times, instructions
+        case nameTranslated = "name_translated"
+        case isActive = "is_active"
+        case startDate = "start_date"
+        case endDate = "end_date"
+        case reminderEnabled = "reminder_enabled"
+    }
+
+    init(id: String = UUID().uuidString, name: String, nameTranslated: String,
+         dosage: String, frequency: String, times: [String], instructions: String,
+         isActive: Bool = true, startDate: Date = Date(), endDate: Date? = nil,
+         reminderEnabled: Bool = true) {
+        self.id = id; self.name = name; self.nameTranslated = nameTranslated
+        self.dosage = dosage; self.frequency = frequency; self.times = times
+        self.instructions = instructions; self.isActive = isActive
+        self.startDate = startDate; self.endDate = endDate; self.reminderEnabled = reminderEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id             = try c.decode(String.self, forKey: .id)
+        name           = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        dosage         = (try? c.decodeIfPresent(String.self, forKey: .dosage)) ?? ""
+        frequency      = (try? c.decodeIfPresent(String.self, forKey: .frequency)) ?? "daily"
+        times          = (try? c.decodeIfPresent([String].self, forKey: .times)) ?? []
+        instructions   = (try? c.decodeIfPresent(String.self, forKey: .instructions)) ?? ""
+        isActive       = (try? c.decodeIfPresent(Bool.self, forKey: .isActive)) ?? true
+        reminderEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .reminderEnabled)) ?? true
+        // name_translated is JSONB {lang: text} on backend — pick first non-empty value
+        if let dict = try? c.decodeIfPresent([String: String].self, forKey: .nameTranslated) {
+            nameTranslated = dict.values.first(where: { !$0.isEmpty }) ?? name
+        } else {
+            nameTranslated = (try? c.decodeIfPresent(String.self, forKey: .nameTranslated)) ?? name
+        }
+        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
+        if let s = try? c.decodeIfPresent(String.self, forKey: .startDate),
+           let d = df.date(from: s) {
+            startDate = d
+        } else {
+            startDate = Date()
+        }
+        if let s = try? c.decodeIfPresent(String.self, forKey: .endDate),
+           let d = df.date(from: s) {
+            endDate = d
+        } else {
+            endDate = nil
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        // Matches backend CreateMedicationSerializer: name, dosage, frequency, times,
+        // instructions, start_date, end_date, reminder_enabled.
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(name, forKey: .name)
+        try c.encode(dosage, forKey: .dosage)
+        try c.encode(frequency, forKey: .frequency)
+        try c.encode(times, forKey: .times)
+        try c.encode(instructions, forKey: .instructions)
+        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
+        try c.encode(df.string(from: startDate), forKey: .startDate)
+        try c.encodeIfPresent(endDate.map { df.string(from: $0) }, forKey: .endDate)
+        try c.encode(reminderEnabled, forKey: .reminderEnabled)
+    }
 
     static var samples: [Medication] {
         [
-            Medication(id: UUID().uuidString, name: "Amlodipine", nameTranslated: "氨氯地平",
-                       dosage: "5mg", frequency: "每日一次", times: ["08:00"],
-                       notes: "飯後服用，注意低血壓", isActive: true),
-            Medication(id: UUID().uuidString, name: "Metformin", nameTranslated: "二甲雙胍",
-                       dosage: "500mg", frequency: "每日兩次", times: ["08:00", "18:00"],
-                       notes: "飯中服用", isActive: true),
-            Medication(id: UUID().uuidString, name: "Aspirin", nameTranslated: "阿斯匹靈",
-                       dosage: "100mg", frequency: "每日一次", times: ["08:00"],
-                       notes: "飯後服用，勿空腹", isActive: true),
+            Medication(name: "Amlodipine", nameTranslated: "氨氯地平",
+                       dosage: "5mg", frequency: "daily", times: ["08:00"],
+                       instructions: "飯後服用，注意低血壓"),
+            Medication(name: "Metformin", nameTranslated: "二甲雙胍",
+                       dosage: "500mg", frequency: "twice_daily", times: ["08:00", "18:00"],
+                       instructions: "飯中服用"),
+            Medication(name: "Aspirin", nameTranslated: "阿斯匹靈",
+                       dosage: "100mg", frequency: "daily", times: ["08:00"],
+                       instructions: "飯後服用，勿空腹"),
         ]
     }
 }
@@ -582,10 +823,11 @@ struct Expense: Identifiable, Codable {
     var receiptImage: UIImage? = nil
 
     enum CodingKeys: String, CodingKey {
-        case id, category, date
+        case id, date, items
         case title = "store_name"
         case amount = "total_amount"
         case hasReceipt = "image_url"
+        // `category` is UI-only — backend stores category per item inside `items` JSONB.
     }
 
     init(id: String, title: String, amount: Double, category: String, date: Date, hasReceipt: Bool, receiptImage: UIImage? = nil) {
@@ -598,7 +840,14 @@ struct Expense: Identifiable, Codable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id       = try c.decode(String.self, forKey: .id)
         title    = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
-        category = try c.decodeIfPresent(String.self, forKey: .category) ?? ""
+        // Backend has no top-level `category`; category is a per-item field inside items JSONB.
+        // Attempt to read first item's category if present, otherwise leave blank.
+        if let items = try? c.decodeIfPresent([[String: String]].self, forKey: .items),
+           let cat = items.first?["category"] {
+            category = cat
+        } else {
+            category = ""
+        }
         // total_amount may arrive as String ("339.00") or Number
         if let s = try? c.decode(String.self, forKey: .amount) {
             amount = Double(s) ?? 0
@@ -614,13 +863,18 @@ struct Expense: Identifiable, Codable {
     }
 
     func encode(to encoder: Encoder) throws {
+        // Matches backend CreateExpenseSerializer: store_name, date, items, total_amount, image_url.
+        // Category is embedded inside `items` per backend schema.
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(id,       forKey: .id)
-        try c.encode(title,    forKey: .title)
-        try c.encode(amount,   forKey: .amount)
-        try c.encode(category, forKey: .category)
+        try c.encode(title,  forKey: .title)
+        try c.encode(amount, forKey: .amount)
         let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
         try c.encode(df.string(from: date), forKey: .date)
+        let item: [String: String] = [
+            "name": title,
+            "category": category,
+        ]
+        try c.encode([item], forKey: .items)
     }
 
     var categoryIcon: String {
@@ -640,6 +894,8 @@ struct Expense: Identifiable, Codable {
         default: return .gray
         }
     }
+
+    var categoryDisplayName: String { category }
 
     static var samples: [Expense] {
         [
@@ -692,7 +948,8 @@ enum Priority: String, CaseIterable, Codable {
 struct TodoItem: Identifiable, Codable {
     var id: String
     var title: String
-    var assignee: String    // API: assignee.name
+    var assignee: String    // API: assignee.name (read-only display)
+    var assigneeId: String? // API: assignee.id — required by CreateTodoSerializer as `assignee_id`
     var priority: Priority
     var dueDate: Date?      // API: due_date (date-only string)
     var isCompleted: Bool   // API: status == "completed"
@@ -701,11 +958,14 @@ struct TodoItem: Identifiable, Codable {
         case id, title, priority
         case dueDate = "due_date"
         case assignee, status
+        case assigneeId = "assignee_id"
     }
-    private enum AssigneeKeys: String, CodingKey { case name }
+    private enum AssigneeKeys: String, CodingKey { case id, name }
 
-    init(id: String, title: String, assignee: String, priority: Priority, dueDate: Date?, isCompleted: Bool) {
+    init(id: String, title: String, assignee: String, priority: Priority,
+         dueDate: Date?, isCompleted: Bool, assigneeId: String? = nil) {
         self.id = id; self.title = title; self.assignee = assignee
+        self.assigneeId = assigneeId
         self.priority = priority; self.dueDate = dueDate; self.isCompleted = isCompleted
     }
 
@@ -724,17 +984,25 @@ struct TodoItem: Identifiable, Codable {
         let status = try c.decodeIfPresent(String.self, forKey: .status) ?? "pending"
         isCompleted = (status == "completed")
         if let ac = try? c.nestedContainer(keyedBy: AssigneeKeys.self, forKey: .assignee) {
-            assignee = (try? ac.decode(String.self, forKey: .name)) ?? ""
+            assignee   = (try? ac.decode(String.self, forKey: .name)) ?? ""
+            assigneeId = try? ac.decode(String.self, forKey: .id)
         } else {
-            assignee = (try? c.decode(String.self, forKey: .assignee)) ?? ""
+            assignee   = (try? c.decode(String.self, forKey: .assignee)) ?? ""
+            assigneeId = nil
         }
     }
 
     func encode(to encoder: Encoder) throws {
+        // Matches backend CreateTodoSerializer: title, assignee_id (UUID), priority, due_date.
+        // For PUT updates, also include status.
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(id, forKey: .id)
         try c.encode(title, forKey: .title)
         try c.encode(priority, forKey: .priority)
+        try c.encodeIfPresent(assigneeId, forKey: .assigneeId)
+        if let dueDate {
+            let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+            try c.encode(fmt.string(from: dueDate), forKey: .dueDate)
+        }
         try c.encode(isCompleted ? "completed" : "pending", forKey: .status)
     }
 
@@ -766,25 +1034,65 @@ struct CalendarEvent: Identifiable, Codable {
         case date = "start_time"
     }
 
+    init(id: String, title: String, date: Date, location: String?, type: String) {
+        self.id = id; self.title = title; self.date = date
+        self.location = location; self.type = type
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id       = try c.decode(String.self, forKey: .id)
+        title    = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? ""
+        date     = (try? c.decodeIfPresent(Date.self, forKey: .date)) ?? Date()
+        location = try? c.decodeIfPresent(String.self, forKey: .location)
+        type     = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? "other"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        // Matches backend CreateEventSerializer: title, start_time, end_time,
+        // location, type, reminder_minutes, note. Server assigns id/family/created_by.
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(title, forKey: .title)
+        try c.encode(date, forKey: .date)
+        try c.encodeIfPresent(location, forKey: .location)
+        try c.encode(backendType, forKey: .type)
+    }
+
+    /// Maps the display type (Chinese) to a backend Event.Type enum value.
+    var backendType: String {
+        switch type {
+        case "回診", "medical":      return "medical"
+        case "用藥", "medication":   return "medication"
+        case "復健", "rehab":        return "rehab"
+        case "請假", "leave":        return "leave"
+        case "個人", "personal":     return "personal"
+        default:                     return "other"
+        }
+    }
+
     var typeIcon: String {
         switch type {
-        case "回診": return "stethoscope"
-        case "復健": return "figure.walk"
-        case "用藥": return "pills.fill"
-        case "完成": return "checkmark.circle.fill"
-        case "待辦": return "checklist"
-        default: return "calendar"
+        case "回診", "medical":      return "stethoscope"
+        case "復健", "rehab":        return "figure.walk"
+        case "用藥", "medication":   return "pills.fill"
+        case "完成":                 return "checkmark.circle.fill"
+        case "待辦":                 return "checklist"
+        case "leave":               return "calendar.badge.exclamationmark"
+        case "personal":            return "person.fill"
+        default:                    return "calendar"
         }
     }
 
     var typeColor: Color {
         switch type {
-        case "回診": return Color(red: 0.0, green: 0.55, blue: 0.6)
-        case "復健": return .green
-        case "用藥": return .blue
-        case "完成": return .orange
-        case "待辦": return .purple
-        default: return .gray
+        case "回診", "medical":      return Color(red: 0.0, green: 0.55, blue: 0.6)
+        case "復健", "rehab":        return .green
+        case "用藥", "medication":   return .blue
+        case "完成":                 return .orange
+        case "待辦":                 return .purple
+        case "leave":               return .orange
+        case "personal":            return .gray
+        default:                    return .gray
         }
     }
 
@@ -837,13 +1145,62 @@ struct LeaveRequest: Identifiable, Codable {
         case endDate   = "end_date"
     }
 
+    init(id: String, type: String, startDate: Date, endDate: Date,
+         reason: String, status: LeaveStatus) {
+        self.id = id; self.type = type; self.startDate = startDate
+        self.endDate = endDate; self.reason = reason; self.status = status
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id     = try c.decode(String.self, forKey: .id)
+        type   = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? "personal"
+        reason = (try? c.decodeIfPresent(String.self, forKey: .reason)) ?? ""
+        status = (try? c.decodeIfPresent(LeaveStatus.self, forKey: .status)) ?? .pending
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+        let s1 = (try? c.decodeIfPresent(String.self, forKey: .startDate)) ?? ""
+        let s2 = (try? c.decodeIfPresent(String.self, forKey: .endDate)) ?? ""
+        startDate = fmt.date(from: s1) ?? Date()
+        endDate   = fmt.date(from: s2) ?? startDate
+    }
+
+    func encode(to encoder: Encoder) throws {
+        // Matches backend CreateLeaveSerializer: type, start_date, end_date, reason.
+        // Server assigns id/status/days/applicant/family.
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(backendType, forKey: .type)
+        try c.encode(reason, forKey: .reason)
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+        try c.encode(fmt.string(from: startDate), forKey: .startDate)
+        try c.encode(fmt.string(from: endDate), forKey: .endDate)
+    }
+
+    var typeDisplayName: String {
+        switch type {
+        case "personal", "事假": return "事假"
+        case "sick",     "病假": return "病假"
+        case "emergency","緊急": return "緊急假"
+        default: return type
+        }
+    }
+
+    /// Maps display type (Chinese or English) to backend Leave.Type enum value.
+    var backendType: String {
+        switch type {
+        case "事假", "personal":  return "personal"
+        case "病假", "sick":      return "sick"
+        case "緊急", "急事", "emergency": return "emergency"
+        default: return "personal"
+        }
+    }
+
     static var samples: [LeaveRequest] {
         [
-            LeaveRequest(id: UUID().uuidString, type: "事假",
+            LeaveRequest(id: UUID().uuidString, type: "personal",
                          startDate: Date().addingTimeInterval(86400 * 10),
                          endDate: Date().addingTimeInterval(86400 * 12),
                          reason: "返鄉探親", status: .pending),
-            LeaveRequest(id: UUID().uuidString, type: "病假",
+            LeaveRequest(id: UUID().uuidString, type: "sick",
                          startDate: Date().addingTimeInterval(-86400 * 7),
                          endDate: Date().addingTimeInterval(-86400 * 6),
                          reason: "就醫", status: .approved),
@@ -892,21 +1249,32 @@ struct AppDocument: Identifiable, Codable {
 
     var categoryIcon: String {
         switch category {
-        case "保險": return "shield.fill"
-        case "醫療": return "cross.fill"
-        case "證件": return "creditcard.fill"
-        case "合約": return "doc.text.fill"
+        case "insurance", "保險": return "shield.fill"
+        case "medical", "醫療":   return "cross.fill"
+        case "id_document", "證件": return "creditcard.fill"
+        case "contract", "合約":  return "doc.text.fill"
         default: return "folder.fill"
         }
     }
 
     var categoryColor: Color {
         switch category {
-        case "保險": return .blue
-        case "醫療": return .red
-        case "證件": return .orange
-        case "合約": return .purple
+        case "insurance", "保險": return .blue
+        case "medical", "醫療":   return .red
+        case "id_document", "證件": return .orange
+        case "contract", "合約":  return .purple
         default: return .gray
+        }
+    }
+
+    var categoryDisplayName: String {
+        switch category {
+        case "insurance":  return "保險"
+        case "medical":    return "醫療"
+        case "id_document": return "證件"
+        case "contract":   return "合約"
+        case "other":      return "其他"
+        default:           return category
         }
     }
 
@@ -1003,24 +1371,93 @@ struct AppNotification: Identifiable, Codable {
 }
 
 // MARK: - Message Board (Purchase Requests)
+// Backend (`board_requests`) stores: category, items (JSONB list), note, status, requester(User).
+// The UI surfaces a title/description from the items list and requester name.
 struct PurchaseRequest: Identifiable, Codable {
     var id: String
-    var title: String
-    var category: String
-    var description: String
-    var estimatedCost: Double?
-    var status: String
-    var createdAt: Date
-    var requester: String
-    var notes: String
+    var title: String           // derived from items[0].name
+    var category: String        // API: category
+    var description: String     // derived from items (name × quantity, joined)
+    var estimatedCost: Double?  // local-only (backend has no cost field)
+    var status: String          // API: status (pending / approved / rejected / completed)
+    var createdAt: Date         // API: created_at
+    var requester: String       // API: requester.name
+    var notes: String           // API: note
+    var items: [PurchaseItem]   // API: items JSONB
+
+    struct PurchaseItem: Codable, Hashable {
+        var name: String
+        var nameTranslated: String?
+        var quantity: String?
+
+        enum CodingKeys: String, CodingKey {
+            case name, quantity
+            case nameTranslated = "name_translated"
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, category, status, items, requester
+        case createdAt = "created_at"
+        case note
+    }
+    private enum RequesterKeys: String, CodingKey { case name }
+
+    init(id: String, title: String, category: String, description: String,
+         estimatedCost: Double?, status: String, createdAt: Date,
+         requester: String, notes: String, items: [PurchaseItem] = []) {
+        self.id = id; self.title = title; self.category = category
+        self.description = description; self.estimatedCost = estimatedCost
+        self.status = status; self.createdAt = createdAt
+        self.requester = requester; self.notes = notes; self.items = items
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id        = try c.decode(String.self, forKey: .id)
+        category  = (try? c.decodeIfPresent(String.self, forKey: .category)) ?? ""
+        status    = (try? c.decodeIfPresent(String.self, forKey: .status)) ?? "pending"
+        createdAt = (try? c.decodeIfPresent(Date.self, forKey: .createdAt)) ?? Date()
+        notes     = (try? c.decodeIfPresent(String.self, forKey: .note)) ?? ""
+        items     = (try? c.decodeIfPresent([PurchaseItem].self, forKey: .items)) ?? []
+        estimatedCost = nil
+        // requester nested object → extract name
+        if let rc = try? c.nestedContainer(keyedBy: RequesterKeys.self, forKey: .requester) {
+            requester = (try? rc.decode(String.self, forKey: .name)) ?? ""
+        } else {
+            requester = (try? c.decode(String.self, forKey: .requester)) ?? ""
+        }
+        title = items.first?.name ?? "採購需求"
+        description = items
+            .map { [$0.name, $0.quantity].compactMap { $0 }.joined(separator: " × ") }
+            .joined(separator: "，")
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(category, forKey: .category)
+        try c.encode(items.isEmpty ? [PurchaseItem(name: title, nameTranslated: nil, quantity: nil)] : items,
+                     forKey: .items)
+        try c.encode(notes, forKey: .note)
+    }
 
     var statusColor: Color {
         switch status {
-        case "待確認": return .orange
-        case "已核准": return .green
-        case "已完成": return .blue
-        case "已駁回": return .red
+        case "pending":   return .orange
+        case "approved":  return .green
+        case "completed": return .blue
+        case "rejected":  return .red
         default: return .gray
+        }
+    }
+
+    var statusDisplayName: String {
+        switch status {
+        case "pending":   return "待確認"
+        case "approved":  return "已核准"
+        case "completed": return "已完成"
+        case "rejected":  return "已駁回"
+        default:          return status
         }
     }
 
@@ -1040,12 +1477,15 @@ struct PurchaseRequest: Identifiable, Codable {
                             estimatedCost: 1280,
                             status: "待確認", createdAt: Date().addingTimeInterval(-3600),
                             requester: "Rita Santos",
-                            notes: "奶奶最近血壓帶有漏氣現象，本的血壓計較腕式比比方便，適合居家日常監測，已來在藥局被認適合格醫療器材。"),
+                            notes: "奶奶最近血壓帶有漏氣現象，本的血壓計較腕式比比方便，適合居家日常監測，已來在藥局被認適合格醫療器材。",
+                            items: [PurchaseItem(name: "電子血壓計（腕式）", nameTranslated: nil, quantity: "1")]),
             PurchaseRequest(id: UUID().uuidString, title: "購買優格和香蕉", category: "食品",
                             description: "爺爺喜歡的零食，一週份量",
                             estimatedCost: nil,
                             status: "已核准", createdAt: Date().addingTimeInterval(-86400),
-                            requester: "Rita Santos", notes: ""),
+                            requester: "Rita Santos", notes: "",
+                            items: [PurchaseItem(name: "優格", nameTranslated: nil, quantity: "6 杯"),
+                                    PurchaseItem(name: "香蕉", nameTranslated: nil, quantity: "1 串")]),
         ]
     }
 }

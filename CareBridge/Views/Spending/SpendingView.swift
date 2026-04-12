@@ -8,7 +8,8 @@ import UIKit
 struct SpendingView: View {
     @Binding var showProfile: Bool
     let userRole: UserRole
-    @State private var expenses = Expense.samples
+    @Environment(\.dataService) private var service
+    @State private var expenses: [Expense] = []
     @State private var showDocumentCamera = false   // 直接開啟掃描器
     @State private var showOCRConfirmation = false
     @State private var pendingOCRResult: OCRResult? = nil
@@ -134,6 +135,9 @@ struct SpendingView: View {
             }
             .navigationDestination(isPresented: $showNotifications) {
                 NotificationCenterView()
+            }
+            .task {
+                expenses = (try? await service.fetchExpenses(month: nil)) ?? []
             }
         }
     }

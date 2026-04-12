@@ -3,7 +3,7 @@ import SwiftUI
 struct AIAgentView: View {
     var isModal: Bool = false
     @Environment(\.dismiss) private var dismiss
-    @State private var messages = AIMessage.samples
+    @State private var messages: [AIMessage] = []
     @State private var inputText = ""
     @State private var isLoading = false
     @FocusState private var isInputFocused: Bool

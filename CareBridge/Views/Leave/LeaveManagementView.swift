@@ -2,7 +2,8 @@ import SwiftUI
 
 struct LeaveManagementView: View {
     var userRole: UserRole = .family
-    @State private var requests = LeaveRequest.samples
+    @Environment(\.dataService) private var service
+    @State private var requests: [LeaveRequest] = []
     @State private var showAddRequest = false
     @State private var selectedStatus: String = "全部"
     private let statuses = ["全部", "待審核", "已核准", "已駁回"]
@@ -86,6 +87,9 @@ struct LeaveManagementView: View {
                 requests.insert(newRequest, at: 0)
             }
         }
+        .task {
+            requests = (try? await service.fetchLeaveRequests()) ?? []
+        }
     }
 
     private func updateStatus(_ request: LeaveRequest, to status: LeaveStatus) {
@@ -121,7 +125,7 @@ struct LeaveRequestRow: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 // Type tag
-                Text(request.type)
+                Text(request.typeDisplayName)
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 10)

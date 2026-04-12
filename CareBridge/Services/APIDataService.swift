@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// Real API implementation — connects to backend REST API via JSON.
 /// Replace `baseURL` with your actual server address.
@@ -75,6 +76,9 @@ class APIDataService: DataService {
 
     // MARK: - Auth
     func login(email: String, password: String) async throws -> AuthResponse {
+        // Clear stale tokens so login request is unauthenticated
+        authToken = nil
+        KeychainService.clearAll()
         let result: AuthResponse = try await post(path: "/auth/login/", body: ["email": email, "password": password])
         authToken = result.tokens.access
         KeychainService.accessToken = result.tokens.access
@@ -150,8 +154,18 @@ class APIDataService: DataService {
 
     // MARK: - Documents
     func fetchDocuments() async throws -> [AppDocument] { try await get(path: "/documents/") }
+    /// Backend CreateDocumentSerializer requires `file_url, file_size, mime_type`.
+    /// Caller must upload bytes to object storage first and supply the resulting URL.
+    /// Until that flow exists, we send placeholders to avoid 400s on empty required fields.
     func uploadDocument(title: String, category: String, fileData: Data) async throws -> AppDocument {
-        try await post(path: "/documents/", body: ["title": title, "category": category])
+        let body: [String: AnyEncodable] = [
+            "title":     AnyEncodable(title),
+            "category":  AnyEncodable(category),
+            "file_url":  AnyEncodable(""),
+            "file_size": AnyEncodable(fileData.count),
+            "mime_type": AnyEncodable("application/octet-stream"),
+        ]
+        return try await post(path: "/documents/", body: body)
     }
     func deleteDocument(id: String) async throws { try await delete(path: "/documents/\(id)/") }
 
@@ -175,9 +189,11 @@ class APIDataService: DataService {
 
     // MARK: - Push Token
     func registerPushToken(_ token: String) async throws {
+        let deviceName = UIDevice.current.name
         let _: EmptyResponse = try await post(path: "/notifications/device/", body: [
             "device_token": token,
-            "platform": "ios"
+            "platform":     "ios",
+            "device_name":  deviceName,
         ])
     }
 
@@ -185,8 +201,13 @@ class APIDataService: DataService {
     func fetchFirstAidScenarios() async throws -> [FirstAidScenario] { try await get(path: "/ai/first-aid/") }
 
     // MARK: - SOS
+    /// Backend TriggerSOSSerializer: `location` is a JSONField (dict), `situation` optional text.
     func triggerSOS(location: String?) async throws {
-        let _: EmptyResponse = try await post(path: "/sos/trigger/", body: ["location": location ?? ""])
+        var body: [String: AnyEncodable] = [:]
+        if let location, !location.isEmpty {
+            body["location"] = AnyEncodable(["address": location])
+        }
+        let _: EmptyResponse = try await post(path: "/sos/trigger/", body: body)
     }
 }
 

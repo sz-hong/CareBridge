@@ -1,53 +1,73 @@
+import asyncio
 import logging
 
-from apns2.client import APNsClient, NotificationPriority
-from apns2.payload import Payload
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
 
-def _get_apns_client():
+async def _send_push_async(device_token, title, body, data=None, badge=None):
     """
-    Create and return an APNs client using settings from Django settings.
+    Send an APNs push notification using aioapns (async, h2-based).
 
-    Expected settings:
-        APNS_KEY_FILE: Path to the .p8 authentication key file.
-        APNS_KEY_ID: The 10-character Key ID.
-        APNS_TEAM_ID: The 10-character Team ID.
-        APNS_TOPIC: The bundle ID of the app (e.g. 'com.example.carebridge').
-        APNS_USE_SANDBOX: Boolean, whether to use sandbox environment (default True).
+    Expected Django settings:
+        APNS_KEY_FILE   – Path to the .p8 authentication key file.
+        APNS_KEY_ID     – 10-character Key ID.
+        APNS_TEAM_ID    – 10-character Team ID.
+        APNS_TOPIC      – Bundle ID (e.g. 'com.example.carebridge').
+        APNS_USE_SANDBOX – Boolean (default True).
     """
+    from aioapns import APNs, NotificationRequest
+
     key_file = getattr(settings, 'APNS_KEY_FILE', None)
     key_id = getattr(settings, 'APNS_KEY_ID', None)
     team_id = getattr(settings, 'APNS_TEAM_ID', None)
+    topic = getattr(settings, 'APNS_TOPIC', None)
     use_sandbox = getattr(settings, 'APNS_USE_SANDBOX', True)
 
-    if not all([key_file, key_id, team_id]):
+    if not all([key_file, key_id, team_id, topic]):
         raise RuntimeError(
             'APNs is not properly configured. '
-            'Ensure APNS_KEY_FILE, APNS_KEY_ID, and APNS_TEAM_ID are set in Django settings.'
+            'Ensure APNS_KEY_FILE, APNS_KEY_ID, APNS_TEAM_ID, '
+            'and APNS_TOPIC are set in Django settings.'
         )
 
-    from apns2.credentials import TokenCredentials
-
-    token_credentials = TokenCredentials(
-        auth_key_path=key_file,
-        auth_key_id=key_id,
+    apns = APNs(
+        key=key_file,
+        key_id=key_id,
         team_id=team_id,
-    )
-
-    client = APNsClient(
-        credentials=token_credentials,
+        topic=topic,
         use_sandbox=use_sandbox,
     )
 
-    return client
+    # Build the APS payload
+    alert = {'title': title, 'body': body}
+    message = {'aps': {'alert': alert}}
+    if badge is not None:
+        message['aps']['badge'] = badge
+    if data:
+        message.update(data)
+
+    request = NotificationRequest(
+        device_token=device_token,
+        message=message,
+    )
+
+    response = await apns.send_notification(request)
+    if not response.is_successful:
+        logger.error(
+            'APNs error for token %s: %s (%s)',
+            device_token[:8], response.description, response.status,
+        )
+        raise Exception(f'APNs delivery failed: {response.description}')
+
+    logger.info('Push notification sent to %s', device_token[:8])
+    return True
 
 
 def send_push(device_token, title, body, data=None, badge=None):
     """
-    Send an APNs push notification to a single device.
+    Synchronous wrapper – safe to call from Django views and Celery tasks.
 
     Args:
         device_token (str): The device's APNs token.
@@ -58,53 +78,19 @@ def send_push(device_token, title, body, data=None, badge=None):
 
     Returns:
         bool: True if the notification was sent successfully.
-
-    Raises:
-        RuntimeError: If APNs settings are not configured.
-        Exception: If the APNs service returns an error.
     """
-    topic = getattr(settings, 'APNS_TOPIC', None)
-    if not topic:
-        raise RuntimeError('APNS_TOPIC is not configured in Django settings.')
-
-    payload = Payload(
-        alert={'title': title, 'body': body},
-        badge=badge,
-        custom=data or {},
-    )
-
-    client = _get_apns_client()
-
     try:
-        from apns2.client import Notification
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
 
-        notification = Notification(
-            token=device_token,
-            payload=payload,
-            priority=NotificationPriority.Immediate,
-            topic=topic,
+    if loop and loop.is_running():
+        # Inside an existing async context (e.g. Channels, ASGI) – schedule it
+        future = asyncio.ensure_future(
+            _send_push_async(device_token, title, body, data, badge)
         )
-
-        response = client.send_notification_batch(
-            notifications=[notification],
-            topic=topic,
+        return future  # caller can await if needed
+    else:
+        return asyncio.run(
+            _send_push_async(device_token, title, body, data, badge)
         )
-
-        # send_notification_batch returns a dict of token -> response
-        if device_token in response:
-            result = response[device_token]
-            if result == 'Success':
-                logger.info('Push notification sent to %s', device_token[:8])
-                return True
-            else:
-                logger.error(
-                    'APNs error for token %s: %s', device_token[:8], result
-                )
-                raise Exception(f'APNs delivery failed: {result}')
-
-        logger.info('Push notification sent to %s', device_token[:8])
-        return True
-
-    except Exception:
-        logger.exception('Failed to send push notification to %s', device_token[:8])
-        raise

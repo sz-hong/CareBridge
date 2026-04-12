@@ -218,7 +218,7 @@ struct MedicationRow: View {
                         Image(systemName: "info.circle.fill")
                             .foregroundStyle(.orange)
                             .font(.system(size: 14))
-                        Text(medication.notes)
+                        Text(medication.instructions)
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                     }
@@ -331,8 +331,11 @@ struct AddMedicationView: View {
             dosage: dosage.isEmpty ? "—" : dosage,
             frequency: frequencyLabels[frequency],
             times: times,
-            notes: notes,
-            isActive: true
+            instructions: notes,
+            isActive: true,
+            startDate: Date(),
+            endDate: endDate,
+            reminderEnabled: true
         )
 
         var calEvents: [CalendarEvent] = []
