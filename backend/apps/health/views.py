@@ -260,15 +260,11 @@ class HealthDataViewSet(ViewSet):
         )
 
         # Build a dict of date -> total
-        steps_by_day = {r['day'].date(): float(r['total_steps']) for r in results}
+        steps_by_day = {r['day'].date(): int(r['total_steps'] or 0) for r in results}
 
-        # Build array for all 7 days
-        data = []
-        for i in range(7):
-            d = seven_days_ago + timedelta(days=i)
-            data.append({
-                'date': d.isoformat(),
-                'total_steps': steps_by_day.get(d, 0),
-            })
-
+        # Return 7-element int array, oldest → newest
+        data = [
+            steps_by_day.get(seven_days_ago + timedelta(days=i), 0)
+            for i in range(7)
+        ]
         return success_response(data=data)

@@ -33,14 +33,16 @@ struct CategoryBreakdownItem: Codable {
 // MARK: - DataService Protocol
 protocol DataService {
     // Auth
+    func register(name: String, email: String, password: String, phone: String?, language: String?) async throws -> AuthResponse
     func login(email: String, password: String) async throws -> AuthResponse
-    func joinFamily(inviteCode: String) async throws -> AuthResponse
+    func joinFamily(inviteCode: String, role: UserRole) async throws -> AuthResponse
     func logout() async throws
 
     // Profile
     func fetchProfile() async throws -> UserProfile
     func updateProfile(_ profile: UserProfile) async throws -> UserProfile
     func fetchFamilyMembers() async throws -> [UserProfile]
+    func createFamily(name: String, elderName: String, elderBirthDate: String) async throws -> FamilyInfo
 
     // Health
     func fetchHealthData(elderId: String) async throws -> HealthData

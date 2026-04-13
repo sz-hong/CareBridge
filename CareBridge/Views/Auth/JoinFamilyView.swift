@@ -213,11 +213,11 @@ struct JoinFamilyView: View {
         isLoading = true
         let code = inviteCode.joined()
         do {
-            let response = try await service.joinFamily(inviteCode: code)
+            let response = try await service.joinFamily(inviteCode: code, role: selectedRole)
             userStore.populate(from: response)
             userStore.load()
             await MainActor.run {
-                userRole = response.user.role
+                userRole = response.user.role ?? selectedRole
                 withAnimation { isLoggedIn = true }
             }
         } catch {

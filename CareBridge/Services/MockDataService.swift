@@ -4,6 +4,14 @@ import Foundation
 class MockDataService: DataService {
 
     // MARK: - Auth
+    func register(name: String, email: String, password: String, phone: String?, language: String?) async throws -> AuthResponse {
+        AuthResponse(
+            user: UserProfile(id: UUID().uuidString, name: name, email: email,
+                              phone: phone, role: nil, family: nil),
+            tokens: AuthTokens(access: "mock-access-\(UUID().uuidString)", refresh: "mock-refresh")
+        )
+    }
+
     func login(email: String, password: String) async throws -> AuthResponse {
         AuthResponse(
             user: UserProfile(id: "u1", name: "Hank Chen", email: email,
@@ -13,7 +21,7 @@ class MockDataService: DataService {
         )
     }
 
-    func joinFamily(inviteCode: String) async throws -> AuthResponse {
+    func joinFamily(inviteCode: String, role: UserRole) async throws -> AuthResponse {
         try await login(email: "hank@carebridge.com", password: "")
     }
 
@@ -27,6 +35,10 @@ class MockDataService: DataService {
     }
 
     func updateProfile(_ profile: UserProfile) async throws -> UserProfile { profile }
+
+    func createFamily(name: String, elderName: String, elderBirthDate: String) async throws -> FamilyInfo {
+        FamilyInfo(id: UUID().uuidString, name: name)
+    }
 
     func fetchFamilyMembers() async throws -> [UserProfile] {
         [

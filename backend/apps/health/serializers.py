@@ -4,6 +4,8 @@ from .models import HealthData, HealthAlert, HealthAlertThreshold
 
 
 class HealthDataSerializer(serializers.ModelSerializer):
+    value = serializers.FloatField()
+
     class Meta:
         model = HealthData
         fields = [

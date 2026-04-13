@@ -27,7 +27,7 @@ struct ProfileView: View {
                             Text(user?.email ?? "-")
                                 .font(.system(size: 14))
                                 .foregroundStyle(.secondary)
-                            Text(user?.role.displayName ?? userRole.displayName)
+                            Text((user?.role ?? userRole).displayName)
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, 10)
@@ -64,7 +64,7 @@ struct ProfileView: View {
                 // Family info
                 Section("家庭資訊") {
                     profileRow(icon: "house.fill", label: "家庭名稱", value: user?.familyName.isEmpty == false ? user!.familyName : "-")
-                    profileRow(icon: "shield.checkered", label: "角色", value: user?.role.displayName ?? userRole.displayName)
+                    profileRow(icon: "shield.checkered", label: "角色", value: (user?.role ?? userRole).displayName)
                     Button {
                         showFamilyMembers = true
                     } label: {
@@ -74,7 +74,7 @@ struct ProfileView: View {
                                 .frame(width: 24)
                             Text("查看家庭成員")
                             Spacer()
-                            Text("4 位")
+                            Text("\(userStore.familyMembers.count) 位")
                                 .foregroundStyle(.secondary)
                             Image(systemName: "chevron.right")
                                 .font(.system(size: 13))
@@ -186,9 +186,11 @@ struct ProfileView: View {
 // MARK: - Edit Profile View
 struct EditProfileView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var name = "Hank Chen"
-    @State private var phone = "+886 912-345-678"
-    @State private var birthday = Calendar.current.date(from: DateComponents(year: 1990, month: 5, day: 15)) ?? Date()
+    @Environment(UserStore.self) private var userStore
+    @Environment(\.dataService) private var service
+    @State private var name = ""
+    @State private var phone = ""
+    @State private var isSaving = false
 
     var body: some View {
         NavigationStack {
@@ -203,7 +205,6 @@ struct EditProfileView: View {
                             .multilineTextAlignment(.trailing)
                             .keyboardType(.phonePad)
                     }
-                    DatePicker("生日", selection: $birthday, displayedComponents: .date)
                 }
 
                 Section("頭像") {
@@ -213,36 +214,40 @@ struct EditProfileView: View {
                             Image(systemName: "person.circle.fill")
                                 .font(.system(size: 72))
                                 .foregroundStyle(Color.brandTeal)
-                            Button("更換頭像") { }
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundStyle(Color.brandTeal)
                         }
                         Spacer()
                     }
                     .padding(.vertical, 8)
                 }
-
-                Section {
-                    Button(role: .destructive) { } label: {
-                        HStack {
-                            Spacer()
-                            Text("刪除帳號")
-                            Spacer()
-                        }
-                    }
-                }
             }
             .navigationTitle("編輯個人資料")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                name  = userStore.currentUser?.name  ?? ""
+                phone = userStore.currentUser?.phone ?? ""
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("取消") { dismiss() }
                         .foregroundStyle(.secondary)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("儲存") { dismiss() }
-                        .bold()
-                        .foregroundStyle(Color.brandTeal)
+                    Button("儲存") {
+                        Task {
+                            guard var profile = userStore.currentUser else { return }
+                            profile.name  = name
+                            profile.phone = phone.isEmpty ? nil : phone
+                            isSaving = true
+                            if let updated = try? await service.updateProfile(profile) {
+                                userStore.currentUser = updated
+                            }
+                            isSaving = false
+                            dismiss()
+                        }
+                    }
+                    .bold()
+                    .foregroundStyle(Color.brandTeal)
+                    .disabled(isSaving || name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
         }
@@ -252,85 +257,49 @@ struct EditProfileView: View {
 // MARK: - Family Members View
 struct FamilyMembersView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(UserStore.self) private var userStore
     let userRole: UserRole
-
-    private let members: [(name: String, role: String, relation: String, isOnline: Bool)] = [
-        ("林小明", "家屬", "兒子", true),
-        ("林大華", "家屬", "父親", false),
-        ("林美華", "家屬", "母親", true),
-        ("Maria Santos", "看護", "看護", true),
-    ]
 
     var body: some View {
         NavigationStack {
             List {
-                Section("成員列表（\(members.count) 位）") {
-                    ForEach(members, id: \.name) { member in
+                Section("成員列表（\(userStore.familyMembers.count) 位）") {
+                    ForEach(userStore.familyMembers) { member in
                         HStack(spacing: 14) {
                             ZStack(alignment: .bottomTrailing) {
                                 Circle()
                                     .fill(Color.brandTealLight)
                                     .frame(width: 48, height: 48)
-                                Image(systemName: member.role == "看護" ? "cross.case.fill" : "person.fill")
+                                Image(systemName: member.role == .caregiver ? "cross.case.fill" : "person.fill")
                                     .font(.system(size: 20))
                                     .foregroundStyle(Color.brandTeal)
-                                Circle()
-                                    .fill(member.isOnline ? Color.green : Color.gray)
-                                    .frame(width: 12, height: 12)
-                                    .overlay(Circle().stroke(.white, lineWidth: 2))
                             }
 
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(member.name)
                                     .font(.system(size: 15, weight: .semibold))
-                                HStack(spacing: 6) {
-                                    Text(member.relation)
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(.secondary)
-                                    Text("·")
-                                        .foregroundStyle(.secondary)
-                                    Text(member.role)
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundStyle(member.role == "看護" ? Color.brandTeal : .orange)
-                                }
+                                Text(member.role?.displayName ?? "-")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(member.role == .caregiver ? Color.brandTeal : .orange)
                             }
 
                             Spacer()
-
-                            if member.isOnline {
-                                Text("在線")
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.green)
-                            }
                         }
                         .padding(.vertical, 4)
                     }
                 }
 
-                if userRole == .family {
-                    Section {
+                if userRole == .family,
+                   let inviteCode = userStore.currentUser?.family?.id {
+                    Section("邀請新成員") {
                         HStack {
                             Image(systemName: "qrcode")
                                 .foregroundStyle(Color.brandTeal)
                                 .frame(width: 24)
-                            Text("邀請碼：AB-1234")
+                            Text("邀請碼：\(inviteCode.prefix(8).uppercased())")
                                 .font(.system(size: 15, weight: .medium))
                             Spacer()
-                            Button("複製") { }
-                                .font(.system(size: 14))
-                                .foregroundStyle(Color.brandTeal)
                         }
-                        Button {
-                            // Regenerate code
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "arrow.clockwise")
-                                Text("重新產生邀請碼")
-                            }
-                            .foregroundStyle(Color.brandTeal)
-                        }
-                    } header: {
-                        Text("邀請新成員")
                     }
                 }
             }

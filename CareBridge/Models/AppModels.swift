@@ -29,7 +29,7 @@ struct UserProfile: Identifiable, Codable {
     var phone: String?
     var birthday: String?
     var language: String?
-    var role: UserRole
+    var role: UserRole?          // nil until user joins or creates a family
     var avatarUrl: String?
     var family: FamilyInfo?
     var isPrimary: Bool?
@@ -56,7 +56,7 @@ struct UserProfile: Identifiable, Codable {
 
     init(id: String, name: String, email: String, phone: String? = nil,
          birthday: String? = nil, language: String? = nil,
-         role: UserRole, avatarUrl: String? = nil,
+         role: UserRole? = nil, avatarUrl: String? = nil,
          family: FamilyInfo? = nil, isPrimary: Bool? = nil) {
         self.id = id; self.name = name; self.email = email
         self.phone = phone; self.birthday = birthday; self.language = language
@@ -72,7 +72,7 @@ struct UserProfile: Identifiable, Codable {
         phone     = try c.decodeIfPresent(String.self, forKey: .phone)
         birthday  = try c.decodeIfPresent(String.self, forKey: .birthday)
         language  = try c.decodeIfPresent(String.self, forKey: .language)
-        role      = try c.decode(UserRole.self, forKey: .role)
+        role      = try c.decodeIfPresent(UserRole.self, forKey: .role)
         avatarUrl = try c.decodeIfPresent(String.self, forKey: .avatarUrl)
         isPrimary = try c.decodeIfPresent(Bool.self, forKey: .isPrimary)
 
@@ -94,7 +94,7 @@ struct UserProfile: Identifiable, Codable {
         try c.encode(email, forKey: .email)
         try c.encodeIfPresent(phone, forKey: .phone)
         try c.encodeIfPresent(language, forKey: .language)
-        try c.encode(role, forKey: .role)
+        try c.encodeIfPresent(role, forKey: .role)
         try c.encodeIfPresent(avatarUrl, forKey: .avatarUrl)
         try c.encodeIfPresent(isPrimary, forKey: .isPrimary)
         try c.encodeIfPresent(family, forKey: .family)
@@ -1478,10 +1478,20 @@ struct PurchaseRequest: Identifiable, Codable {
         self.requester = requester; self.notes = notes; self.items = items
     }
 
+    // Backend only accepts enum keys: food | daily | medical | other.
+    // UI uses Chinese labels; map both ways so the wire format stays valid.
+    private static let categoryToWire: [String: String] = [
+        "食品": "food", "日用品": "daily", "醫療用品": "medical", "其他": "other",
+    ]
+    private static let wireToCategory: [String: String] = [
+        "food": "食品", "daily": "日用品", "medical": "醫療用品", "other": "其他",
+    ]
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id        = try c.decode(String.self, forKey: .id)
-        category  = (try? c.decodeIfPresent(String.self, forKey: .category)) ?? ""
+        let rawCat = (try? c.decodeIfPresent(String.self, forKey: .category)) ?? ""
+        category  = PurchaseRequest.wireToCategory[rawCat] ?? rawCat
         status    = (try? c.decodeIfPresent(String.self, forKey: .status)) ?? "pending"
         createdAt = (try? c.decodeIfPresent(Date.self, forKey: .createdAt)) ?? Date()
         notes     = (try? c.decodeIfPresent(String.self, forKey: .note)) ?? ""
@@ -1501,7 +1511,8 @@ struct PurchaseRequest: Identifiable, Codable {
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(category, forKey: .category)
+        let wireCat = PurchaseRequest.categoryToWire[category] ?? category
+        try c.encode(wireCat, forKey: .category)
         try c.encode(items.isEmpty ? [PurchaseItem(name: title, nameTranslated: nil, quantity: nil)] : items,
                      forKey: .items)
         try c.encode(notes, forKey: .note)

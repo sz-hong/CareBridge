@@ -30,10 +30,13 @@ struct CareBridgeApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if isLoggedIn {
-                    ContentView(isLoggedIn: $isLoggedIn, userRole: userRole)
-                } else {
+                if !isLoggedIn {
                     LoginView(isLoggedIn: $isLoggedIn, userRole: $userRole)
+                } else if userStore.currentUser?.family == nil {
+                    // 已登入但尚未加入/建立家庭
+                    FamilySelectionView(isLoggedIn: $isLoggedIn, userRole: $userRole)
+                } else {
+                    ContentView(isLoggedIn: $isLoggedIn, userRole: userRole)
                 }
             }
             .environment(userStore)

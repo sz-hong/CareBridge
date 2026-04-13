@@ -111,36 +111,39 @@ class ExpenseViewSet(ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='monthly')
     def monthly(self, request):
-        """GET /expenses/monthly/ — Aggregate by month: total, count, category breakdown."""
+        """GET /expenses/monthly/ — Current-month total + category breakdown (%)."""
         family = request.user.family
+        today = timezone.now().date()
+        month_start = today.replace(day=1)
+
         qs = Expense.objects.filter(
             family=family,
             status=Expense.Status.COMPLETED,
+            date__gte=month_start,
+            date__lte=today,
         )
 
-        date_from = request.query_params.get('date_from')
-        date_to = request.query_params.get('date_to')
-        if date_from:
-            qs = qs.filter(date__gte=date_from)
-        if date_to:
-            qs = qs.filter(date__lte=date_to)
+        monthly_total = 0.0
+        category_totals = {}
+        for expense in qs:
+            monthly_total += float(expense.total_amount or 0)
+            for item in (expense.items or []):
+                cat = item.get('category') or '其他'
+                amount = float(item.get('total') or 0)
+                category_totals[cat] = category_totals.get(cat, 0.0) + amount
 
-        monthly_totals = (
-            qs.annotate(month=TruncMonth('date'))
-            .values('month')
-            .annotate(
-                total_amount=Sum('total_amount'),
-                count=Count('id'),
-            )
-            .order_by('month')
-        )
-
-        data = [
+        total_for_pct = sum(category_totals.values()) or 1.0
+        category_breakdown = [
             {
-                'month': item['month'].isoformat(),
-                'total_amount': float(item['total_amount'] or 0),
-                'count': item['count'],
+                'category': cat,
+                'percentage': round(amount / total_for_pct * 100, 1),
             }
-            for item in monthly_totals
+            for cat, amount in sorted(
+                category_totals.items(), key=lambda x: -x[1]
+            )
         ]
-        return success_response(data=data)
+
+        return success_response(data={
+            'monthly_total': round(monthly_total, 2),
+            'category_breakdown': category_breakdown,
+        })

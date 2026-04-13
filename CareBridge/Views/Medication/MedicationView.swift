@@ -148,7 +148,9 @@ struct MedicationView: View {
             medStore.markDoseTaken(index: index)
         }
 
-        // Auto-create care log entry
+        // Backend's `confirmMedication` endpoint already creates a CareLog entry
+        // (see medication/views.py confirm action). Insert locally for instant UI
+        // feedback without re-posting and creating a duplicate row.
         let entry = CareLogEntry(
             id: UUID().uuidString,
             type: .medication,
@@ -157,7 +159,7 @@ struct MedicationView: View {
             timestamp: Date(),
             hasPhoto: false
         )
-        careLogStore.addEntry(entry)
+        careLogStore.entries.insert(entry, at: 0)
     }
 }
 

@@ -6,7 +6,7 @@ struct LoginView: View {
     @Binding var userRole: UserRole
     @State private var email = ""
     @State private var password = ""
-    @State private var showJoinFamily = false
+    @State private var showSignUp = false
     @State private var showForgotPassword = false
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -171,14 +171,7 @@ struct LoginView: View {
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                         Button("Sign Up") {
-                            showJoinFamily = true
-                        }
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color.brandTeal)
-                        Text("\u{2022}")
-                            .foregroundStyle(.secondary)
-                        Button("加入家庭") {
-                            showJoinFamily = true
+                            showSignUp = true
                         }
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(Color.brandTeal)
@@ -199,8 +192,8 @@ struct LoginView: View {
             }
             .scrollIndicators(.hidden)
         }
-        .fullScreenCover(isPresented: $showJoinFamily) {
-            JoinFamilyView(isLoggedIn: $isLoggedIn, userRole: $userRole)
+        .fullScreenCover(isPresented: $showSignUp) {
+            SignUpView(isLoggedIn: $isLoggedIn, userRole: $userRole)
         }
         .sheet(isPresented: $showForgotPassword) {
             ForgotPasswordView()
@@ -219,7 +212,7 @@ struct LoginView: View {
             let response = try await service.login(email: email, password: password)
             userStore.populate(from: response)
             userStore.load()   // async fetch family members
-            userRole = response.user.role
+            userRole = response.user.role ?? .family
             await MainActor.run { withAnimation { isLoggedIn = true } }
         } catch {
             print("🔴 Login failed: \(error)")
@@ -247,7 +240,7 @@ struct LoginView: View {
             )
             if success {
                 let response = try await service.login(email: "mock@carebridge.com", password: "mock")
-                userRole = response.user.role
+                userRole = response.user.role ?? .family
                 await MainActor.run { withAnimation { isLoggedIn = true } }
             }
         } catch {

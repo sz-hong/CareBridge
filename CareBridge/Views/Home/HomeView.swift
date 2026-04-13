@@ -12,10 +12,41 @@ extension Color {
 struct HomeView: View {
     @Binding var showProfile: Bool
     let userRole: UserRole
-    @State private var health = HealthData.sample
+    @Environment(UserStore.self) private var userStore
+    @Environment(MedicationStore.self) private var medicationStore
+    @Environment(\.dataService) private var service
+    @State private var health: HealthData = .sample
+    @State private var weeklySteps: [Int] = HealthData.weeklySteps
     @State private var showNotifications = false
     @State private var showSOS = false
     private let weekDays = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+
+    /// 今天在 Mon-Sun 陣列中的 index（Mon=0, Sun=6）
+    private var todayWeekdayIndex: Int {
+        // Calendar.weekday: 1=Sun, 2=Mon, ..., 7=Sat
+        let weekday = Calendar.current.component(.weekday, from: Date())
+        return (weekday + 5) % 7
+    }
+
+    /// 下一劑尚未服用的藥物時間字串
+    private var nextDoseDescription: String {
+        let cal = Calendar.current
+        let now = Date()
+        let curMins = cal.component(.hour, from: now) * 60 + cal.component(.minute, from: now)
+        let upcoming = medicationStore.doses.first {
+            !$0.isDone && timeStringToMinutes($0.time) > curMins
+        }
+        guard let d = upcoming else {
+            return medicationStore.doses.isEmpty ? "暫無藥物" : "今日完成"
+        }
+        return "Next: \(d.time)"
+    }
+
+    private func timeStringToMinutes(_ t: String) -> Int {
+        let parts = t.split(separator: ":").compactMap { Int($0) }
+        guard parts.count == 2 else { return 0 }
+        return parts[0] * 60 + parts[1]
+    }
 
     var body: some View {
         NavigationStack {
@@ -89,6 +120,13 @@ struct HomeView: View {
             .sheet(isPresented: $showSOS) {
                 NavigationStack { FirstAidView(isModal: true) }
             }
+            .task {
+                medicationStore.load()
+                async let h = service.fetchHealthData(elderId: "")
+                async let s = service.fetchWeeklySteps(elderId: "")
+                health      = (try? await h) ?? .sample
+                weeklySteps = (try? await s) ?? HealthData.weeklySteps
+            }
         }
     }
 
@@ -99,7 +137,7 @@ struct HomeView: View {
                 Text(greetingText)
                     .font(.system(size: 32, weight: .bold))
                     .foregroundStyle(.primary)
-                Text("Hank")
+                Text(userStore.currentUser?.name ?? "")
                     .font(.system(size: 32, weight: .bold))
                     .foregroundStyle(.primary)
             }
@@ -176,10 +214,10 @@ struct HomeView: View {
 
             // Bar chart
             HStack(alignment: .bottom, spacing: 8) {
-                ForEach(Array(HealthData.weeklySteps.enumerated()), id: \.offset) { index, steps in
+                ForEach(Array(weeklySteps.enumerated()), id: \.offset) { index, steps in
                     VStack(spacing: 4) {
                         RoundedRectangle(cornerRadius: 6)
-                            .fill(index == 3 ? Color.brandTeal : Color.brandTealLight)
+                            .fill(index == todayWeekdayIndex ? Color.brandTeal : Color.brandTealLight)
                             .frame(height: CGFloat(steps) / 35)
                         Text(weekDays[index])
                             .font(.system(size: 9, weight: .medium))
@@ -235,13 +273,13 @@ struct HomeView: View {
                         Text("Medication")
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(.primary)
-                        Text("Next: 2:00 PM")
+                        Text(nextDoseDescription)
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text("2/3")
+                        Text("\(medicationStore.takenCount)/\(medicationStore.totalCount)")
                             .font(.system(size: 16, weight: .bold))
                             .foregroundStyle(Color.brandTeal)
                         Text("DONE")
@@ -271,13 +309,15 @@ struct HomeView: View {
                         Text("Pressure")
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(.primary)
-                        Text("Last check: 9 AM")
+                        Text("Last check: \(health.timestamp.formatted(.dateTime.hour().minute()))")
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text("128/82")
+                        Text(health.bloodPressureSystolic > 0
+                             ? "\(health.bloodPressureSystolic)/\(health.bloodPressureDiastolic)"
+                             : "--/--")
                             .font(.system(size: 16, weight: .bold))
                             .foregroundStyle(.primary)
                         Text("NORMAL")
@@ -374,8 +414,10 @@ struct HomeView: View {
 }
 
 #Preview {
+    let svc = MockDataService()
     HomeView(showProfile: .constant(false), userRole: .family)
-        .environment(MedicationStore())
-        .environment(CareLogStore())
-        .environment(CalendarStore())
+        .environment(MedicationStore(service: svc))
+        .environment(CareLogStore(service: svc))
+        .environment(CalendarStore(service: svc))
+        .environment(UserStore(service: svc))
 }

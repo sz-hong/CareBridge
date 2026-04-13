@@ -43,13 +43,37 @@ elder, _ = User.objects.get_or_create(
 elder.set_password('test1234')
 elder.save()
 
+# 無家庭測試帳號 A：用來測試「建立新家庭」流程
+no_family_a, _ = User.objects.get_or_create(
+    email='creator@carebridge.com',
+    defaults=dict(
+        name='測試建立者', role='family_member', language='zh-TW',
+    ),
+)
+no_family_a.set_password('test1234')
+no_family_a.family = None
+no_family_a.is_primary = False
+no_family_a.save()
+
+# 無家庭測試帳號 B：用來測試「加入家庭」流程
+no_family_b, _ = User.objects.get_or_create(
+    email='joiner@carebridge.com',
+    defaults=dict(
+        name='測試加入者', role='caregiver', language='zh-TW',
+    ),
+)
+no_family_b.set_password('test1234')
+no_family_b.family = None
+no_family_b.is_primary = False
+no_family_b.save()
+
 print(f'✅ Users: {User.objects.count()} 筆')
 
 # ─── 2. Family ──────────────────────────────────────────────
 from apps.family.models import Family
 
 family, _ = Family.objects.get_or_create(
-    invite_code='CARE2026',
+    invite_code='202600',
     defaults=dict(
         name='王家', elder_name='王大明',
         elder_birth_date=date(1945, 3, 15),

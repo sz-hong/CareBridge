@@ -12,10 +12,9 @@ from .models import Family
 from .serializers import FamilySerializer, CreateFamilySerializer, JoinFamilySerializer
 
 
-def generate_invite_code(length=8):
-    alphabet = string.ascii_uppercase + string.digits
+def generate_invite_code(length=6):
     while True:
-        code = ''.join(secrets.choice(alphabet) for _ in range(length))
+        code = ''.join(secrets.choice(string.digits) for _ in range(length))
         if not Family.objects.filter(invite_code=code).exists():
             return code
 
@@ -41,10 +40,11 @@ class FamilyViewSet(ModelViewSet):
             invite_code=generate_invite_code(),
             created_by=request.user,
         )
-        # Add creator as primary member
+        # Creator is always the primary family member
         request.user.family = family
         request.user.is_primary = True
-        request.user.save(update_fields=['family', 'is_primary'])
+        request.user.role = 'family_member'
+        request.user.save(update_fields=['family', 'is_primary', 'role'])
 
         return success_response(
             data=FamilySerializer(family).data,

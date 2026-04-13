@@ -9,7 +9,7 @@ class Family(models.Model):
     name = models.CharField(max_length=100)
     elder_name = models.CharField(max_length=100)
     elder_birth_date = models.DateField(null=True, blank=True)
-    invite_code = models.CharField(max_length=8, unique=True)
+    invite_code = models.CharField(max_length=6, unique=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

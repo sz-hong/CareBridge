@@ -10,6 +10,8 @@ struct SpendingView: View {
     let userRole: UserRole
     @Environment(\.dataService) private var service
     @State private var expenses: [Expense] = []
+    @State private var summary: SpendingSummary? = nil
+    @State private var showAllExpenses = false
     @State private var showDocumentCamera = false   // 直接開啟掃描器
     @State private var showOCRConfirmation = false
     @State private var pendingOCRResult: OCRResult? = nil
@@ -136,8 +138,14 @@ struct SpendingView: View {
             .navigationDestination(isPresented: $showNotifications) {
                 NotificationCenterView()
             }
+            .navigationDestination(isPresented: $showAllExpenses) {
+                AllExpensesView()
+            }
             .task {
-                expenses = (try? await service.fetchExpenses(month: nil)) ?? []
+                async let e = service.fetchExpenses(month: nil)
+                async let s = service.fetchSpendingSummary(month: nil)
+                expenses = (try? await e) ?? []
+                summary  = try? await s
             }
         }
     }
@@ -173,6 +181,41 @@ struct SpendingView: View {
         }
     }
 
+    // MARK: - Chart Helpers
+
+    private struct LegendItem { let name: String; let percentage: Double; let color: Color }
+
+    private func colorForCategory(_ cat: String) -> Color {
+        switch cat {
+        case "醫療保健": return .brandTeal
+        case "日常飲食": return .orange
+        case "生活用品": return .purple
+        default: return Color(.systemGray4)
+        }
+    }
+
+    private func donutSegments() -> [(from: Double, to: Double, color: Color)] {
+        guard let items = summary?.categoryBreakdown, !items.isEmpty else {
+            return [(0, 0.45, .brandTeal), (0.45, 0.70, .orange),
+                    (0.70, 0.90, .purple), (0.90, 1.0, Color(.systemGray4))]
+        }
+        var segs: [(Double, Double, Color)] = []
+        var acc: Double = 0
+        for item in items {
+            let frac = item.percentage / 100.0
+            segs.append((acc, acc + frac, colorForCategory(item.category)))
+            acc += frac
+        }
+        return segs
+    }
+
+    private func legendItems() -> [LegendItem] {
+        guard let items = summary?.categoryBreakdown, !items.isEmpty else {
+            return Expense.categoryBreakdown.map { LegendItem(name: $0.0, percentage: $0.1, color: $0.2) }
+        }
+        return items.map { LegendItem(name: $0.category, percentage: $0.percentage, color: colorForCategory($0.category)) }
+    }
+
     // MARK: - Monthly Card
     private var monthlyCard: some View {
         VStack(spacing: 16) {
@@ -181,7 +224,7 @@ struct SpendingView: View {
                     Text("本月支出總計")
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
-                    Text("NT$ \(Int(Expense.monthlyTotal).formatted())")
+                    Text("NT$ \(Int(summary?.monthlyTotal ?? 0).formatted())")
                         .font(.system(size: 34, weight: .bold))
                 }
                 Spacer()
@@ -199,34 +242,20 @@ struct SpendingView: View {
                 }
             }
 
-            // Donut chart simulation
+            // Donut chart
             ZStack {
-                // Outer ring segments
-                Circle()
-                    .trim(from: 0, to: 0.45)
-                    .stroke(Color.brandTeal, lineWidth: 20)
-                    .rotationEffect(.degrees(-90))
-
-                Circle()
-                    .trim(from: 0.45, to: 0.70)
-                    .stroke(Color.orange, lineWidth: 20)
-                    .rotationEffect(.degrees(-90))
-
-                Circle()
-                    .trim(from: 0.70, to: 0.90)
-                    .stroke(Color.purple, lineWidth: 20)
-                    .rotationEffect(.degrees(-90))
-
-                Circle()
-                    .trim(from: 0.90, to: 1.0)
-                    .stroke(Color(.systemGray4), lineWidth: 20)
-                    .rotationEffect(.degrees(-90))
-
+                ForEach(donutSegments().indices, id: \.self) { i in
+                    let seg = donutSegments()[i]
+                    Circle()
+                        .trim(from: seg.from, to: seg.to)
+                        .stroke(seg.color, lineWidth: 20)
+                        .rotationEffect(.degrees(-90))
+                }
                 VStack(spacing: 2) {
-                    Text("AUGUST")
+                    Text(Date().formatted(.dateTime.month(.wide)).uppercased())
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
-                    Text("2024")
+                    Text(String(Calendar.current.component(.year, from: Date())))
                         .font(.system(size: 16, weight: .bold))
                 }
             }
@@ -235,14 +264,14 @@ struct SpendingView: View {
 
             // Legend
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                ForEach(Expense.categoryBreakdown, id: \.0) { name, pct, color in
+                ForEach(legendItems(), id: \.name) { item in
                     HStack(spacing: 8) {
-                        Circle().fill(color).frame(width: 8, height: 8)
+                        Circle().fill(item.color).frame(width: 8, height: 8)
                         VStack(alignment: .leading, spacing: 0) {
-                            Text(name)
+                            Text(item.name)
                                 .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
-                            Text("\(Int(pct))%")
+                            Text("\(Int(item.percentage))%")
                                 .font(.system(size: 14, weight: .semibold))
                         }
                         Spacer()
@@ -262,9 +291,7 @@ struct SpendingView: View {
                 Text("最近交易")
                     .font(.system(size: 17, weight: .bold))
                 Spacer()
-                Button {
-                    // Show all
-                } label: {
+                Button { showAllExpenses = true } label: {
                     Text("查看全部")
                         .font(.system(size: 14))
                         .foregroundStyle(Color.brandTeal)
@@ -902,6 +929,33 @@ struct ShareSheet: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+// MARK: - All Expenses View
+struct AllExpensesView: View {
+    @Environment(\.dataService) private var service
+    @State private var expenses: [Expense] = []
+
+    private let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy/M/d"
+        return f
+    }()
+
+    var body: some View {
+        List(expenses) { expense in
+            ExpenseRow(expense: expense)
+                .listRowBackground(Color.white)
+                .listRowSeparatorTint(Color(.systemGray5))
+        }
+        .listStyle(.plain)
+        .background(Color.brandBackground)
+        .navigationTitle("消費記錄")
+        .navigationBarTitleDisplayMode(.large)
+        .task {
+            expenses = (try? await service.fetchExpenses(month: nil)) ?? []
+        }
+    }
 }
 
 #Preview {

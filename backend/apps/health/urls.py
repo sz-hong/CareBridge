@@ -3,7 +3,7 @@ from rest_framework.routers import DefaultRouter
 
 from .views import HealthDataViewSet
 
-router = DefaultRouter(trailing_slash=False)
+router = DefaultRouter()
 router.register('', HealthDataViewSet, basename='health-data')
 
 urlpatterns = [
