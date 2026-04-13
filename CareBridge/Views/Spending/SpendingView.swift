@@ -185,12 +185,20 @@ struct SpendingView: View {
 
     private struct LegendItem { let name: String; let percentage: Double; let color: Color }
 
+    /// Maps backend enum keys (food/medical/…) to the UI's Chinese labels so
+    /// summary data from `/expenses/monthly/` matches the picker's category names.
+    private func normalizeCategory(_ cat: String) -> String {
+        Expense.wireToCategory[cat] ?? cat
+    }
+
     private func colorForCategory(_ cat: String) -> Color {
-        switch cat {
+        switch normalizeCategory(cat) {
         case "醫療保健": return .brandTeal
         case "日常飲食": return .orange
         case "生活用品": return .purple
-        default: return Color(.systemGray4)
+        case "交通":    return .blue
+        case "其他":    return .pink
+        default:        return Color(.systemGray4)
         }
     }
 
@@ -213,7 +221,9 @@ struct SpendingView: View {
         guard let items = summary?.categoryBreakdown, !items.isEmpty else {
             return Expense.categoryBreakdown.map { LegendItem(name: $0.0, percentage: $0.1, color: $0.2) }
         }
-        return items.map { LegendItem(name: $0.category, percentage: $0.percentage, color: colorForCategory($0.category)) }
+        return items.map { LegendItem(name: normalizeCategory($0.category),
+                                       percentage: $0.percentage,
+                                       color: colorForCategory($0.category)) }
     }
 
     // MARK: - Monthly Card

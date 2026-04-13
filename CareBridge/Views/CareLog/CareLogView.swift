@@ -453,7 +453,7 @@ struct TimelineEntryRow: View {
                         Text("BLOOD\nPRESSURE")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
-                        Text("118/75")
+                        Text(bloodPressureText)
                             .font(.system(size: 20, weight: .bold))
                         Text("mmHg")
                             .font(.system(size: 11))
@@ -467,12 +467,17 @@ struct TimelineEntryRow: View {
                         Text("HEART\nRATE")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
-                        Text("72 bpm")
+                        Text(heartRateText)
                             .font(.system(size: 20, weight: .bold))
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color(.systemGray6)))
+                }
+                if let extra = extraVitalsText {
+                    Text(extra)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
                 }
             } else {
                 Text(entry.detail)
@@ -494,6 +499,40 @@ struct TimelineEntryRow: View {
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 12).fill(.white))
+    }
+
+    // MARK: - Vital parsing
+
+    /// Blood pressure — prefer structured fields, fall back to regex-parsing detail.
+    private var bloodPressureText: String {
+        if let s = entry.bloodPressureSystolic, let d = entry.bloodPressureDiastolic {
+            return "\(s)/\(d)"
+        }
+        if let m = entry.detail.range(of: #"(\d{2,3})\s*/\s*(\d{2,3})"#, options: .regularExpression) {
+            return entry.detail[m]
+                .replacingOccurrences(of: " ", with: "")
+        }
+        return "—/—"
+    }
+
+    /// Heart rate — parsed from the detail string (e.g. "心率 72 bpm").
+    private var heartRateText: String {
+        let patterns = [#"心率\s*(\d{2,3})"#, #"(\d{2,3})\s*bpm"#]
+        for p in patterns {
+            if let m = entry.detail.range(of: p, options: .regularExpression) {
+                let digits = entry.detail[m].compactMap { $0.isNumber ? $0 : nil }
+                if !digits.isEmpty { return "\(String(digits)) bpm" }
+            }
+        }
+        return "— bpm"
+    }
+
+    /// Blood oxygen / condition label appended below the two tiles.
+    private var extraVitalsText: String? {
+        let parts = entry.detail.components(separatedBy: "｜")
+        let extras = parts.filter { !$0.contains("血壓") && !$0.contains("心率") }
+        let text = extras.joined(separator: "｜")
+        return text.isEmpty ? nil : text
     }
 }
 
@@ -766,7 +805,9 @@ struct AddCareLogView: View {
             title: title,
             detail: detail,
             timestamp: recordDate,
-            hasPhoto: false
+            hasPhoto: false,
+            bloodPressureSystolic:  selectedType == .vital ? Int(bp_systolic)  : nil,
+            bloodPressureDiastolic: selectedType == .vital ? Int(bp_diastolic) : nil
         )
         onAdd(entry)
         dismiss()

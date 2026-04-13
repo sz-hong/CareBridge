@@ -407,6 +407,10 @@ struct CareLogEntry: Identifiable, Codable {
     var detail: String      // generated from API content JSONB
     var timestamp: Date     // API: timestamp
     var hasPhoto: Bool      // derived from photo_url != nil
+    /// Structured vitals — populated for .vital entries so HomeView can
+    /// show the latest reading without regex-parsing `detail`.
+    var bloodPressureSystolic: Int? = nil
+    var bloodPressureDiastolic: Int? = nil
 
     // MARK: Custom Coding
     private enum CodingKeys: String, CodingKey {
@@ -439,9 +443,14 @@ struct CareLogEntry: Identifiable, Codable {
         }
     }
 
-    init(id: String, type: CareLogType, title: String, detail: String, timestamp: Date, hasPhoto: Bool) {
+    init(id: String, type: CareLogType, title: String, detail: String,
+         timestamp: Date, hasPhoto: Bool,
+         bloodPressureSystolic: Int? = nil,
+         bloodPressureDiastolic: Int? = nil) {
         self.id = id; self.type = type; self.title = title
         self.detail = detail; self.timestamp = timestamp; self.hasPhoto = hasPhoto
+        self.bloodPressureSystolic = bloodPressureSystolic
+        self.bloodPressureDiastolic = bloodPressureDiastolic
     }
 
     init(from decoder: Decoder) throws {
@@ -461,6 +470,8 @@ struct CareLogEntry: Identifiable, Codable {
             var parts: [String] = []
             if let s = content.bloodPressureSystolic, let d = content.bloodPressureDiastolic {
                 parts.append("血壓 \(Int(s))/\(Int(d)) mmHg")
+                bloodPressureSystolic  = Int(s)
+                bloodPressureDiastolic = Int(d)
             }
             if let bs = content.bloodSugar { parts.append("血糖 \(bs)") }
             if let t  = content.temperature { parts.append("體溫 \(t)°C") }
@@ -483,14 +494,18 @@ struct CareLogEntry: Identifiable, Codable {
         try c.encode(id, forKey: .id)
         try c.encode(type, forKey: .type)
         try c.encode(timestamp, forKey: .timestamp)
-        // Encode minimal content based on type
-        var content: [String: String] = [:]
+        // Encode minimal content based on type. AnyCodable-free: use a mixed dict
+        // so numeric vitals stay numeric instead of being stringified.
+        var content: [String: AnyEncodable] = [:]
         switch type {
-        case .note:       content["text"] = detail
-        case .vital:      content["note"] = detail
-        case .meal:       content["description"] = detail
-        case .activity:   content["note"] = detail
-        case .medication: content["medication_name"] = title
+        case .note:       content["text"]        = AnyEncodable(detail)
+        case .vital:
+            if let s = bloodPressureSystolic  { content["blood_pressure_systolic"]  = AnyEncodable(s) }
+            if let d = bloodPressureDiastolic { content["blood_pressure_diastolic"] = AnyEncodable(d) }
+            content["note"] = AnyEncodable(detail)
+        case .meal:       content["description"] = AnyEncodable(detail)
+        case .activity:   content["note"]        = AnyEncodable(detail)
+        case .medication: content["medication_name"] = AnyEncodable(title)
         }
         try c.encode(content, forKey: .content)
     }
@@ -905,15 +920,32 @@ struct Expense: Identifiable, Codable {
         self.receiptImage = receiptImage
     }
 
+    // Backend stores per-item category as enum keys inside `items` JSONB.
+    // UI uses Chinese labels from OCRConfirmationView's picker; translate both ways.
+    static let categoryToWire: [String: String] = [
+        "醫療保健": "medical",
+        "日常飲食": "food",
+        "生活用品": "daily",
+        "交通":    "transport",
+        "其他":    "other",
+    ]
+    static let wireToCategory: [String: String] = [
+        "medical":   "醫療保健",
+        "food":      "日常飲食",
+        "daily":     "生活用品",
+        "transport": "交通",
+        "other":     "其他",
+    ]
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id       = try c.decode(String.self, forKey: .id)
         title    = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
         // Backend has no top-level `category`; category is a per-item field inside items JSONB.
-        // Attempt to read first item's category if present, otherwise leave blank.
+        // Read first item's category and normalize backend enum keys to UI labels.
         if let items = try? c.decodeIfPresent([[String: String]].self, forKey: .items),
-           let cat = items.first?["category"] {
-            category = cat
+           let raw = items.first?["category"], !raw.isEmpty {
+            category = Expense.wireToCategory[raw] ?? raw
         } else {
             category = ""
         }
@@ -939,9 +971,10 @@ struct Expense: Identifiable, Codable {
         try c.encode(amount, forKey: .amount)
         let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
         try c.encode(df.string(from: date), forKey: .date)
+        let wireCat = Expense.categoryToWire[category] ?? category
         let item: [String: String] = [
             "name": title,
-            "category": category,
+            "category": wireCat,
         ]
         try c.encode([item], forKey: .items)
     }
@@ -951,7 +984,9 @@ struct Expense: Identifiable, Codable {
         case "醫療保健": return "cross.fill"
         case "日常飲食": return "fork.knife"
         case "生活用品": return "shippingbox.fill"
-        default: return "bag.fill"
+        case "交通":    return "car.fill"
+        case "其他":    return "bag.fill"
+        default:        return "bag.fill"
         }
     }
 
@@ -960,7 +995,9 @@ struct Expense: Identifiable, Codable {
         case "醫療保健": return Color(red: 0.0, green: 0.55, blue: 0.6)
         case "日常飲食": return .orange
         case "生活用品": return .purple
-        default: return .gray
+        case "交通":    return .blue
+        case "其他":    return .pink
+        default:        return .gray
         }
     }
 

@@ -14,6 +14,7 @@ struct HomeView: View {
     let userRole: UserRole
     @Environment(UserStore.self) private var userStore
     @Environment(MedicationStore.self) private var medicationStore
+    @Environment(CareLogStore.self) private var careLogStore
     @Environment(\.dataService) private var service
     @State private var health: HealthData = .sample
     @State private var weeklySteps: [Int] = HealthData.weeklySteps
@@ -46,6 +47,29 @@ struct HomeView: View {
         let parts = t.split(separator: ":").compactMap { Int($0) }
         guard parts.count == 2 else { return 0 }
         return parts[0] * 60 + parts[1]
+    }
+
+    /// Most recent blood-pressure reading from the care log. Falls back to
+    /// regex-parsing `detail` for entries saved before the structured fields
+    /// were introduced.
+    private var latestBloodPressure: (systolic: Int, diastolic: Int, at: Date)? {
+        let vitals = careLogStore.entries
+            .filter { $0.type == .vital }
+            .sorted { $0.timestamp > $1.timestamp }
+        for entry in vitals {
+            if let s = entry.bloodPressureSystolic, let d = entry.bloodPressureDiastolic {
+                return (s, d, entry.timestamp)
+            }
+            if let match = entry.detail.range(of: #"(\d{2,3})\s*/\s*(\d{2,3})"#, options: .regularExpression) {
+                let parts = entry.detail[match].split(separator: "/").map {
+                    Int($0.trimmingCharacters(in: .whitespaces)) ?? 0
+                }
+                if parts.count == 2, parts[0] > 0, parts[1] > 0 {
+                    return (parts[0], parts[1], entry.timestamp)
+                }
+            }
+        }
+        return nil
     }
 
     var body: some View {
@@ -122,6 +146,7 @@ struct HomeView: View {
             }
             .task {
                 medicationStore.load()
+                careLogStore.load()
                 async let h = service.fetchHealthData(elderId: "")
                 async let s = service.fetchWeeklySteps(elderId: "")
                 health      = (try? await h) ?? .sample
@@ -309,15 +334,13 @@ struct HomeView: View {
                         Text("Pressure")
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(.primary)
-                        Text("Last check: \(health.timestamp.formatted(.dateTime.hour().minute()))")
+                        Text("Last check: \((latestBloodPressure?.at ?? health.timestamp).formatted(.dateTime.hour().minute()))")
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text(health.bloodPressureSystolic > 0
-                             ? "\(health.bloodPressureSystolic)/\(health.bloodPressureDiastolic)"
-                             : "--/--")
+                        Text(latestBloodPressure.map { "\($0.systolic)/\($0.diastolic)" } ?? "--/--")
                             .font(.system(size: 16, weight: .bold))
                             .foregroundStyle(.primary)
                         Text("NORMAL")
