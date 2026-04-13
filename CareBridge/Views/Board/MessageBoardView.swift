@@ -32,8 +32,8 @@ struct MessageBoardView: View {
                     ForEach(filteredRequests) { req in
                         PurchaseRequestCard(request: req,
                                             userRole: userRole,
-                                            onApprove: { updateStatus(req, to: "已核准") },
-                                            onReject: { updateStatus(req, to: "已駁回") })
+                                            onApprove: { updateStatus(req, to: "approved") },
+                                            onReject: { updateStatus(req, to: "rejected") })
                     }
                     Spacer(minLength: 20)
                 }
@@ -61,11 +61,9 @@ struct MessageBoardView: View {
             }
         }
         .sheet(isPresented: $showAddRequest) {
-            Text("新增採購需求")
-                .font(.title2)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.brandBackground)
+            AddPurchaseRequestView { newRequest in
+                requests.insert(newRequest, at: 0)
+            }
         }
         .task {
             requests = (try? await service.fetchPurchaseRequests()) ?? []
@@ -86,6 +84,83 @@ struct MessageBoardView: View {
                     requester: request.requester,
                     notes: request.notes
                 )
+            }
+        }
+        Task { _ = try? await service.updatePurchaseRequestStatus(id: request.id, status: status) }
+    }
+}
+
+// MARK: - Add Purchase Request View
+struct AddPurchaseRequestView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dataService) private var service
+    let onAdd: (PurchaseRequest) -> Void
+
+    @State private var itemName = ""
+    @State private var itemQuantity = ""
+    @State private var category = "食品"
+    @State private var notes = ""
+    @State private var isSubmitting = false
+
+    private let categories = ["食品", "日用品", "醫療用品", "其他"]
+
+    private var canSubmit: Bool { !itemName.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("品項") {
+                    TextField("物品名稱", text: $itemName)
+                    TextField("數量（選填）", text: $itemQuantity)
+                }
+                Section("類別") {
+                    Picker("類別", selection: $category) {
+                        ForEach(categories, id: \.self) { Text($0).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                Section("備註") {
+                    TextEditor(text: $notes)
+                        .frame(height: 80)
+                }
+            }
+            .navigationTitle("新增採購需求")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("取消") { dismiss() }
+                        .foregroundStyle(.secondary)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("送出") {
+                        Task {
+                            isSubmitting = true
+                            let item = PurchaseRequest.PurchaseItem(
+                                name: itemName,
+                                nameTranslated: nil,
+                                quantity: itemQuantity.isEmpty ? nil : itemQuantity
+                            )
+                            let req = PurchaseRequest(
+                                id: UUID().uuidString,
+                                title: itemName,
+                                category: category,
+                                description: itemName,
+                                estimatedCost: nil,
+                                status: "pending",
+                                createdAt: Date(),
+                                requester: "",
+                                notes: notes,
+                                items: [item]
+                            )
+                            let created = (try? await service.createPurchaseRequest(req)) ?? req
+                            onAdd(created)
+                            dismiss()
+                        }
+                    }
+                    .bold()
+                    .foregroundStyle(Color.brandTeal)
+                    .disabled(!canSubmit || isSubmitting)
+                }
             }
         }
     }

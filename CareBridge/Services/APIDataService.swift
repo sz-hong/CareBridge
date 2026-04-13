@@ -21,9 +21,15 @@ class APIDataService: DataService {
         self.authToken = KeychainService.accessToken
     }
 
+    // Used to parse {"success":false,"error":{"code":"...","message":"..."}} error responses
+    private struct _ErrBody: Decodable {
+        struct ErrDetail: Decodable { let message: String? }
+        let error: ErrDetail?
+    }
+
     // MARK: - Generic Request Helpers
 
-    private func request<T: Codable>(_ method: String, path: String, body: (any Encodable)? = nil) async throws -> T {
+    private func request<T: Codable>(_ method: String, path: String, body: (any Encodable)? = nil, retried: Bool = false) async throws -> T {
         guard let url = URL(string: "\(baseURL)\(path)") else {
             throw URLError(.badURL)
         }
@@ -41,10 +47,27 @@ class APIDataService: DataService {
         }
 
         let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.serverError(statusCode: 0)
+        }
 
-        guard let http = response as? HTTPURLResponse, 200...299 ~= http.statusCode else {
-            let http = response as? HTTPURLResponse
-            throw APIError.serverError(statusCode: http?.statusCode ?? 0)
+        // 401 → try refresh once, then retry the original request
+        if http.statusCode == 401, !retried, authToken != nil {
+            if await refreshAccessToken() {
+                return try await request(method, path: path, body: body, retried: true)
+            }
+            authToken = nil
+            KeychainService.clearAll()
+            throw APIError.serverError(statusCode: 401)
+        }
+
+        guard 200...299 ~= http.statusCode else {
+            // 嘗試解析後端錯誤訊息 {"success":false,"error":{"code":"...","message":"..."}}
+            if let parsed = try? decoder.decode(_ErrBody.self, from: data),
+               let msg = parsed.error?.message, !msg.isEmpty {
+                throw APIError.backendError(statusCode: http.statusCode, message: msg)
+            }
+            throw APIError.serverError(statusCode: http.statusCode)
         }
 
         let apiResponse = try decoder.decode(APIResponse<T>.self, from: data)
@@ -52,6 +75,35 @@ class APIDataService: DataService {
             throw APIError.emptyResponse
         }
         return result
+    }
+
+    /// Exchange refresh token for a new access token (SimpleJWT, rotation enabled).
+    /// Response format is `{access, refresh}` without the `{success,data}` envelope.
+    private func refreshAccessToken() async -> Bool {
+        guard let refresh = KeychainService.refreshToken,
+              let url = URL(string: "\(baseURL)/auth/token/refresh/") else { return false }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["refresh": refresh])
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: req)
+            guard let http = response as? HTTPURLResponse, 200...299 ~= http.statusCode,
+                  let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let newAccess = obj["access"] as? String else {
+                return false
+            }
+            authToken = newAccess
+            KeychainService.accessToken = newAccess
+            if let newRefresh = obj["refresh"] as? String {
+                KeychainService.refreshToken = newRefresh
+            }
+            return true
+        } catch {
+            return false
+        }
     }
 
     private func get<T: Codable>(path: String) async throws -> T {
@@ -75,6 +127,22 @@ class APIDataService: DataService {
     }
 
     // MARK: - Auth
+    func register(name: String, email: String, password: String, phone: String?, language: String?) async throws -> AuthResponse {
+        struct Req: Encodable {
+            let name: String; let email: String; let password: String
+            let phone: String?; let language: String?
+        }
+        let result: AuthResponse = try await post(
+            path: "/auth/register/",
+            body: Req(name: name, email: email, password: password,
+                      phone: phone, language: language)
+        )
+        authToken = result.tokens.access
+        KeychainService.accessToken  = result.tokens.access
+        KeychainService.refreshToken = result.tokens.refresh
+        return result
+    }
+
     func login(email: String, password: String) async throws -> AuthResponse {
         // Clear stale tokens so login request is unauthenticated
         authToken = nil
@@ -86,8 +154,11 @@ class APIDataService: DataService {
         return result
     }
 
-    func joinFamily(inviteCode: String) async throws -> AuthResponse {
-        let result: AuthResponse = try await post(path: "/auth/join-family/", body: ["invite_code": inviteCode])
+    func joinFamily(inviteCode: String, role: UserRole) async throws -> AuthResponse {
+        let result: AuthResponse = try await post(
+            path: "/auth/join-family/",
+            body: ["invite_code": inviteCode, "role": role.rawValue]
+        )
         authToken = result.tokens.access
         KeychainService.accessToken = result.tokens.access
         KeychainService.refreshToken = result.tokens.refresh
@@ -104,6 +175,10 @@ class APIDataService: DataService {
     func fetchProfile() async throws -> UserProfile { try await get(path: "/auth/me/") }
     func updateProfile(_ profile: UserProfile) async throws -> UserProfile { try await put(path: "/auth/me/", body: profile) }
     func fetchFamilyMembers() async throws -> [UserProfile] { try await get(path: "/families/members/") }
+    func createFamily(name: String, elderName: String, elderBirthDate: String) async throws -> FamilyInfo {
+        struct Req: Encodable { let name: String; let elderName: String; let elderBirthDate: String }
+        return try await post(path: "/families/", body: Req(name: name, elderName: elderName, elderBirthDate: elderBirthDate))
+    }
 
     // MARK: - Health
     func fetchHealthData(elderId: String) async throws -> HealthData { try await get(path: "/health-data/dashboard/") }
@@ -219,12 +294,14 @@ class APIDataService: DataService {
 // MARK: - Helpers
 enum APIError: LocalizedError {
     case serverError(statusCode: Int)
+    case backendError(statusCode: Int, message: String)
     case emptyResponse
 
     var errorDescription: String? {
         switch self {
-        case .serverError(let code): return "伺服器錯誤 (\(code))"
-        case .emptyResponse: return "伺服器回傳空資料"
+        case .serverError(let code):          return "伺服器錯誤 (\(code))"
+        case .backendError(_, let message):   return message
+        case .emptyResponse:                  return "伺服器回傳空資料"
         }
     }
 }

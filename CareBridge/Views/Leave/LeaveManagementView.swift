@@ -105,6 +105,7 @@ struct LeaveManagementView: View {
                 )
             }
         }
+        Task { _ = try? await service.updateLeaveStatus(id: request.id, status: status) }
     }
 }
 
@@ -200,12 +201,14 @@ struct LeaveRequestRow: View {
 // MARK: - Add Leave Request View
 struct AddLeaveRequestView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dataService) private var service
     let onAdd: (LeaveRequest) -> Void
 
     @State private var leaveType = "事假"
     @State private var startDate = Date()
     @State private var endDate = Date().addingTimeInterval(86400)
     @State private var reason = ""
+    @State private var isSubmitting = false
     private let types = ["事假", "病假", "緊急"]
 
     var body: some View {
@@ -236,19 +239,24 @@ struct AddLeaveRequestView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("提交") {
-                        let req = LeaveRequest(
-                            id: UUID().uuidString,
-                            type: leaveType,
-                            startDate: startDate,
-                            endDate: endDate,
-                            reason: reason,
-                            status: .pending
-                        )
-                        onAdd(req)
-                        dismiss()
+                        Task {
+                            isSubmitting = true
+                            let req = LeaveRequest(
+                                id: UUID().uuidString,
+                                type: leaveType,
+                                startDate: startDate,
+                                endDate: endDate,
+                                reason: reason,
+                                status: .pending
+                            )
+                            let created = (try? await service.createLeaveRequest(req)) ?? req
+                            onAdd(created)
+                            dismiss()
+                        }
                     }
                     .bold()
                     .foregroundStyle(Color.brandTeal)
+                    .disabled(isSubmitting)
                 }
             }
         }

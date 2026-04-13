@@ -23,4 +23,4 @@ class CreateFamilySerializer(serializers.ModelSerializer):
 
 
 class JoinFamilySerializer(serializers.Serializer):
-    invite_code = serializers.CharField(max_length=8)
+    invite_code = serializers.CharField(max_length=6)

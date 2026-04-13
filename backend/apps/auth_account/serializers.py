@@ -27,7 +27,6 @@ class RegisterSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True, min_length=8)
     name = serializers.CharField(max_length=150)
-    role = serializers.ChoiceField(choices=User.Role.choices)
     language = serializers.ChoiceField(
         choices=User.Language.choices, default=User.Language.ZH_TW
     )

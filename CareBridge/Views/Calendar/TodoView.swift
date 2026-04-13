@@ -229,7 +229,7 @@ struct AddTodoView: View {
                                 HStack(spacing: 6) {
                                     Image(systemName: member.role == .caregiver ? "cross.case.fill" : "person.fill")
                                         .font(.system(size: 12))
-                                    Text("\(member.name)（\(member.role.displayName)）")
+                                    Text("\(member.name)（\(member.role?.displayName ?? "-")）")
                                 }
                                 .tag(member.id as String?)
                             }

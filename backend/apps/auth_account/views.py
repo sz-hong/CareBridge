@@ -1,10 +1,12 @@
 from rest_framework import status
 from rest_framework.generics import CreateAPIView, RetrieveUpdateAPIView, DestroyAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 
+from apps.family.models import Family
 from core.responses import success_response
 
 from .models import User
@@ -75,6 +77,45 @@ class MeView(RetrieveUpdateAPIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return success_response(data=UserSerializer(instance).data)
+
+
+class JoinFamilyView(APIView):
+    """Join a family by invite code. Returns refreshed AuthResponse {user, tokens}."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        code = str(request.data.get("invite_code", "")).strip()
+        role = str(request.data.get("role", "")).strip()
+
+        if not code or len(code) != 6 or not code.isdigit():
+            return Response(
+                {"success": False, "error": {"code": "INVALID_INVITE", "message": "邀請碼須為 6 位數字"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if role not in ("caregiver", "family_member"):
+            return Response(
+                {"success": False, "error": {"code": "INVALID_ROLE", "message": "請選擇身份"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            family = Family.objects.get(invite_code=code)
+        except Family.DoesNotExist:
+            return Response(
+                {"success": False, "error": {"code": "INVALID_INVITE", "message": "邀請碼無效"}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = request.user
+        user.family = family
+        user.role = role
+        if user.is_primary and family.created_by_id != user.id:
+            user.is_primary = False
+        user.save(update_fields=["family", "is_primary", "role"])
+
+        return success_response(data={
+            "user": UserSerializer(user).data,
+            "tokens": get_tokens_for_user(user),
+        })
 
 
 class LogoutView(APIView):
