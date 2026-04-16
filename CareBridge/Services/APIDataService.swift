@@ -10,7 +10,7 @@ class APIDataService: DataService {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    init(baseURL: String = "http://127.0.0.1:8000/api/v1") {
+    init(baseURL: String = AppConfig.apiBaseURL) {
         self.baseURL = baseURL
         self.decoder = JSONDecoder()
         self.decoder.dateDecodingStrategy = .iso8601
@@ -75,6 +75,19 @@ class APIDataService: DataService {
             throw APIError.emptyResponse
         }
         return result
+    }
+
+    /// Biometric login: exchange the stored refresh token for a fresh access
+    /// token, then fetch the user profile. Throws if no refresh token is
+    /// stored (user has never logged in on this device) or the refresh call
+    /// fails (refresh token expired or revoked).
+    func loginWithStoredRefreshToken() async throws -> UserProfile {
+        guard KeychainService.refreshToken != nil else {
+            throw APIError.unauthorized
+        }
+        let ok = await refreshAccessToken()
+        guard ok else { throw APIError.unauthorized }
+        return try await fetchProfile()
     }
 
     /// Exchange refresh token for a new access token (SimpleJWT, rotation enabled).
@@ -296,12 +309,14 @@ enum APIError: LocalizedError {
     case serverError(statusCode: Int)
     case backendError(statusCode: Int, message: String)
     case emptyResponse
+    case unauthorized
 
     var errorDescription: String? {
         switch self {
         case .serverError(let code):          return "伺服器錯誤 (\(code))"
         case .backendError(_, let message):   return message
         case .emptyResponse:                  return "伺服器回傳空資料"
+        case .unauthorized:                   return "未授權，請重新登入"
         }
     }
 }

@@ -227,24 +227,46 @@ struct LoginView: View {
     }
 
     private func performBiometricLogin() async {
+        // Must have logged in with password at least once before — that's when
+        // the refresh token was stored in Keychain.
+        guard KeychainService.refreshToken != nil else {
+            await MainActor.run { errorMessage = "請先使用帳號密碼登入一次，之後才能使用生物辨識" }
+            return
+        }
+
         let context = LAContext()
         var authError: NSError?
         guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &authError) else {
             await MainActor.run { errorMessage = "此裝置不支援生物辨識" }
             return
         }
+
         do {
-            let success = try await context.evaluatePolicy(
+            let biometricOK = try await context.evaluatePolicy(
                 .deviceOwnerAuthenticationWithBiometrics,
                 localizedReason: "使用生物辨識登入 CareBridge"
             )
-            if success {
-                let response = try await service.login(email: "mock@carebridge.com", password: "mock")
-                userRole = response.user.role ?? .family
-                await MainActor.run { withAnimation { isLoggedIn = true } }
-            }
+            guard biometricOK else { return }
         } catch {
             await MainActor.run { errorMessage = "生物辨識失敗，請使用帳號密碼登入" }
+            return
+        }
+
+        // Biometric passed → exchange refresh token for a fresh session.
+        guard let api = service as? APIDataService else {
+            await MainActor.run { errorMessage = "目前環境不支援生物辨識登入" }
+            return
+        }
+        do {
+            let profile = try await api.loginWithStoredRefreshToken()
+            userStore.currentUser = profile
+            userStore.load()
+            userRole = profile.role ?? .family
+            await MainActor.run { withAnimation { isLoggedIn = true } }
+        } catch {
+            await MainActor.run {
+                errorMessage = "登入憑證已過期，請重新使用帳號密碼登入"
+            }
         }
     }
 }

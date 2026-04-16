@@ -5,6 +5,7 @@ struct ProfileView: View {
     let userRole: UserRole
     @Environment(\.dismiss) private var dismiss
     @Environment(UserStore.self) private var userStore
+    @Environment(\.dataService) private var service
     @State private var showLogoutConfirm = false
     @State private var showEditProfile = false
     @State private var showFamilyMembers = false
@@ -111,17 +112,32 @@ struct ProfileView: View {
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                     }
-                    HStack(spacing: 12) {
-                        Image(systemName: "globe")
-                            .foregroundStyle(Color.brandTeal)
-                            .frame(width: 24)
-                        Text("語言")
-                        Spacer()
-                        Text("繁體中文")
-                            .foregroundStyle(.secondary)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
+                    Menu {
+                        ForEach(SupportedLanguage.all, id: \.code) { lang in
+                            Button {
+                                Task { await updateLanguage(lang.code) }
+                            } label: {
+                                if lang.code == (user?.language ?? "zh-TW") {
+                                    Label(lang.displayName, systemImage: "checkmark")
+                                } else {
+                                    Text(lang.displayName)
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "globe")
+                                .foregroundStyle(Color.brandTeal)
+                                .frame(width: 24)
+                            Text("語言")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Text(SupportedLanguage.displayName(for: user?.language))
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -167,6 +183,14 @@ struct ProfileView: View {
             .sheet(isPresented: $showNotificationPrefs) {
                 NotificationPreferencesView()
             }
+        }
+    }
+
+    private func updateLanguage(_ code: String) async {
+        guard var profile = userStore.currentUser, profile.language != code else { return }
+        profile.language = code
+        if let updated = try? await service.updateProfile(profile) {
+            userStore.currentUser = updated
         }
     }
 

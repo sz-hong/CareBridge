@@ -12,6 +12,7 @@ struct SignUpView: View {
     @State private var password = ""
     @State private var confirmPassword = ""
     @State private var phone = ""
+    @State private var language: String = SupportedLanguage.defaultFromLocale
     @State private var isRegistering = false
     @State private var errorMessage: String? = nil
 
@@ -115,6 +116,28 @@ struct SignUpView: View {
                                 .keyboardType(.phonePad)
                         }
 
+                        // 語言
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("LANGUAGE / 慣用語言")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 10) {
+                                Image(systemName: "globe")
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 20)
+                                Picker("", selection: $language) {
+                                    ForEach(SupportedLanguage.all, id: \.code) { lang in
+                                        Text(lang.displayName).tag(lang.code)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .tint(.primary)
+                                Spacer()
+                            }
+                            .padding(14)
+                            .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
+                        }
+
                         // 錯誤訊息
                         if let errorMessage {
                             Text(errorMessage)
@@ -199,7 +222,7 @@ struct SignUpView: View {
                 email: email.trimmingCharacters(in: .whitespaces),
                 password: password,
                 phone: phone.isEmpty ? nil : phone,
-                language: "zh-TW"
+                language: language
             )
             userStore.populate(from: response)
             // Role is unset until user joins/creates a family

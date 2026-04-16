@@ -140,7 +140,7 @@ struct AIAgentView: View {
         }
 
         do {
-            guard let url = URL(string: "http://127.0.0.1:8000/api/v1/ai/chat/") else {
+            guard let url = URL(string: "\(AppConfig.apiBaseURL)/ai/chat/") else {
                 throw URLError(.badURL)
             }
             var request = URLRequest(url: url)

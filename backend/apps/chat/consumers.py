@@ -1,7 +1,10 @@
 import json
+import logging
 
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
+
+logger = logging.getLogger(__name__)
 
 
 class ChatConsumer(AsyncWebsocketConsumer):
@@ -22,15 +25,18 @@ class ChatConsumer(AsyncWebsocketConsumer):
             # Get authenticated user from scope securely
             user = self.scope.get('user')
             user_id = user.id if getattr(user, 'is_authenticated', False) else data.get('sender_id')
-            
-            # Save message to DB
-            message = await self.save_message(data, user_id)
-            # Broadcast to group
+
+            # Save message, translate, and serialize using the same shape
+            # as the REST MessageSerializer so the frontend has one codepath.
+            payload = await self.save_translate_and_serialize(data, user_id)
+            if payload is None:
+                return
+
             await self.channel_layer.group_send(
                 self.room_group_name,
                 {
                     'type': 'chat_message',
-                    'message': message,
+                    'message': payload,
                 },
             )
         elif message_type == 'chat.typing':
@@ -54,20 +60,36 @@ class ChatConsumer(AsyncWebsocketConsumer):
         }))
 
     @database_sync_to_async
-    def save_message(self, data, user_id):
+    def save_translate_and_serialize(self, data, user_id):
+        from apps.auth_account.models import User
         from apps.chat.models import Message
+        from apps.chat.serializers import MessageSerializer
+        from apps.chat.views import ChatViewSet
+
+        if not user_id:
+            return None
+
+        try:
+            sender = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return None
 
         message = Message.objects.create(
             chat_id=self.chat_id,
-            sender_id=user_id,
+            sender=sender,
             type=data.get('message_type', 'text'),
             content=data.get('content', ''),
         )
-        return {
-            'id': str(message.id),
-            'chat_id': str(message.chat_id),
-            'sender_id': str(message.sender_id),
-            'type': message.type,
-            'content': message.content,
-            'sent_at': message.sent_at.isoformat(),
-        }
+
+        if message.type == 'text' and message.content:
+            try:
+                ChatViewSet._translate_message(message, sender)
+            except Exception:
+                logger.exception(
+                    'WebSocket translation failed for message %s', message.id
+                )
+
+        message.refresh_from_db()
+        # Round-trip through json.dumps(default=str) so UUIDs/datetimes become
+        # strings; the channel layer's msgpack packer can't serialize them.
+        return json.loads(json.dumps(MessageSerializer(message).data, default=str))

@@ -227,8 +227,17 @@ class ChatWebSocket {
     var isConnected = false
     var onReceive: ((ChatMessage) -> Void)?
 
+    // Matches the APIDataService decoder — backend sends snake_case keys
+    // and ISO-8601 timestamps for both REST and WebSocket payloads.
+    private let decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.dateDecodingStrategy = .iso8601
+        d.keyDecodingStrategy = .convertFromSnakeCase
+        return d
+    }()
+
     func connect(roomId: String) {
-        var urlString = "ws://127.0.0.1:8000/ws/chat/\(roomId)/"
+        var urlString = "\(AppConfig.wsBaseURL)/chat/\(roomId)/"
         if let token = KeychainService.accessToken {
             urlString += "?token=\(token)"
         }
@@ -257,7 +266,7 @@ class ChatWebSocket {
             switch result {
             case .success(.string(let text)):
                 if let data = text.data(using: .utf8),
-                   let msg = try? JSONDecoder().decode(ChatMessage.self, from: data) {
+                   let msg = try? self?.decoder.decode(ChatMessage.self, from: data) {
                     DispatchQueue.main.async { self?.onReceive?(msg) }
                 }
                 self?.receiveLoop()
@@ -277,6 +286,7 @@ class ChatWebSocket {
 struct ChatDetailView: View {
     let room: ChatRoom
     @Environment(\.dataService) private var service
+    @Environment(UserStore.self) private var userStore
     @State private var messages: [ChatMessage] = []
     @State private var inputText = ""
     @State private var isRecording = false
@@ -323,8 +333,7 @@ struct ChatDetailView: View {
             messages = (try? await service.fetchMessages(roomId: room.id)) ?? []
             socket.connect(roomId: room.id)
             socket.onReceive = { msg in
-                guard !messages.contains(where: { $0.id == msg.id }) else { return }
-                messages.append(msg)
+                handleIncoming(msg)
             }
         }
         .onDisappear { socket.disconnect() }
@@ -365,21 +374,47 @@ struct ChatDetailView: View {
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
+        let me = userStore.currentUser
         let newMsg = ChatMessage(
             id: UUID().uuidString,
-            sender: "林小明", senderRole: .family,
-            content: text, translatedContent: nil,
+            sender: me?.name ?? "",
+            senderId: me?.id,
+            senderRole: me?.role ?? .family,
+            content: text, translations: nil,
             timestamp: Date(), isMe: true
         )
         messages.append(newMsg)
         inputText = ""
-        socket.send(content: text, sender: "林小明", senderRole: .family)
+        socket.send(content: text, sender: me?.name ?? "", senderRole: me?.role ?? .family)
+    }
+
+    /// Merge an incoming WS message into the list. If the echo is from the
+    /// current user and matches a pending optimistic placeholder, replace it
+    /// so we end up with translations but no duplicate bubble.
+    private func handleIncoming(_ msg: ChatMessage) {
+        var incoming = msg
+        if let myId = userStore.currentUser?.id, incoming.senderId == myId {
+            incoming.isMe = true
+            if let idx = messages.firstIndex(where: {
+                $0.isMe && $0.translations == nil && $0.content == incoming.content
+            }) {
+                messages[idx] = incoming
+                return
+            }
+        }
+        guard !messages.contains(where: { $0.id == incoming.id }) else { return }
+        messages.append(incoming)
     }
 }
 
 // MARK: - Message Bubble
 struct MessageBubble: View {
     let message: ChatMessage
+    @Environment(UserStore.self) private var userStore
+
+    private var translatedText: String? {
+        message.translation(for: userStore.currentUser?.language)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -416,7 +451,7 @@ struct MessageBubble: View {
                                       : Color(.systemBackground))
                         )
 
-                    if let translated = message.translatedContent {
+                    if let translated = translatedText {
                         Text(translated)
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)

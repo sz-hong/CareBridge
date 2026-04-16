@@ -58,7 +58,7 @@ class MockDataService: DataService {
     func fetchMessages(roomId: String) async throws -> [ChatMessage] { ChatMessage.samples }
     func sendMessage(roomId: String, content: String) async throws -> ChatMessage {
         ChatMessage(id: UUID().uuidString, sender: "我", senderRole: .family,
-                    content: content, translatedContent: nil, timestamp: Date(), isMe: true)
+                    content: content, translations: nil, timestamp: Date(), isMe: true)
     }
 
     // MARK: - Care Log

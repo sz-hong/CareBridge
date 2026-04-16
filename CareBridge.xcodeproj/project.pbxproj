@@ -30,6 +30,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		36AD1E6C2F8EC63800B6EFC0 /* Exceptions for "CareBridge" folder in "CareBridge" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 36E53E7D2F86C1EC00E38F41 /* CareBridge */;
+		};
 		36E541812F8A78C100E38F41 /* Exceptions for "Doc" folder in "CareBridgeUITests" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -42,6 +49,9 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		36E53E802F86C1EC00E38F41 /* CareBridge */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				36AD1E6C2F8EC63800B6EFC0 /* Exceptions for "CareBridge" folder in "CareBridge" target */,
+			);
 			path = CareBridge;
 			sourceTree = "<group>";
 		};
@@ -419,8 +429,9 @@
 				DEVELOPMENT_TEAM = 82LKV2GF52;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CareBridge/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "CareBridge 需要使用相機來掃描收據";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "CareBridge 需要讀取健康資料來監測長者的生命徵象";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "CareBridge 需要讀取健康資料來監測長者的生理數值";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "CareBridge 需要寫入健康資料來記錄照護紀錄";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "CareBridge 需要取得位置資訊以便在緊急求助時傳送給家庭成員";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "CareBridge 需要使用麥克風來進行語音輸入";
@@ -458,8 +469,9 @@
 				DEVELOPMENT_TEAM = 82LKV2GF52;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = CareBridge/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "CareBridge 需要使用相機來掃描收據";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "CareBridge 需要讀取健康資料來監測長者的生命徵象";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "CareBridge 需要讀取健康資料來監測長者的生理數值";
 				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "CareBridge 需要寫入健康資料來記錄照護紀錄";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "CareBridge 需要取得位置資訊以便在緊急求助時傳送給家庭成員";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "CareBridge 需要使用麥克風來進行語音輸入";
