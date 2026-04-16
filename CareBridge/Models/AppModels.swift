@@ -191,16 +191,54 @@ struct HealthData: Identifiable, Codable {
     }
 }
 
+// MARK: - Supported Languages
+// Must stay aligned with backend `core.translation.SUPPORTED_LANGUAGES`.
+enum SupportedLanguage {
+    struct Option { let code: String; let displayName: String }
+
+    static let all: [Option] = [
+        Option(code: "zh-TW", displayName: "繁體中文"),
+        Option(code: "id",    displayName: "Bahasa Indonesia"),
+        Option(code: "vi",    displayName: "Tiếng Việt"),
+        Option(code: "tl",    displayName: "Tagalog"),
+    ]
+
+    static func displayName(for code: String?) -> String {
+        all.first { $0.code == code }?.displayName ?? "繁體中文"
+    }
+
+    /// Best-effort guess based on the device's preferred language list.
+    /// Falls back to zh-TW when no supported match is found.
+    static var defaultFromLocale: String {
+        for raw in Locale.preferredLanguages {
+            let lower = raw.lowercased()
+            if lower.hasPrefix("zh") { return "zh-TW" }
+            if lower.hasPrefix("id") { return "id" }
+            if lower.hasPrefix("vi") { return "vi" }
+            if lower.hasPrefix("tl") || lower.hasPrefix("fil") { return "tl" }
+        }
+        return "zh-TW"
+    }
+}
+
 // MARK: - Chat Message
 struct ChatMessage: Identifiable, Codable {
     var id: String
     var sender: String          // API: sender.name
+    var senderId: String?       // API: sender.id (used to dedupe our own echoes)
     var senderRole: UserRole    // local only (not from API)
     var content: String
-    var translatedContent: String?  // API: translations["zh-TW"]
+    var translations: [String: String]?  // API: translations dict, keyed by lang code
     var timestamp: Date         // API: sent_at
     var isMe: Bool              // local only (not from API)
     var imageURL: String?
+
+    /// Returns translated text for the given language, or nil if it
+    /// matches the original content (no point showing a duplicate).
+    func translation(for language: String?) -> String? {
+        guard let language, let dict = translations, let value = dict[language] else { return nil }
+        return value == content ? nil : value
+    }
 
     // MARK: Custom Coding (API field mapping)
     private enum CodingKeys: String, CodingKey {
@@ -208,12 +246,14 @@ struct ChatMessage: Identifiable, Codable {
         case sender
         case timestamp = "sentAt"   // API: sent_at → convertFromSnakeCase → sentAt
     }
-    private enum SenderKeys: String, CodingKey { case name }
+    private enum SenderKeys: String, CodingKey { case name, id }
 
-    init(id: String, sender: String, senderRole: UserRole, content: String,
-         translatedContent: String?, timestamp: Date, isMe: Bool, imageURL: String? = nil) {
-        self.id = id; self.sender = sender; self.senderRole = senderRole
-        self.content = content; self.translatedContent = translatedContent
+    init(id: String, sender: String, senderId: String? = nil, senderRole: UserRole,
+         content: String, translations: [String: String]?, timestamp: Date,
+         isMe: Bool, imageURL: String? = nil) {
+        self.id = id; self.sender = sender; self.senderId = senderId
+        self.senderRole = senderRole
+        self.content = content; self.translations = translations
         self.timestamp = timestamp; self.isMe = isMe; self.imageURL = imageURL
     }
 
@@ -225,18 +265,15 @@ struct ChatMessage: Identifiable, Codable {
         imageURL  = try c.decodeIfPresent(String.self, forKey: .imageURL)
         isMe      = (try? c.decodeIfPresent(Bool.self, forKey: .isMe)) ?? false
         senderRole = (try? c.decodeIfPresent(UserRole.self, forKey: .senderRole)) ?? .caregiver
-        // Nested sender object → extract name
+        // Nested sender object → extract id and name
         if let senderC = try? c.nestedContainer(keyedBy: SenderKeys.self, forKey: .sender) {
-            sender = (try? senderC.decode(String.self, forKey: .name)) ?? ""
+            sender   = (try? senderC.decode(String.self, forKey: .name)) ?? ""
+            senderId = try? senderC.decodeIfPresent(String.self, forKey: .id)
         } else {
-            sender = (try? c.decode(String.self, forKey: .sender)) ?? ""
+            sender   = (try? c.decode(String.self, forKey: .sender)) ?? ""
+            senderId = nil
         }
-        // translations dict → pick zh-TW
-        if let dict = try? c.decode([String: String].self, forKey: .translations) {
-            translatedContent = dict["zh-TW"]
-        } else {
-            translatedContent = nil
-        }
+        translations = try? c.decodeIfPresent([String: String].self, forKey: .translations)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -251,19 +288,19 @@ struct ChatMessage: Identifiable, Codable {
         [
             ChatMessage(id: UUID().uuidString, sender: "Rita Santos", senderRole: .caregiver,
                         content: "Sudah minum obat pagi.",
-                        translatedContent: "早上的藥已服用完畢。",
+                        translations: ["zh-TW": "早上的藥已服用完畢。", "id": "Sudah minum obat pagi."],
                         timestamp: Date().addingTimeInterval(-3600), isMe: false),
             ChatMessage(id: UUID().uuidString, sender: "林小明", senderRole: .family,
                         content: "謝謝，今天狀況如何？",
-                        translatedContent: "Terima kasih, bagaimana keadaan hari ini?",
+                        translations: ["zh-TW": "謝謝，今天狀況如何？", "id": "Terima kasih, bagaimana keadaan hari ini?"],
                         timestamp: Date().addingTimeInterval(-3200), isMe: true),
             ChatMessage(id: UUID().uuidString, sender: "Rita Santos", senderRole: .caregiver,
                         content: "爺爺精神很好，有散步30分鐘。",
-                        translatedContent: "Kakek semangat, sudah jalan 30 menit.",
+                        translations: ["zh-TW": "爺爺精神很好，有散步30分鐘。", "id": "Kakek semangat, sudah jalan 30 menit."],
                         timestamp: Date().addingTimeInterval(-3000), isMe: false),
             ChatMessage(id: UUID().uuidString, sender: "林大華", senderRole: .family,
                         content: "很好！晚上記得提醒他吃藥",
-                        translatedContent: nil,
+                        translations: nil,
                         timestamp: Date().addingTimeInterval(-2400), isMe: false),
         ]
     }
