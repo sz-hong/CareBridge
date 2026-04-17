@@ -940,20 +940,23 @@ struct Expense: Identifiable, Codable {
     var category: String
     var date: Date
     var hasReceipt: Bool
+    /// 收據圖片下載 URL（後端回傳時為 presigned GET URL，POST 時帶入上傳後的 bare URL）
+    var imageUrl: String?
     /// 去背後的發票圖片，僅存在記憶體中（不序列化至 JSON/API）
     var receiptImage: UIImage? = nil
 
     enum CodingKeys: String, CodingKey {
-        case id, date, items
+        case id, date, items, imageUrl
         case title = "storeName"       // API: store_name → convertFromSnakeCase → storeName
         case amount = "totalAmount"    // API: total_amount → totalAmount
-        case hasReceipt = "imageUrl"   // API: image_url → imageUrl
         // `category` is UI-only — backend stores category per item inside `items` JSONB.
     }
 
-    init(id: String, title: String, amount: Double, category: String, date: Date, hasReceipt: Bool, receiptImage: UIImage? = nil) {
+    init(id: String, title: String, amount: Double, category: String, date: Date,
+         hasReceipt: Bool, imageUrl: String? = nil, receiptImage: UIImage? = nil) {
         self.id = id; self.title = title; self.amount = amount
         self.category = category; self.date = date; self.hasReceipt = hasReceipt
+        self.imageUrl = imageUrl
         self.receiptImage = receiptImage
     }
 
@@ -997,7 +1000,8 @@ struct Expense: Identifiable, Codable {
         let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
         date = df.date(from: dateStr) ?? Date()
         // image_url non-nil means receipt exists
-        hasReceipt = (try c.decodeIfPresent(String.self, forKey: .hasReceipt)) != nil
+        imageUrl = try c.decodeIfPresent(String.self, forKey: .imageUrl)
+        hasReceipt = (imageUrl != nil)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -1014,6 +1018,7 @@ struct Expense: Identifiable, Codable {
             "category": wireCat,
         ]
         try c.encode([item], forKey: .items)
+        try c.encodeIfPresent(imageUrl, forKey: .imageUrl)
     }
 
     var categoryIcon: String {

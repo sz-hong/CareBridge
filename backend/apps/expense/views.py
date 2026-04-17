@@ -90,6 +90,37 @@ class ExpenseViewSet(ModelViewSet):
         instance.delete()
         return success_response(status=204)
 
+    @action(detail=False, methods=['post'], url_path='upload-url')
+    def upload_url(self, request):
+        """POST /expenses/upload-url/ — Return presigned PUT URL + stored image_url.
+
+        Frontend flow:
+          1. POST here with {content_type} → receive {upload_url, image_url}
+          2. PUT bytes directly to upload_url (must include same Content-Type header)
+          3. POST /expenses/ with the returned image_url
+        """
+        from core.storage import build_public_url, generate_upload_url
+
+        content_type = request.data.get('content_type') or 'image/jpeg'
+        ext_map = {
+            'image/jpeg': 'jpg',
+            'image/jpg': 'jpg',
+            'image/png': 'png',
+            'image/heic': 'heic',
+        }
+        ext = ext_map.get(content_type, 'jpg')
+        family_id = getattr(request.user.family, 'id', None)
+        prefix = f'receipts/{family_id}' if family_id else 'receipts/orphan'
+        key = f'{prefix}/{uuid.uuid4().hex}.{ext}'
+
+        put_url = generate_upload_url(key, content_type)
+        image_url = build_public_url(key)
+        return success_response(data={
+            'upload_url': put_url,
+            'image_url': image_url,
+            'key': key,
+        })
+
     @action(detail=False, methods=['post'], url_path='scan')
     def scan(self, request):
         """POST /expenses/scan/ — Accept image_url, create expense with status='processing'."""

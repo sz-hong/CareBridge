@@ -1,9 +1,12 @@
 from rest_framework import serializers
 
+from core.storage import extract_key_from_url, generate_download_url
 from .models import Expense
 
 
 class ExpenseSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+
     class Meta:
         model = Expense
         fields = [
@@ -12,6 +15,19 @@ class ExpenseSerializer(serializers.ModelSerializer):
             'ocr_confidence', 'status', 'created_at', 'updated_at',
         ]
         read_only_fields = fields
+
+    def get_image_url(self, obj):
+        # Bucket is private (AWS_QUERYSTRING_AUTH=True), so convert the stored
+        # bare URL into a short-lived presigned GET URL for client display.
+        if not obj.image_url:
+            return None
+        key = extract_key_from_url(obj.image_url)
+        if not key:
+            return obj.image_url
+        try:
+            return generate_download_url(key)
+        except Exception:
+            return obj.image_url
 
 
 class CreateExpenseSerializer(serializers.ModelSerializer):
