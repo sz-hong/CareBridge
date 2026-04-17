@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// Mock implementation returning sample data for development & preview.
 class MockDataService: DataService {
@@ -85,6 +86,7 @@ class MockDataService: DataService {
         ])
     }
     func createExpense(_ expense: Expense) async throws -> Expense { expense }
+    func uploadReceiptImage(_ image: UIImage) async throws -> String { "" }
 
     // MARK: - Todo
     func fetchTodos() async throws -> [TodoItem] { TodoItem.samples }

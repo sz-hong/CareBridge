@@ -309,7 +309,12 @@ struct SpendingView: View {
             }
 
             ForEach(expenses) { expense in
-                ExpenseRow(expense: expense)
+                NavigationLink {
+                    ExpenseDetailView(expense: expense)
+                } label: {
+                    ExpenseRow(expense: expense)
+                }
+                .buttonStyle(.plain)
                 if expense.id != expenses.last?.id {
                     Divider().padding(.leading, 56)
                 }
@@ -816,6 +821,7 @@ private struct CheckerboardBackground: View {
 // MARK: - OCR Confirmation View
 struct OCRConfirmationView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dataService) private var service
     let ocrResult: OCRResult
     let onSave: (Expense) -> Void
 
@@ -825,6 +831,8 @@ struct OCRConfirmationView: View {
     @State private var category = "日常飲食"
     @State private var note = ""
     @State private var showRawText = false
+    @State private var isSaving = false
+    @State private var saveError: String?
 
     private let categories = ["醫療保健", "日常飲食", "生活用品", "交通", "其他"]
 
@@ -908,21 +916,47 @@ struct OCRConfirmationView: View {
                     Button("取消") { dismiss() }.foregroundStyle(.secondary)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("儲存") {
-                        let expense = Expense(
-                            id: UUID().uuidString,
-                            title: storeName.isEmpty ? "未命名收據" : storeName,
-                            amount: Double(totalAmount) ?? 0,
-                            category: category,
-                            date: receiptDate,
-                            hasReceipt: true,
-                            receiptImage: ocrResult.image
-                        )
-                        dismiss()
-                        onSave(expense)
-                    }
-                    .bold().foregroundStyle(Color.brandTeal)
-                    .disabled(storeName.isEmpty && totalAmount.isEmpty)
+                    Button(isSaving ? "儲存中…" : "儲存") { save() }
+                        .bold().foregroundStyle(Color.brandTeal)
+                        .disabled(isSaving || (storeName.isEmpty && totalAmount.isEmpty))
+                }
+            }
+            .alert("儲存失敗", isPresented: .constant(saveError != nil)) {
+                Button("好", role: .cancel) { saveError = nil }
+            } message: {
+                Text(saveError ?? "")
+            }
+        }
+    }
+
+    /// Upload the scanned image to object storage, then create the expense on the
+    /// backend. Only dismiss + notify caller on full success so the receipt
+    /// photo is guaranteed to persist across app launches.
+    private func save() {
+        isSaving = true
+        Task {
+            do {
+                let imageUrl = try await service.uploadReceiptImage(ocrResult.image)
+                let draft = Expense(
+                    id: UUID().uuidString,
+                    title: storeName.isEmpty ? "未命名收據" : storeName,
+                    amount: Double(totalAmount) ?? 0,
+                    category: category,
+                    date: receiptDate,
+                    hasReceipt: true,
+                    imageUrl: imageUrl,
+                    receiptImage: ocrResult.image
+                )
+                let created = try await service.createExpense(draft)
+                await MainActor.run {
+                    isSaving = false
+                    dismiss()
+                    onSave(created)
+                }
+            } catch {
+                await MainActor.run {
+                    isSaving = false
+                    saveError = error.localizedDescription
                 }
             }
         }
@@ -954,9 +988,13 @@ struct AllExpensesView: View {
 
     var body: some View {
         List(expenses) { expense in
-            ExpenseRow(expense: expense)
-                .listRowBackground(Color.white)
-                .listRowSeparatorTint(Color(.systemGray5))
+            NavigationLink {
+                ExpenseDetailView(expense: expense)
+            } label: {
+                ExpenseRow(expense: expense)
+            }
+            .listRowBackground(Color.white)
+            .listRowSeparatorTint(Color(.systemGray5))
         }
         .listStyle(.plain)
         .background(Color.brandBackground)
@@ -964,6 +1002,96 @@ struct AllExpensesView: View {
         .navigationBarTitleDisplayMode(.large)
         .task {
             expenses = (try? await service.fetchExpenses(month: nil)) ?? []
+        }
+    }
+}
+
+// MARK: - Expense Detail View
+struct ExpenseDetailView: View {
+    let expense: Expense
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                receiptImageSection
+
+                VStack(alignment: .leading, spacing: 12) {
+                    detailRow(label: "商家", value: expense.title)
+                    Divider()
+                    detailRow(label: "金額", value: "NT$ \(Int(expense.amount).formatted())")
+                    Divider()
+                    detailRow(label: "分類", value: expense.category.isEmpty ? "—" : expense.category)
+                    Divider()
+                    detailRow(label: "日期", value: expense.date.formatted(date: .long, time: .shortened))
+                }
+                .padding(16)
+                .background(RoundedRectangle(cornerRadius: 16).fill(.white))
+                .padding(.horizontal, 16)
+            }
+            .padding(.vertical, 16)
+        }
+        .background(Color.brandBackground)
+        .navigationTitle("消費詳情")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    @ViewBuilder
+    private var receiptImageSection: some View {
+        // Prefer the in-memory UIImage if the user just captured this expense;
+        // otherwise fall back to the presigned URL from the backend.
+        if let img = expense.receiptImage {
+            receiptImage(Image(uiImage: img))
+        } else if let urlStr = expense.imageUrl, let url = URL(string: urlStr) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    receiptImage(image)
+                case .failure:
+                    receiptPlaceholder(icon: "exclamationmark.triangle", text: "收據圖片載入失敗")
+                case .empty:
+                    ProgressView()
+                        .frame(maxWidth: .infinity, minHeight: 240)
+                @unknown default:
+                    receiptPlaceholder(icon: "photo", text: "無收據圖片")
+                }
+            }
+        } else {
+            receiptPlaceholder(icon: "photo", text: "無收據圖片")
+        }
+    }
+
+    private func receiptImage(_ image: Image) -> some View {
+        image
+            .resizable()
+            .scaledToFit()
+            .frame(maxWidth: .infinity)
+            .background(Color(.systemGray6))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, 16)
+    }
+
+    private func receiptPlaceholder(icon: String, text: String) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 36))
+                .foregroundStyle(.secondary)
+            Text(text)
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 200)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color(.systemGray6)))
+        .padding(.horizontal, 16)
+    }
+
+    private func detailRow(label: String, value: String) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+                .font(.system(size: 15, weight: .medium))
         }
     }
 }

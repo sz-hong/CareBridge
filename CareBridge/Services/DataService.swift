@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 // MARK: - Auth Response
 struct AuthTokens: Codable {
@@ -68,6 +69,9 @@ protocol DataService {
     func fetchExpenses(month: Date?) async throws -> [Expense]
     func fetchSpendingSummary(month: Date?) async throws -> SpendingSummary
     func createExpense(_ expense: Expense) async throws -> Expense
+    /// Upload a receipt image via presigned PUT and return the bare storage URL
+    /// to include in the subsequent `createExpense` call.
+    func uploadReceiptImage(_ image: UIImage) async throws -> String
 
     // Todo
     func fetchTodos() async throws -> [TodoItem]

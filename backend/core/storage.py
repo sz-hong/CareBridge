@@ -1,6 +1,8 @@
 import logging
+from urllib.parse import urlparse
 
 import boto3
+from botocore.client import Config
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
@@ -28,7 +30,14 @@ def _get_s3_client():
     }
 
     if endpoint_url:
+        # MinIO / S3-compatible services require path-style addressing
+        # (virtual-hosted style needs DNS for <bucket>.<host>, which doesn't
+        # exist for localhost). Also pin SigV4 so presigned URLs verify.
         client_kwargs['endpoint_url'] = endpoint_url
+        client_kwargs['config'] = Config(
+            signature_version='s3v4',
+            s3={'addressing_style': 'path'},
+        )
 
     return boto3.client(**client_kwargs)
 
@@ -97,3 +106,24 @@ def generate_download_url(key, expires=3600):
 
     logger.info('Generated download URL for key: %s (expires in %ds)', key, expires)
     return url
+
+
+def build_public_url(key):
+    """Build a bare (non-presigned) URL for an S3 object key."""
+    bucket = _get_bucket_name()
+    endpoint = getattr(settings, 'AWS_S3_ENDPOINT_URL', None)
+    if endpoint:
+        return f'{endpoint.rstrip("/")}/{bucket}/{key}'
+    region = getattr(settings, 'AWS_S3_REGION_NAME', 'ap-northeast-1')
+    return f'https://{bucket}.s3.{region}.amazonaws.com/{key}'
+
+
+def extract_key_from_url(url):
+    """Extract the S3 object key from a bare (non-presigned) URL."""
+    if not url:
+        return None
+    path = urlparse(url).path.lstrip('/')
+    bucket = getattr(settings, 'AWS_STORAGE_BUCKET_NAME', None)
+    if bucket and path.startswith(f'{bucket}/'):
+        path = path[len(bucket) + 1:]
+    return path or None
