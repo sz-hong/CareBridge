@@ -189,6 +189,34 @@ python manage.py runserver
 | `/api/v1/notifications/` | 通知系統 |
 | `/api/v1/health/` | Health Check |
 
+## 開發者後台
+
+### 🗄️ MinIO 物件儲存後台
+
+本地開發使用 MinIO 模擬 AWS S3，可在後台查看所有上傳的收據圖片與檔案。
+
+| 項目 | 說明 |
+|---|---|
+| **Console** | http://localhost:9001 |
+| **帳號** | `minioadmin` |
+| **密碼** | `minioadmin` |
+
+> 上傳的收據圖片（receipt）可在 MinIO Console 的 Bucket 中查看。
+
+### 🔧 Django 後台
+
+Django Admin 後台可管理所有資料庫資料（使用者、家庭、藥物、日誌等）。
+
+| 項目 | 說明 |
+|---|---|
+| **Console** | http://127.0.0.1:8000/admin/ |
+
+**建立後台登入帳號：**
+
+```bash
+docker compose -f docker/docker-compose.yml exec web python manage.py createsuperuser
+```
+
 ## 團隊
 
 唐寶與他的夥伴
