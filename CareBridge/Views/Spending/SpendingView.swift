@@ -129,6 +129,11 @@ struct SpendingView: View {
                 if let result = pendingOCRResult {
                     OCRConfirmationView(ocrResult: result) { newExpense in
                         expenses.insert(newExpense, at: 0)
+                        // Summary 是後端彙算的（含分類百分比），不能只加本地值
+                        // ——必須重新打 /expenses/monthly/ 讓卡片與甜甜圈同步刷新。
+                        Task {
+                            summary = try? await service.fetchSpendingSummary(month: nil)
+                        }
                     }
                 }
             }
