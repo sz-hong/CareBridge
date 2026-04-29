@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import action
@@ -8,10 +9,12 @@ from rest_framework.viewsets import ModelViewSet
 
 from core.responses import success_response
 
+from apps.auth_account.models import User
 from apps.calendar_event.models import Event
-from .models import Leave
+from .models import Leave, LeaveVote
 from .serializers import (
     CreateLeaveSerializer,
+    CreateLeaveVoteSerializer,
     LeaveSerializer,
     UpdateLeaveStatusSerializer,
 )
@@ -26,7 +29,9 @@ class LeaveViewSet(ModelViewSet):
         s = self.request.query_params.get('status')
         if s:
             qs = qs.filter(status=s)
-        return qs.select_related('applicant', 'reviewed_by', 'calendar_event')
+        return qs.select_related(
+            'applicant', 'reviewed_by', 'calendar_event',
+        ).prefetch_related('votes')
 
     def get_serializer_class(self):
         if self.action == 'create':
@@ -119,3 +124,71 @@ class LeaveViewSet(ModelViewSet):
             )
 
         return success_response(data=LeaveSerializer(instance).data)
+
+    @action(detail=True, methods=['post'], url_path='vote')
+    def vote(self, request, pk=None):
+        """POST /leaves/{id}/vote/ — One family member votes available/not.
+
+        Auto-resolves status once every family-role member has voted:
+          • any vote is_available=True → approved
+          • all votes is_available=False → rejected
+        Re-voting overwrites the prior vote (unique_together on leave+member).
+        """
+        instance = self.get_object()
+        ser = CreateLeaveVoteSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            LeaveVote.objects.update_or_create(
+                leave=instance,
+                member=request.user,
+                defaults={
+                    'member_name': request.user.name or request.user.email,
+                    'is_available': ser.validated_data['is_available'],
+                },
+            )
+            self._maybe_resolve_status(instance, request.user)
+
+        return success_response(data=LeaveSerializer(instance).data)
+
+    def _maybe_resolve_status(self, leave, actor):
+        """Flip leave.status once every voting-eligible family member voted.
+
+        Voting-eligible = users in this family with role=family_member
+        (caregivers don't vote; they're the applicant on caregiver leaves).
+        """
+        if leave.status != Leave.Status.PENDING:
+            return  # Already resolved — don't overwrite
+
+        eligible_count = User.objects.filter(
+            family=leave.family,
+            role=User.Role.FAMILY_MEMBER,
+        ).count()
+        votes = leave.votes.all()
+        if votes.count() < eligible_count:
+            return  # Still waiting on more votes
+
+        if any(v.is_available for v in votes):
+            leave.status = Leave.Status.APPROVED
+        else:
+            leave.status = Leave.Status.REJECTED
+        leave.reviewed_by = actor
+        leave.reviewed_at = timezone.now()
+
+        if leave.status == Leave.Status.APPROVED and not leave.calendar_event_id:
+            event = Event.objects.create(
+                family=leave.family,
+                title=f'{leave.get_type_display()} Leave - {leave.applicant.name}',
+                start_time=datetime.combine(leave.start_date, datetime.min.time()),
+                end_time=datetime.combine(
+                    leave.end_date, datetime.max.time().replace(microsecond=0),
+                ),
+                type=Event.Type.LEAVE,
+                source=Event.Source.LEAVE,
+                source_id=leave.id,
+                note=leave.reason,
+                created_by=actor,
+            )
+            leave.calendar_event = event
+
+        leave.save()

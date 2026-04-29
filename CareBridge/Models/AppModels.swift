@@ -20,6 +20,7 @@ enum UserRole: String, CaseIterable, Codable {
 struct FamilyInfo: Codable {
     var id: String
     var name: String
+    var inviteCode: String?
 }
 
 struct UserProfile: Identifiable, Codable {
@@ -37,6 +38,7 @@ struct UserProfile: Identifiable, Codable {
     // Backward-compat computed properties used by views
     var familyId: String   { family?.id   ?? "" }
     var familyName: String { family?.name ?? "" }
+    var familyInviteCode: String? { family?.inviteCode }
     var avatarURL: String? { avatarUrl }
 
     // MARK: Custom Coding
@@ -48,8 +50,9 @@ struct UserProfile: Identifiable, Codable {
         case avatarUrl
         case isPrimary
         // flat fields from backend (JSON: family_id → auto-converted to familyId)
-        case flatFamilyId   = "familyId"
-        case flatFamilyName = "familyName"
+        case flatFamilyId         = "familyId"
+        case flatFamilyName       = "familyName"
+        case flatFamilyInviteCode = "familyInviteCode"
         // nested field (used by MockDataService / local cache)
         case family
     }
@@ -81,7 +84,8 @@ struct UserProfile: Identifiable, Codable {
             family = nested
         } else if let fid = try? c.decodeIfPresent(String.self, forKey: .flatFamilyId),
                   let fname = try? c.decodeIfPresent(String.self, forKey: .flatFamilyName) {
-            family = FamilyInfo(id: fid, name: fname)
+            let invite = try? c.decodeIfPresent(String.self, forKey: .flatFamilyInviteCode)
+            family = FamilyInfo(id: fid, name: fname, inviteCode: invite)
         } else {
             family = nil
         }
@@ -232,6 +236,8 @@ struct ChatMessage: Identifiable, Codable {
     var timestamp: Date         // API: sent_at
     var isMe: Bool              // local only (not from API)
     var imageURL: String?
+    var messageType: String?    // "text" | "purchase_request" | "leave_request"
+    var referenceId: String?    // ID of the linked PurchaseRequest or LeaveRequest
 
     /// Returns translated text for the given language, or nil if it
     /// matches the original content (no point showing a duplicate).
@@ -243,18 +249,20 @@ struct ChatMessage: Identifiable, Codable {
     // MARK: Custom Coding (API field mapping)
     private enum CodingKeys: String, CodingKey {
         case id, content, translations, isMe, senderRole, imageURL
-        case sender
+        case sender, messageType, referenceId
         case timestamp = "sentAt"   // API: sent_at → convertFromSnakeCase → sentAt
     }
     private enum SenderKeys: String, CodingKey { case name, id }
 
     init(id: String, sender: String, senderId: String? = nil, senderRole: UserRole,
          content: String, translations: [String: String]?, timestamp: Date,
-         isMe: Bool, imageURL: String? = nil) {
+         isMe: Bool, imageURL: String? = nil,
+         messageType: String? = "text", referenceId: String? = nil) {
         self.id = id; self.sender = sender; self.senderId = senderId
         self.senderRole = senderRole
         self.content = content; self.translations = translations
         self.timestamp = timestamp; self.isMe = isMe; self.imageURL = imageURL
+        self.messageType = messageType; self.referenceId = referenceId
     }
 
     init(from decoder: Decoder) throws {
@@ -274,6 +282,8 @@ struct ChatMessage: Identifiable, Codable {
             senderId = nil
         }
         translations = try? c.decodeIfPresent([String: String].self, forKey: .translations)
+        messageType  = try? c.decodeIfPresent(String.self, forKey: .messageType)
+        referenceId  = try? c.decodeIfPresent(String.self, forKey: .referenceId)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -282,6 +292,8 @@ struct ChatMessage: Identifiable, Codable {
         try c.encode(content, forKey: .content)
         try c.encode(timestamp, forKey: .timestamp)
         try c.encodeIfPresent(imageURL, forKey: .imageURL)
+        try c.encodeIfPresent(messageType, forKey: .messageType)
+        try c.encodeIfPresent(referenceId, forKey: .referenceId)
     }
 
     static var samples: [ChatMessage] {
@@ -1278,6 +1290,15 @@ enum LeaveStatus: String, Codable {
     }
 }
 
+/// 家屬對請假申請的投票
+struct LeaveVote: Identifiable, Codable {
+    var id: String
+    var memberId: String
+    var memberName: String
+    var isAvailable: Bool       // true = 有空（同意）, false = 沒空（不同意）
+    var votedAt: Date?
+}
+
 struct LeaveRequest: Identifiable, Codable {
     var id: String
     var type: String        // API: "personal" / "sick" / "emergency"
@@ -1285,16 +1306,19 @@ struct LeaveRequest: Identifiable, Codable {
     var endDate: Date       // API: end_date (date-only)
     var reason: String
     var status: LeaveStatus
+    var applicantName: String?  // 申請人姓名
+    var votes: [LeaveVote]?     // 家屬投票
 
     private enum CodingKeys: String, CodingKey {
         // All snake_case keys auto-converted by .convertFromSnakeCase
-        case id, type, reason, status, startDate, endDate
+        case id, type, reason, status, startDate, endDate, applicantName, votes
     }
 
     init(id: String, type: String, startDate: Date, endDate: Date,
-         reason: String, status: LeaveStatus) {
+         reason: String, status: LeaveStatus, applicantName: String? = nil, votes: [LeaveVote]? = nil) {
         self.id = id; self.type = type; self.startDate = startDate
         self.endDate = endDate; self.reason = reason; self.status = status
+        self.applicantName = applicantName; self.votes = votes
     }
 
     init(from decoder: Decoder) throws {
@@ -1308,6 +1332,8 @@ struct LeaveRequest: Identifiable, Codable {
         let s2 = (try? c.decodeIfPresent(String.self, forKey: .endDate)) ?? ""
         startDate = fmt.date(from: s1) ?? Date()
         endDate   = fmt.date(from: s2) ?? startDate
+        applicantName = try? c.decodeIfPresent(String.self, forKey: .applicantName)
+        votes = try? c.decodeIfPresent([LeaveVote].self, forKey: .votes)
     }
 
     func encode(to encoder: Encoder) throws {

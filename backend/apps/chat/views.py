@@ -115,10 +115,20 @@ class ChatViewSet(ModelViewSet):
     # --- helpers ---------------------------------------------------
 
     def _list_messages(self, request, chat):
-        qs = Message.objects.filter(chat=chat).select_related('sender')
+        # Order newest-first so pagination returns the most recent slice; the
+        # default Meta ordering is `sent_at` ASC, which would drop new
+        # messages onto page 2 once a chat exceeds page_size. Reverse the
+        # paginated slice before serializing so the FE still gets chronological
+        # order (oldest first → newest last) for normal scroll layout.
+        qs = (
+            Message.objects.filter(chat=chat)
+            .select_related('sender')
+            .order_by('-sent_at')
+        )
         page = self.paginate_queryset(qs)
         if page is not None:
-            serializer = MessageSerializer(page, many=True, context={'request': request})
+            ordered = list(reversed(page))
+            serializer = MessageSerializer(ordered, many=True, context={'request': request})
             return success_response(
                 data=serializer.data,
                 meta={
@@ -127,24 +137,55 @@ class ChatViewSet(ModelViewSet):
                     'page_size': self.paginator.page_size,
                 },
             )
-        serializer = MessageSerializer(qs, many=True, context={'request': request})
+        serializer = MessageSerializer(reversed(list(qs)), many=True, context={'request': request})
         return success_response(data=serializer.data)
 
     def _send_message(self, request, chat):
         ser = SendMessageSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
 
-        message = Message.objects.create(
-            chat=chat,
-            sender=request.user,
-            type=ser.validated_data.get('type', 'text'),
-            content=ser.validated_data.get('content', ''),
-            image_url=ser.validated_data.get('image_url', ''),
-        )
+        wire_type = ser.validated_data.get('type', 'text')
+        # Dispatch the wire `type` value into the right model fields:
+        #   text/image          → Message.type      (content encoding)
+        #   purchase_request /  → Message.message_type + reference_id
+        #     leave_request       (semantic intent; content stays text)
+        if wire_type in ('purchase_request', 'leave_request'):
+            message = Message.objects.create(
+                chat=chat,
+                sender=request.user,
+                type=Message.Type.TEXT,
+                message_type=wire_type,
+                reference_id=ser.validated_data.get('reference_id'),
+                content=ser.validated_data.get('content', ''),
+            )
+        else:
+            message = Message.objects.create(
+                chat=chat,
+                sender=request.user,
+                type=wire_type,
+                message_type=Message.MessageType.TEXT,
+                content=ser.validated_data.get('content', ''),
+                image_url=ser.validated_data.get('image_url', ''),
+            )
 
-        # Attempt translation for text messages
-        if message.type == 'text' and message.content:
+        # Translate plain text only. Request-card content is a structured
+        # emoji+label+date string ("📋 請假申請：緊急假 6/1–6/2") that the FE
+        # already renders with its own localized labels — translating it
+        # wastes an OpenAI call and trips the JSON parser on the way back.
+        if (
+            message.type == Message.Type.TEXT
+            and message.message_type == Message.MessageType.TEXT
+            and message.content
+        ):
             self._translate_message(message, request.user)
+
+        # Realtime fan-out — push the serialized message to every client
+        # connected to this chat's WebSocket group so the chat refreshes
+        # immediately without anyone needing to re-fetch.
+        try:
+            self._broadcast_message(chat, message)
+        except Exception:
+            logger.warning('Failed to broadcast message via channel layer', exc_info=True)
 
         # Phase 7: Notify other chat members of new message
         try:
@@ -172,6 +213,31 @@ class ChatViewSet(ModelViewSet):
 
         out = MessageSerializer(message)
         return success_response(data=out.data, status=201)
+
+    @staticmethod
+    def _broadcast_message(chat, message):
+        """Push a serialized Message into the chat's WebSocket group.
+
+        msgpack (the channel layer's packer) can't serialize UUID/datetime,
+        so we round-trip through json.dumps(default=str) to coerce them
+        to strings — same trick the WS consumer already uses.
+        """
+        import json
+
+        from asgiref.sync import async_to_sync
+        from channels.layers import get_channel_layer
+
+        from apps.chat.serializers import MessageSerializer
+
+        channel_layer = get_channel_layer()
+        if channel_layer is None:
+            return
+
+        payload = json.loads(json.dumps(MessageSerializer(message).data, default=str))
+        async_to_sync(channel_layer.group_send)(
+            f'chat_{chat.id}',
+            {'type': 'chat_message', 'message': payload},
+        )
 
     @staticmethod
     def _translate_message(message, sender):

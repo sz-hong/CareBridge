@@ -7,19 +7,25 @@ from .models import User
 
 class UserSerializer(serializers.ModelSerializer):
     family_name = serializers.SerializerMethodField()
+    family_invite_code = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             'id', 'email', 'name', 'role', 'language', 'phone',
-            'avatar_url', 'family_id', 'family_name', 'is_primary',
-            'created_at',
+            'avatar_url', 'family_id', 'family_name', 'family_invite_code',
+            'is_primary', 'created_at',
         ]
         read_only_fields = fields
 
     def get_family_name(self, obj):
         if obj.family:
             return obj.family.name
+        return None
+
+    def get_family_invite_code(self, obj):
+        if obj.family:
+            return obj.family.invite_code
         return None
 
 

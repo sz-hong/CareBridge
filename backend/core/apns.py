@@ -19,7 +19,12 @@ async def _send_push_async(device_token, title, body, data=None, badge=None):
     """
     from aioapns import APNs, NotificationRequest
 
-    key_file = getattr(settings, 'APNS_KEY_FILE', None)
+    # Settings.py exposes the path under APNS_AUTH_KEY_PATH; accept the
+    # legacy APNS_KEY_FILE name too so older configs keep working.
+    key_file = (
+        getattr(settings, 'APNS_AUTH_KEY_PATH', None)
+        or getattr(settings, 'APNS_KEY_FILE', None)
+    )
     key_id = getattr(settings, 'APNS_KEY_ID', None)
     team_id = getattr(settings, 'APNS_TEAM_ID', None)
     topic = getattr(settings, 'APNS_TOPIC', None)
@@ -28,7 +33,7 @@ async def _send_push_async(device_token, title, body, data=None, badge=None):
     if not all([key_file, key_id, team_id, topic]):
         raise RuntimeError(
             'APNs is not properly configured. '
-            'Ensure APNS_KEY_FILE, APNS_KEY_ID, APNS_TEAM_ID, '
+            'Ensure APNS_AUTH_KEY_PATH, APNS_KEY_ID, APNS_TEAM_ID, '
             'and APNS_TOPIC are set in Django settings.'
         )
 

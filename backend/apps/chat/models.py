@@ -51,6 +51,14 @@ class Message(models.Model):
         TEXT = 'text', 'Text'
         IMAGE = 'image', 'Image'
 
+    class MessageType(models.TextChoices):
+        # Semantic message intent — text vs. card-style references to a
+        # PurchaseRequest or LeaveRequest. Always pair with `reference_id`
+        # for the non-text variants.
+        TEXT = 'text', 'Text'
+        PURCHASE_REQUEST = 'purchase_request', 'Purchase Request'
+        LEAVE_REQUEST = 'leave_request', 'Leave Request'
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     chat = models.ForeignKey(
         Chat, on_delete=models.CASCADE, related_name='messages'
@@ -61,6 +69,10 @@ class Message(models.Model):
         related_name='messages',
     )
     type = models.CharField(max_length=10, choices=Type.choices)
+    message_type = models.CharField(
+        max_length=20, choices=MessageType.choices, default=MessageType.TEXT,
+    )
+    reference_id = models.UUIDField(null=True, blank=True)
     content = models.TextField(null=True, blank=True)
     translations = models.JSONField(null=True, blank=True)
     image_url = models.URLField(max_length=500, null=True, blank=True)
