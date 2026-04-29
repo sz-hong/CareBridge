@@ -203,6 +203,11 @@ class APIDataService: DataService {
     func sendMessage(roomId: String, content: String) async throws -> ChatMessage {
         try await post(path: "/chats/\(roomId)/messages/", body: ["type": "text", "content": content])
     }
+    func sendRequestMessage(roomId: String, messageType: String, referenceId: String, content: String) async throws -> ChatMessage {
+        try await post(path: "/chats/\(roomId)/messages/", body: [
+            "type": messageType, "reference_id": referenceId, "content": content
+        ])
+    }
 
     // MARK: - Care Log
     func fetchCareLogEntries(date: Date?) async throws -> [CareLogEntry] {
@@ -270,6 +275,9 @@ class APIDataService: DataService {
     func createLeaveRequest(_ request: LeaveRequest) async throws -> LeaveRequest { try await post(path: "/leaves/", body: request) }
     func updateLeaveStatus(id: String, status: LeaveStatus) async throws -> LeaveRequest {
         try await patch(path: "/leaves/\(id)/status/", body: ["status": status.rawValue])
+    }
+    func voteLeave(id: String, isAvailable: Bool) async throws -> LeaveRequest {
+        try await post(path: "/leaves/\(id)/vote/", body: ["is_available": isAvailable])
     }
 
     // MARK: - Documents

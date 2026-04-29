@@ -30,10 +30,15 @@ struct MessageBoardView: View {
             ScrollView {
                 VStack(spacing: 12) {
                     ForEach(filteredRequests) { req in
-                        PurchaseRequestCard(request: req,
-                                            userRole: userRole,
-                                            onApprove: { updateStatus(req, to: "approved") },
-                                            onReject: { updateStatus(req, to: "rejected") })
+                        NavigationLink {
+                            PurchaseRequestDetailView(requestId: req.id, userRole: userRole)
+                        } label: {
+                            PurchaseRequestCard(request: req,
+                                                userRole: userRole,
+                                                onApprove: { updateStatus(req, to: "approved") },
+                                                onReject: { updateStatus(req, to: "rejected") })
+                        }
+                        .buttonStyle(.plain)
                     }
                     Spacer(minLength: 20)
                 }

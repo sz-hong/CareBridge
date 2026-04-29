@@ -61,6 +61,11 @@ class MockDataService: DataService {
         ChatMessage(id: UUID().uuidString, sender: "我", senderRole: .family,
                     content: content, translations: nil, timestamp: Date(), isMe: true)
     }
+    func sendRequestMessage(roomId: String, messageType: String, referenceId: String, content: String) async throws -> ChatMessage {
+        ChatMessage(id: UUID().uuidString, sender: "我", senderRole: .family,
+                    content: content, translations: nil, timestamp: Date(), isMe: true,
+                    messageType: messageType, referenceId: referenceId)
+    }
 
     // MARK: - Care Log
     func fetchCareLogEntries(date: Date?) async throws -> [CareLogEntry] { CareLogEntry.samples }
@@ -104,6 +109,11 @@ class MockDataService: DataService {
     func updateLeaveStatus(id: String, status: LeaveStatus) async throws -> LeaveRequest {
         var req = LeaveRequest.samples[0]
         req.status = status
+        return req
+    }
+    func voteLeave(id: String, isAvailable: Bool) async throws -> LeaveRequest {
+        var req = LeaveRequest.samples[0]
+        req.votes = [LeaveVote(id: UUID().uuidString, memberId: "mock", memberName: "林小明", isAvailable: isAvailable, votedAt: Date())]
         return req
     }
 

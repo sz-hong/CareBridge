@@ -5,8 +5,6 @@ struct ChatListView: View {
     @Binding var isInChatDetail: Bool
     let userRole: UserRole
     @Environment(\.dataService) private var service
-    @State private var showPurchaseRequests = false
-    @State private var showLeaveRequests = false
     @State private var showNotifications = false
     @State private var chatRooms: [ChatRoom] = []
     @State private var navPath = NavigationPath()
@@ -15,9 +13,6 @@ struct ChatListView: View {
         NavigationStack(path: $navPath) {
             ScrollView {
                 VStack(spacing: 16) {
-                    // Quick action buttons (採購核准 / 請假核准)
-                    quickActionButtons
-
                     // Chat list
                     VStack(alignment: .leading, spacing: 12) {
                         HStack {
@@ -101,13 +96,7 @@ struct ChatListView: View {
                 }
             }
             .navigationDestination(for: ChatRoom.self) { room in
-                ChatDetailView(room: room)
-            }
-            .navigationDestination(isPresented: $showPurchaseRequests) {
-                MessageBoardView(userRole: userRole)
-            }
-            .navigationDestination(isPresented: $showLeaveRequests) {
-                LeaveManagementView(userRole: userRole)
+                ChatDetailView(room: room, userRole: userRole)
             }
             .navigationDestination(isPresented: $showNotifications) {
                 NotificationCenterView()
@@ -118,56 +107,6 @@ struct ChatListView: View {
             .task {
                 chatRooms = (try? await service.fetchChatRooms()) ?? []
             }
-        }
-    }
-
-    private var quickActionButtons: some View {
-        HStack(spacing: 12) {
-            Button {
-                showPurchaseRequests = true
-            } label: {
-                ZStack(alignment: .topTrailing) {
-                    Text(userRole == .caregiver ? "採購需求" : "採購核准")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Color.brandTeal)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 18)
-                        .background(RoundedRectangle(cornerRadius: 14).fill(Color.brandTealLight))
-                    if userRole == .family {
-                        ZStack {
-                            Circle().fill(.red).frame(width: 22, height: 22)
-                            Text("1")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(.white)
-                        }
-                        .offset(x: 6, y: -10)
-                    }
-                }
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                showLeaveRequests = true
-            } label: {
-                ZStack(alignment: .topTrailing) {
-                    Text(userRole == .caregiver ? "請假申請" : "請假核准")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Color.brandTeal)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 18)
-                        .background(RoundedRectangle(cornerRadius: 14).fill(Color.brandTealLight))
-                    if userRole == .family {
-                        ZStack {
-                            Circle().fill(.red).frame(width: 22, height: 22)
-                            Text("1")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(.white)
-                        }
-                        .offset(x: 6, y: -10)
-                    }
-                }
-            }
-            .buttonStyle(.plain)
         }
     }
 }
@@ -227,8 +166,6 @@ class ChatWebSocket {
     var isConnected = false
     var onReceive: ((ChatMessage) -> Void)?
 
-    // Matches the APIDataService decoder — backend sends snake_case keys
-    // and ISO-8601 timestamps for both REST and WebSocket payloads.
     private let decoder: JSONDecoder = {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .iso8601
@@ -251,6 +188,17 @@ class ChatWebSocket {
     func send(content: String, sender: String, senderRole: UserRole) {
         guard isConnected else { return }
         let payload: [String: String] = ["content": content, "sender": sender, "senderRole": senderRole.rawValue]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8) else { return }
+        task?.send(.string(json)) { _ in }
+    }
+
+    func sendRequest(messageType: String, referenceId: String, content: String, sender: String, senderRole: UserRole) {
+        guard isConnected else { return }
+        let payload: [String: String] = [
+            "content": content, "sender": sender, "senderRole": senderRole.rawValue,
+            "message_type": messageType, "reference_id": referenceId
+        ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let json = String(data: data, encoding: .utf8) else { return }
         task?.send(.string(json)) { _ in }
@@ -285,6 +233,7 @@ class ChatWebSocket {
 
 struct ChatDetailView: View {
     let room: ChatRoom
+    let userRole: UserRole
     @Environment(\.dataService) private var service
     @Environment(UserStore.self) private var userStore
     @State private var messages: [ChatMessage] = []
@@ -292,6 +241,15 @@ struct ChatDetailView: View {
     @State private var isRecording = false
     @FocusState private var isInputFocused: Bool
     @State private var socket = ChatWebSocket()
+    @State private var showPlusMenu = false
+    @State private var showAddPurchase = false
+    @State private var showAddLeave = false
+    // Family-side approval shortcuts (jump to board / leave management)
+    @State private var showBoardApproval = false
+    @State private var showLeaveApproval = false
+    // Navigation to detail views
+    @State private var selectedPurchaseId: String?
+    @State private var selectedLeaveId: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -300,8 +258,19 @@ struct ChatDetailView: View {
                 ScrollView {
                     LazyVStack(spacing: 12) {
                         ForEach(messages) { msg in
-                            MessageBubble(message: msg)
+                            if msg.messageType == "purchase_request" || msg.messageType == "leave_request" {
+                                RequestCardBubble(message: msg, userRole: userRole) {
+                                    if msg.messageType == "purchase_request" {
+                                        selectedPurchaseId = msg.referenceId
+                                    } else {
+                                        selectedLeaveId = msg.referenceId
+                                    }
+                                }
                                 .id(msg.id)
+                            } else {
+                                MessageBubble(message: msg)
+                                    .id(msg.id)
+                            }
                         }
                     }
                     .padding(.horizontal, 16)
@@ -337,11 +306,55 @@ struct ChatDetailView: View {
             }
         }
         .onDisappear { socket.disconnect() }
+        .navigationDestination(item: $selectedPurchaseId) { purchaseId in
+            PurchaseRequestDetailView(requestId: purchaseId, userRole: userRole)
+        }
+        .navigationDestination(item: $selectedLeaveId) { leaveId in
+            LeaveRequestDetailView(requestId: leaveId, userRole: userRole)
+        }
+        .navigationDestination(isPresented: $showBoardApproval) {
+            MessageBoardView(userRole: userRole)
+        }
+        .navigationDestination(isPresented: $showLeaveApproval) {
+            LeaveManagementView(userRole: userRole)
+        }
+        .sheet(isPresented: $showAddPurchase) {
+            AddPurchaseRequestView { newRequest in
+                sendRequestCard(type: "purchase_request", id: newRequest.id,
+                                content: "📦 採購需求：\(newRequest.title)")
+            }
+        }
+        .sheet(isPresented: $showAddLeave) {
+            AddLeaveRequestView { newRequest in
+                let fmt = DateFormatter(); fmt.dateFormat = "M/d"
+                sendRequestCard(type: "leave_request", id: newRequest.id,
+                                content: "📋 請假申請：\(newRequest.typeDisplayName) \(fmt.string(from: newRequest.startDate))–\(fmt.string(from: newRequest.endDate))")
+            }
+        }
     }
 
+    // MARK: - Input Bar
     private var inputBar: some View {
         HStack(spacing: 12) {
-            Button { } label: {
+            // "+" button — caregivers initiate requests, family members
+            // jump to the corresponding approval screen.
+            Menu {
+                if userRole == .caregiver {
+                    Button { showAddPurchase = true } label: {
+                        Label("採購需求", systemImage: "cart.fill")
+                    }
+                    Button { showAddLeave = true } label: {
+                        Label("請假申請", systemImage: "calendar.badge.clock")
+                    }
+                } else {
+                    Button { showBoardApproval = true } label: {
+                        Label("採購核准", systemImage: "cart.fill")
+                    }
+                    Button { showLeaveApproval = true } label: {
+                        Label("請假核准", systemImage: "calendar.badge.clock")
+                    }
+                }
+            } label: {
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 28))
                     .foregroundStyle(Color.brandTeal)
@@ -371,6 +384,7 @@ struct ChatDetailView: View {
         .background(.regularMaterial)
     }
 
+    // MARK: - Send Helpers
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
@@ -388,9 +402,33 @@ struct ChatDetailView: View {
         socket.send(content: text, sender: me?.name ?? "", senderRole: me?.role ?? .family)
     }
 
-    /// Merge an incoming WS message into the list. If the echo is from the
-    /// current user and matches a pending optimistic placeholder, replace it
-    /// so we end up with translations but no duplicate bubble.
+    private func sendRequestCard(type: String, id: String, content: String) {
+        let me = userStore.currentUser
+        let newMsg = ChatMessage(
+            id: UUID().uuidString,
+            sender: me?.name ?? "",
+            senderId: me?.id,
+            senderRole: me?.role ?? .family,
+            content: content, translations: nil,
+            timestamp: Date(), isMe: true,
+            messageType: type, referenceId: id
+        )
+        messages.append(newMsg)
+        // REST path (saves to DB + broadcasts via channel layer to other
+        // clients). The optimistic message above is reconciled with the WS
+        // echo by handleIncoming(); on failure we fall back to a fetch so
+        // the card still ends up persisted in the chat history.
+        Task {
+            if (try? await service.sendRequestMessage(
+                roomId: room.id, messageType: type,
+                referenceId: id, content: content
+            )) == nil {
+                messages = (try? await service.fetchMessages(roomId: room.id)) ?? messages
+            }
+        }
+    }
+
+    /// Merge an incoming WS message
     private func handleIncoming(_ msg: ChatMessage) {
         var incoming = msg
         if let myId = userStore.currentUser?.id, incoming.senderId == myId {
@@ -404,6 +442,93 @@ struct ChatDetailView: View {
         }
         guard !messages.contains(where: { $0.id == incoming.id }) else { return }
         messages.append(incoming)
+    }
+}
+
+// MARK: - Request Card Bubble (interactive message in chat)
+struct RequestCardBubble: View {
+    let message: ChatMessage
+    let userRole: UserRole
+    let onTap: () -> Void
+
+    private var isPurchase: Bool { message.messageType == "purchase_request" }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            if message.isMe { Spacer(minLength: 40) }
+
+            if !message.isMe {
+                Circle()
+                    .fill(Color.brandTealLight)
+                    .frame(width: 36, height: 36)
+                    .overlay {
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(Color.brandTeal)
+                    }
+            }
+
+            VStack(alignment: message.isMe ? .trailing : .leading, spacing: 4) {
+                if !message.isMe {
+                    Text(message.sender)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+
+                Button(action: onTap) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Image(systemName: isPurchase ? "cart.fill" : "calendar.badge.clock")
+                                .font(.system(size: 18))
+                                .foregroundStyle(.white)
+                                .frame(width: 36, height: 36)
+                                .background(Circle().fill(isPurchase ? Color.orange : Color.blue))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(isPurchase ? "採購需求" : "請假申請")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(.primary)
+                                Text(message.content.replacing(/^[📦📋]\s*/, with: ""))
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                        }
+
+                        HStack {
+                            Text("點擊查看詳情")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color.brandTeal)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Color.brandTeal)
+                        }
+                    }
+                    .padding(12)
+                    .frame(maxWidth: 260, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 14).fill(Color(.systemBackground)))
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(.systemGray4), lineWidth: 0.5))
+                }
+                .buttonStyle(.plain)
+
+                Text(message.timestamp.formatted(date: .omitted, time: .shortened))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            if message.isMe {
+                Circle()
+                    .fill(Color.brandTealLight)
+                    .frame(width: 36, height: 36)
+                    .overlay {
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(Color.brandTeal)
+                    }
+            } else {
+                Spacer(minLength: 40)
+            }
+        }
     }
 }
 

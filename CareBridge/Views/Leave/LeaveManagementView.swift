@@ -6,6 +6,7 @@ struct LeaveManagementView: View {
     @State private var requests: [LeaveRequest] = []
     @State private var showAddRequest = false
     @State private var selectedStatus: String = "全部"
+    @State private var isReloading = false
     private let statuses = ["全部", "待審核", "已核准", "已駁回"]
 
     private let dateFormatter: DateFormatter = {
@@ -52,11 +53,15 @@ struct LeaveManagementView: View {
 
             List {
                 ForEach(filteredRequests) { request in
-                    LeaveRequestRow(request: request, userRole: userRole, onApprove: {
-                        updateStatus(request, to: .approved)
-                    }, onReject: {
-                        updateStatus(request, to: .rejected)
-                    })
+                    NavigationLink {
+                        LeaveRequestDetailView(requestId: request.id, userRole: userRole)
+                    } label: {
+                        LeaveRequestRow(request: request, userRole: userRole, onApprove: {
+                            updateStatus(request, to: .approved)
+                        }, onReject: {
+                            updateStatus(request, to: .rejected)
+                        })
+                    }
                     .listRowBackground(Color.white)
                     .listRowSeparatorTint(Color(.systemGray5))
                 }
@@ -87,8 +92,19 @@ struct LeaveManagementView: View {
                 requests.insert(newRequest, at: 0)
             }
         }
-        .task {
-            requests = (try? await service.fetchLeaveRequests()) ?? []
+        // Refetch every time the view appears (including pops back from
+        // LeaveRequestDetailView after voting), so row status reflects any
+        // server-side auto-resolution that happened in the detail flow.
+        .onAppear { Task { await reload() } }
+        .refreshable { await reload() }
+    }
+
+    private func reload() async {
+        guard !isReloading else { return }
+        isReloading = true
+        defer { isReloading = false }
+        if let fresh = try? await service.fetchLeaveRequests() {
+            requests = fresh
         }
     }
 
@@ -163,36 +179,8 @@ struct LeaveRequestRow: View {
                 }
             }
 
-            // Action buttons (only for pending, family can approve/reject)
-            if request.status == .pending && userRole == .family {
-                HStack(spacing: 12) {
-                    Button(action: onReject) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "xmark.circle")
-                            Text("拒絕")
-                        }
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(RoundedRectangle(cornerRadius: 10).stroke(.red, lineWidth: 1.5))
-                    }
-                    .buttonStyle(.plain)
-
-                    Button(action: onApprove) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "checkmark.circle")
-                            Text("核准")
-                        }
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(Color.brandTeal))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+            // Inline approve/reject removed — family members vote via the
+            // detail view (有空 / 沒空) by tapping into the row.
         }
         .padding(.vertical, 8)
     }

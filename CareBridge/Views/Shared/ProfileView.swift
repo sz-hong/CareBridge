@@ -10,6 +10,7 @@ struct ProfileView: View {
     @State private var showEditProfile = false
     @State private var showFamilyMembers = false
     @State private var showNotificationPrefs = false
+    @State private var inviteCodeCopied = false
 
     private var user: UserProfile? { userStore.currentUser }
 
@@ -66,6 +67,16 @@ struct ProfileView: View {
                 Section("家庭資訊") {
                     profileRow(icon: "house.fill", label: "家庭名稱", value: user?.familyName.isEmpty == false ? user!.familyName : "-")
                     profileRow(icon: "shield.checkered", label: "角色", value: (user?.role ?? userRole).displayName)
+                    if let code = user?.familyInviteCode, !code.isEmpty {
+                        Button {
+                            UIPasteboard.general.string = code
+                            inviteCodeCopied = true
+                        } label: {
+                            profileRow(icon: "qrcode", label: "家庭邀請碼",
+                                       value: inviteCodeCopied ? "已複製" : code)
+                        }
+                        .foregroundStyle(.primary)
+                    }
                     Button {
                         showFamilyMembers = true
                     } label: {
@@ -125,20 +136,10 @@ struct ProfileView: View {
                             }
                         }
                     } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "globe")
-                                .foregroundStyle(Color.brandTeal)
-                                .frame(width: 24)
-                            Text("語言")
-                                .foregroundStyle(.primary)
-                            Spacer()
-                            Text(SupportedLanguage.displayName(for: user?.language))
-                                .foregroundStyle(.secondary)
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                        }
+                        profileRow(icon: "globe", label: "語言",
+                                   value: SupportedLanguage.displayName(for: user?.language))
                     }
+                    .foregroundStyle(.primary)
                 }
 
                 // Logout

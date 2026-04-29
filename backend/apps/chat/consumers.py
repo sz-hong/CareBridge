@@ -74,14 +74,35 @@ class ChatConsumer(AsyncWebsocketConsumer):
         except User.DoesNotExist:
             return None
 
-        message = Message.objects.create(
-            chat_id=self.chat_id,
-            sender=sender,
-            type=data.get('message_type', 'text'),
-            content=data.get('content', ''),
-        )
+        # Mirror the REST dispatch: wire `message_type` (or legacy fallback)
+        # routes either to Message.type (text/image) or Message.message_type
+        # (purchase_request/leave_request) + reference_id.
+        wire_type = data.get('message_type') or data.get('type') or 'text'
+        if wire_type in ('purchase_request', 'leave_request'):
+            message = Message.objects.create(
+                chat_id=self.chat_id,
+                sender=sender,
+                type=Message.Type.TEXT,
+                message_type=wire_type,
+                reference_id=data.get('reference_id'),
+                content=data.get('content', ''),
+            )
+        else:
+            message = Message.objects.create(
+                chat_id=self.chat_id,
+                sender=sender,
+                type=wire_type if wire_type in ('text', 'image') else 'text',
+                message_type=Message.MessageType.TEXT,
+                content=data.get('content', ''),
+            )
 
-        if message.type == 'text' and message.content:
+        # Skip translation for request-card messages — content is structured
+        # (emoji + Chinese label + dates) and the FE renders its own labels.
+        if (
+            message.type == Message.Type.TEXT
+            and message.message_type == Message.MessageType.TEXT
+            and message.content
+        ):
             try:
                 ChatViewSet._translate_message(message, sender)
             except Exception:

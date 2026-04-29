@@ -60,3 +60,34 @@ class Leave(models.Model):
 
     def __str__(self):
         return f'{self.type} leave by {self.applicant} ({self.status})'
+
+
+class LeaveVote(models.Model):
+    """One vote cast by a family member on a leave request.
+
+    Status auto-resolves once every family-role member has voted: if anyone
+    voted available → approved; if all voted unavailable → rejected.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    leave = models.ForeignKey(
+        Leave, on_delete=models.CASCADE, related_name='votes'
+    )
+    member = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='leave_votes',
+    )
+    # Snapshot of the voter's name at vote time so historical records stay
+    # readable even if the user later renames or leaves the family.
+    member_name = models.CharField(max_length=100)
+    is_available = models.BooleanField()
+    voted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'leave_vote'
+        unique_together = ('leave', 'member')
+        ordering = ['voted_at']
+
+    def __str__(self):
+        verdict = 'available' if self.is_available else 'unavailable'
+        return f'{self.member_name} → {verdict} on {self.leave_id}'

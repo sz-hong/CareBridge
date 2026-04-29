@@ -53,6 +53,7 @@ protocol DataService {
     func fetchChatRooms() async throws -> [ChatRoom]
     func fetchMessages(roomId: String) async throws -> [ChatMessage]
     func sendMessage(roomId: String, content: String) async throws -> ChatMessage
+    func sendRequestMessage(roomId: String, messageType: String, referenceId: String, content: String) async throws -> ChatMessage
 
     // Care Log
     func fetchCareLogEntries(date: Date?) async throws -> [CareLogEntry]
@@ -87,6 +88,7 @@ protocol DataService {
     func fetchLeaveRequests() async throws -> [LeaveRequest]
     func createLeaveRequest(_ request: LeaveRequest) async throws -> LeaveRequest
     func updateLeaveStatus(id: String, status: LeaveStatus) async throws -> LeaveRequest
+    func voteLeave(id: String, isAvailable: Bool) async throws -> LeaveRequest
 
     // Documents
     func fetchDocuments() async throws -> [AppDocument]

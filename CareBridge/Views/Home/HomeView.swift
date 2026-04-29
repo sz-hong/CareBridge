@@ -19,7 +19,6 @@ struct HomeView: View {
     @State private var health: HealthData = .sample
     @State private var weeklySteps: [Int] = HealthData.weeklySteps
     @State private var showNotifications = false
-    @State private var showSOS = false
     private let weekDays = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
 
     /// 今天在 Mon-Sun 陣列中的 index（Mon=0, Sun=6）
@@ -78,9 +77,6 @@ struct HomeView: View {
                 VStack(spacing: 20) {
                     // Greeting
                     greetingSection
-
-                    // SOS Button
-                    sosButton
 
                     // Activity Trend Card
                     activityTrendCard
@@ -141,9 +137,6 @@ struct HomeView: View {
             .navigationDestination(isPresented: $showNotifications) {
                 NotificationCenterView()
             }
-            .sheet(isPresented: $showSOS) {
-                NavigationStack { FirstAidView(isModal: true) }
-            }
             .task {
                 medicationStore.load()
                 careLogStore.load()
@@ -180,36 +173,6 @@ struct HomeView: View {
         }
     }
 
-    // MARK: - SOS Button
-    private var sosButton: some View {
-        Button {
-            showSOS = true
-        } label: {
-            HStack {
-                Spacer()
-                Text("SOS EMERGENCY\nASSISTANCE")
-                    .font(.system(size: 16, weight: .bold))
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.white)
-                Spacer()
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(0.25))
-                        .frame(width: 44, height: 44)
-                    Image(systemName: "asterisk")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
-            .background(
-                RoundedRectangle(cornerRadius: 28)
-                    .fill(Color(red: 0.85, green: 0.15, blue: 0.15))
-            )
-        }
-        .buttonStyle(.plain)
-    }
 
     // MARK: - Activity Trend Card
     private var activityTrendCard: some View {

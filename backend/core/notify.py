@@ -100,11 +100,15 @@ def broadcast_family(family, type, title, body, data=None, exclude_user=None, pu
 
 def _send_push_to_user(user, title, body, data=None):
     """Send APNs push notification to all active devices of a user."""
+    import os
+
     from apps.notification.models import Device
 
-    # Check if APNs is configured
+    # Skip silently when APNs isn't truly set up. The env file ships with a
+    # placeholder path like `/path/to/AuthKey.p8`, so a non-empty string
+    # alone isn't enough — verify the .p8 file actually exists on disk.
     apns_key = getattr(settings, 'APNS_AUTH_KEY_PATH', '')
-    if not apns_key:
+    if not apns_key or not os.path.isfile(apns_key):
         logger.debug('APNs not configured, skipping push for user %s', user.id)
         return
 

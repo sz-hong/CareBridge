@@ -5,6 +5,7 @@ struct ContentView: View {
     let userRole: UserRole
     @State private var selectedTab = 0
     @State private var showAIAgent = false
+    @State private var showSOS = false
     @State private var showProfile = false
     @State private var isInChatDetail = false
 
@@ -46,11 +47,37 @@ struct ContentView: View {
                 .transition(.scale.combined(with: .opacity))
             }
         }
+        // SOS — only on home tab, mirrored to bottom-right with the same
+        // 52pt circle and bottom inset as the AI button so they line up.
+        .overlay(alignment: .bottomTrailing) {
+            if selectedTab == 0 {
+                Button {
+                    showSOS = true
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(Color(red: 0.85, green: 0.15, blue: 0.15))
+                            .frame(width: 52, height: 52)
+                        Text("SOS")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                }
+                .padding(.trailing, 20)
+                .padding(.bottom, 70)
+                .transition(.scale.combined(with: .opacity))
+                .accessibilityLabel("SOS Emergency")
+            }
+        }
         .animation(.easeInOut(duration: 0.2), value: isInChatDetail)
+        .animation(.easeInOut(duration: 0.2), value: selectedTab)
         .sheet(isPresented: $showAIAgent) {
             NavigationStack {
                 AIAgentView(isModal: true)
             }
+        }
+        .sheet(isPresented: $showSOS) {
+            NavigationStack { FirstAidView(isModal: true) }
         }
         .sheet(isPresented: $showProfile) {
             ProfileView(isLoggedIn: $isLoggedIn, userRole: userRole)
