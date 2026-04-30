@@ -2,9 +2,12 @@ import SwiftUI
 
 struct SharedCalendarView: View {
     @Environment(CalendarStore.self) private var calendarStore
+    @Environment(TodoStore.self) private var todoStore
     @State private var selectedDate = Date()
-    @State private var showAddEvent = false
-    @State private var viewMode = 0 // 0=月, 1=日
+    @State private var showAddSheet = false
+    @State private var addType: AddType = .event
+
+    private enum AddType { case event, todo }
 
     private let calendar = Calendar.current
     private let monthFormatter: DateFormatter = {
@@ -30,6 +33,22 @@ struct SharedCalendarView: View {
 
     private var selectedDayEvents: [CalendarEvent] {
         calendarStore.events.filter { calendar.isDate($0.date, inSameDayAs: selectedDate) }
+    }
+
+    private var selectedDayTodos: [TodoItem] {
+        todoStore.todos.filter { todo in
+            guard let due = todo.dueDate else { return false }
+            return calendar.isDate(due, inSameDayAs: selectedDate)
+        }
+    }
+
+    /// True if the given date has any event or todo — used for the calendar dot.
+    private func hasAnythingOn(_ date: Date) -> Bool {
+        calendarStore.events.contains { calendar.isDate($0.date, inSameDayAs: date) }
+            || todoStore.todos.contains { todo in
+                guard let due = todo.dueDate else { return false }
+                return calendar.isDate(due, inSameDayAs: date)
+            }
     }
 
     var body: some View {
@@ -76,7 +95,7 @@ struct SharedCalendarView: View {
                                 date: date,
                                 isSelected: calendar.isDate(date, inSameDayAs: selectedDate),
                                 isToday: calendar.isDateInToday(date),
-                                hasEvent: calendarStore.events.contains { calendar.isDate($0.date, inSameDayAs: date) }
+                                hasEvent: hasAnythingOn(date)
                             ) {
                                 selectedDate = date
                             }
@@ -89,14 +108,25 @@ struct SharedCalendarView: View {
 
                 Divider()
 
-                // Selected day events
+                // Selected day events + todos
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         Text(selectedDate.formatted(date: .complete, time: .omitted))
                             .font(.system(size: 15, weight: .semibold))
                         Spacer()
-                        Button {
-                            showAddEvent = true
+                        Menu {
+                            Button {
+                                addType = .event
+                                showAddSheet = true
+                            } label: {
+                                Label("新增行程", systemImage: "calendar")
+                            }
+                            Button {
+                                addType = .todo
+                                showAddSheet = true
+                            } label: {
+                                Label("新增待辦事項", systemImage: "checkmark.circle")
+                            }
                         } label: {
                             Image(systemName: "plus.circle.fill")
                                 .foregroundStyle(Color.brandTeal)
@@ -105,17 +135,23 @@ struct SharedCalendarView: View {
                     }
                     .padding(.horizontal, 16)
 
-                    if selectedDayEvents.isEmpty {
+                    if selectedDayEvents.isEmpty && selectedDayTodos.isEmpty {
                         Text("今日無行程")
                             .font(.system(size: 14))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8)
                     } else {
-                        // Ensure chronological order for the day's events
+                        // Events first (chronological), then todos
                         ForEach(selectedDayEvents.sorted { $0.date < $1.date }) { event in
                             EventRow(event: event)
                                 .padding(.horizontal, 16)
+                        }
+                        ForEach(selectedDayTodos) { todo in
+                            CalendarTodoRow(todo: todo) {
+                                toggleTodo(todo)
+                            }
+                            .padding(.horizontal, 16)
                         }
                     }
                 }
@@ -129,14 +165,133 @@ struct SharedCalendarView: View {
         .background(Color.brandBackground)
         .navigationTitle("共享行事曆")
         .navigationBarTitleDisplayMode(.large)
-        .sheet(isPresented: $showAddEvent) {
-            Text("新增行程")
-                .font(.title2)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.brandBackground)
+        .sheet(isPresented: $showAddSheet) {
+            switch addType {
+            case .event:
+                AddEventView(defaultDate: selectedDate) { newEvent in
+                    calendarStore.addEvent(newEvent)
+                }
+            case .todo:
+                AddTodoView { newTodo in
+                    todoStore.addTodo(newTodo)
+                }
+            }
         }
-        .task { calendarStore.load() }
+        .task {
+            calendarStore.load()
+            todoStore.load()
+        }
+    }
+
+    private func toggleTodo(_ todo: TodoItem) {
+        if let index = todoStore.todos.firstIndex(where: { $0.id == todo.id }) {
+            var updated = todoStore.todos[index]
+            updated.isCompleted.toggle()
+            withAnimation { todoStore.updateTodo(updated) }
+        }
+    }
+}
+
+// MARK: - Calendar Todo Row (compact toggleable row for the day list)
+struct CalendarTodoRow: View {
+    let todo: TodoItem
+    let onToggle: () -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Button(action: onToggle) {
+                Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 22))
+                    .foregroundStyle(todo.isCompleted ? Color.brandTeal : Color(.systemGray3))
+            }
+            .buttonStyle(.plain)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(todo.title)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(todo.isCompleted ? .secondary : .primary)
+                    .strikethrough(todo.isCompleted)
+                    .lineLimit(2)
+                HStack(spacing: 4) {
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    Text(todo.assignee)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            if !todo.isCompleted {
+                Text(todo.priority.displayName)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(todo.priority.color)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(todo.priority.color.opacity(0.12)))
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Add Event View (lightweight inline form)
+struct AddEventView: View {
+    @Environment(\.dismiss) private var dismiss
+    let defaultDate: Date
+    let onAdd: (CalendarEvent) -> Void
+
+    @State private var title = ""
+    @State private var date: Date
+    @State private var location = ""
+    @State private var type = "其他"
+    private let types = ["回診", "復健", "個人", "其他"]
+
+    init(defaultDate: Date, onAdd: @escaping (CalendarEvent) -> Void) {
+        self.defaultDate = defaultDate
+        self.onAdd = onAdd
+        _date = State(initialValue: defaultDate)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("行程資訊") {
+                    TextField("標題", text: $title)
+                    DatePicker("時間", selection: $date)
+                    TextField("地點（選填）", text: $location)
+                }
+                Section("類型") {
+                    Picker("類型", selection: $type) {
+                        ForEach(types, id: \.self) { Text($0).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                }
+            }
+            .navigationTitle("新增行程")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("儲存") {
+                        let event = CalendarEvent(
+                            id: UUID().uuidString,
+                            title: title.isEmpty ? "未命名行程" : title,
+                            date: date,
+                            location: location.isEmpty ? nil : location,
+                            type: type
+                        )
+                        onAdd(event)
+                        dismiss()
+                    }
+                    .bold()
+                    .foregroundStyle(Color.brandTeal)
+                    .disabled(title.isEmpty)
+                }
+            }
+        }
     }
 }
 
@@ -151,6 +306,9 @@ struct DayCell: View {
 
     var body: some View {
         Button(action: action) {
+            // Always reserve the dot row (clear when no event) so day numbers
+            // stay vertically aligned across the whole week instead of getting
+            // pushed up only on cells that have events.
             VStack(spacing: 4) {
                 ZStack {
                     if isSelected {
@@ -166,11 +324,9 @@ struct DayCell: View {
                         .font(.system(size: 14, weight: isToday || isSelected ? .bold : .regular))
                         .foregroundStyle(isSelected ? .white : isToday ? Color.brandTeal : .primary)
                 }
-                if hasEvent {
-                    Circle()
-                        .fill(isSelected ? .white : Color.brandTeal)
-                        .frame(width: 4, height: 4)
-                }
+                Circle()
+                    .fill(hasEvent ? (isSelected ? .white : Color.brandTeal) : .clear)
+                    .frame(width: 4, height: 4)
             }
             .frame(height: 44)
         }

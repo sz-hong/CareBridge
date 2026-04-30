@@ -680,12 +680,21 @@ class TodoStore {
     }
 
     func addTodo(_ todo: TodoItem) {
-        todos.insert(todo, at: 0)
-        Task {
+        // Optimistic insert with the locally-generated UUID for instant UI
+        // feedback. The backend ignores the wire `id` and assigns its own,
+        // so we must reconcile by replacing the local copy with the server's
+        // response — otherwise later updates PUT a non-existent id → 404.
+        let optimistic = todo
+        todos.insert(optimistic, at: 0)
+        Task { @MainActor in
             do {
-                _ = try await service.createTodo(todo)
+                let saved = try await service.createTodo(optimistic)
+                if let idx = todos.firstIndex(where: { $0.id == optimistic.id }) {
+                    todos[idx] = saved
+                }
             } catch {
                 print("[TodoStore] create failed: \(error)")
+                todos.removeAll { $0.id == optimistic.id }
             }
         }
     }

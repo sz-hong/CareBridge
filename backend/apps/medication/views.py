@@ -24,10 +24,21 @@ class MedicationViewSet(ModelViewSet):
     serializer_class = MedicationSerializer
 
     def get_queryset(self):
+        from django.db.models import Q
+
         qs = Medication.objects.filter(family=self.request.user.family)
         is_active = self.request.query_params.get('is_active')
         if is_active is not None:
             qs = qs.filter(is_active=is_active.lower() == 'true')
+
+        # Hide medications whose treatment course has ended. The FE already
+        # filters these out, but doing it here keeps API responses honest and
+        # spares clients from filtering expired records.
+        # Pass ?include_expired=true to override (e.g. an admin/history view).
+        if self.request.query_params.get('include_expired', '').lower() != 'true':
+            today = timezone.localdate()
+            qs = qs.filter(Q(end_date__isnull=True) | Q(end_date__gte=today))
+
         return qs
 
     def get_serializer_class(self):
