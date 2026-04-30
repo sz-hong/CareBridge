@@ -8,17 +8,27 @@ extension Color {
     static let brandBackground = Color(red: 0.94, green: 0.97, blue: 0.98)
 }
 
+// Destinations pushed from HomeView. Value-based NavigationLink lets the
+// outer NavigationStack track depth via its path binding (so SOS can hide).
+enum HomeDestination: Hashable {
+    case calendar, todos, medication, health
+}
+
 // MARK: - HomeView
 struct HomeView: View {
     @Binding var showProfile: Bool
+    @Binding var isInHomeDetail: Bool
     let userRole: UserRole
     @Environment(UserStore.self) private var userStore
     @Environment(MedicationStore.self) private var medicationStore
     @Environment(CareLogStore.self) private var careLogStore
+    @Environment(TodoStore.self) private var todoStore
+    @Environment(CalendarStore.self) private var calendarStore
     @Environment(\.dataService) private var service
     @State private var health: HealthData = .sample
     @State private var weeklySteps: [Int] = HealthData.weeklySteps
     @State private var showNotifications = false
+    @State private var navPath = NavigationPath()
     private let weekDays = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
 
     /// 今天在 Mon-Sun 陣列中的 index（Mon=0, Sun=6）
@@ -72,7 +82,7 @@ struct HomeView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navPath) {
             ScrollView {
                 VStack(spacing: 20) {
                     // Greeting
@@ -134,12 +144,28 @@ struct HomeView: View {
                     }
                 }
             }
+            .navigationDestination(for: HomeDestination.self) { dest in
+                switch dest {
+                case .calendar:   SharedCalendarView()
+                case .todos:      TodoView()
+                case .medication: MedicationView(userRole: userRole)
+                case .health:     HealthMonitorView()
+                }
+            }
             .navigationDestination(isPresented: $showNotifications) {
                 NotificationCenterView()
+            }
+            .onChange(of: navPath.count) { _, newCount in
+                isInHomeDetail = newCount > 0
+            }
+            .onChange(of: showNotifications) { _, isShown in
+                isInHomeDetail = isShown || navPath.count > 0
             }
             .task {
                 medicationStore.load()
                 careLogStore.load()
+                todoStore.load()
+                calendarStore.load()
                 async let h = service.fetchHealthData(elderId: "")
                 async let s = service.fetchWeeklySteps(elderId: "")
                 health      = (try? await h) ?? .sample
@@ -229,7 +255,7 @@ struct HomeView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                NavigationLink(destination: HealthMonitorView()) {
+                NavigationLink(value: HomeDestination.health) {
                     Text("FULL\nREPORT")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(Color.brandTeal)
@@ -241,14 +267,105 @@ struct HomeView: View {
         .background(RoundedRectangle(cornerRadius: 16).fill(.white))
     }
 
+    private var todayTodos: [TodoItem] {
+        todoStore.todos.filter { todo in
+            guard let due = todo.dueDate else { return false }
+            return Calendar.current.isDateInToday(due) && !todo.isCompleted
+        }
+    }
+
+    private var todayEvents: [CalendarEvent] {
+        calendarStore.events
+            .filter { Calendar.current.isDateInToday($0.date) }
+            .sorted { $0.date < $1.date }
+    }
+
     // MARK: - Today's Tasks
     private var todayTasksCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("今日處理事項")
                 .font(.system(size: 17, weight: .bold))
 
+            // Today's events (calendar)
+            if !todayEvents.isEmpty {
+                NavigationLink(value: HomeDestination.calendar) {
+                    HStack(spacing: 14) {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.blue.opacity(0.15))
+                            .frame(width: 44, height: 44)
+                            .overlay {
+                                Image(systemName: "calendar")
+                                    .foregroundStyle(.blue)
+                            }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("今日行程")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.primary)
+                            Text(todayEvents.first.map { "\($0.date.formatted(date: .omitted, time: .shortened))  \($0.title)" } ?? "")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("\(todayEvents.count)")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(.blue)
+                            Text("項")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemBackground)))
+                }
+                .buttonStyle(.plain)
+            }
+
+            // Today's todos (incomplete, due today)
+            if !todayTodos.isEmpty {
+                NavigationLink(value: HomeDestination.todos) {
+                    HStack(spacing: 14) {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Color.orange.opacity(0.15))
+                            .frame(width: 44, height: 44)
+                            .overlay {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.orange)
+                            }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("今日待辦")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.primary)
+                            Text(todayTodos.first?.title ?? "")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("\(todayTodos.count)")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(.orange)
+                            Text("待完成")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemBackground)))
+                }
+                .buttonStyle(.plain)
+            }
+
             // Medication row
-            NavigationLink(destination: MedicationView(userRole: userRole)) {
+            NavigationLink(value: HomeDestination.medication) {
                 HStack(spacing: 14) {
                     RoundedRectangle(cornerRadius: 10)
                         .fill(Color.brandTealLight)
@@ -284,7 +401,7 @@ struct HomeView: View {
             .buttonStyle(.plain)
 
             // Blood pressure row
-            NavigationLink(destination: HealthMonitorView()) {
+            NavigationLink(value: HomeDestination.health) {
                 HStack(spacing: 14) {
                     RoundedRectangle(cornerRadius: 10)
                         .fill(Color.brandTealLight)
@@ -401,9 +518,10 @@ struct HomeView: View {
 
 #Preview {
     let svc = MockDataService()
-    HomeView(showProfile: .constant(false), userRole: .family)
+    HomeView(showProfile: .constant(false), isInHomeDetail: .constant(false), userRole: .family)
         .environment(MedicationStore(service: svc))
         .environment(CareLogStore(service: svc))
         .environment(CalendarStore(service: svc))
+        .environment(TodoStore(service: svc))
         .environment(UserStore(service: svc))
 }

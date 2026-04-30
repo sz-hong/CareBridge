@@ -164,8 +164,12 @@ class LeaveViewSet(ModelViewSet):
             family=leave.family,
             role=User.Role.FAMILY_MEMBER,
         ).count()
-        votes = leave.votes.all()
-        if votes.count() < eligible_count:
+        # Query LeaveVote directly to bypass any prefetch_related('votes')
+        # cache on the leave instance — get_queryset prefetches votes for
+        # list views, and that cached queryset wouldn't reflect the vote we
+        # just created in the same request.
+        votes = list(LeaveVote.objects.filter(leave=leave))
+        if len(votes) < eligible_count:
             return  # Still waiting on more votes
 
         if any(v.is_available for v in votes):

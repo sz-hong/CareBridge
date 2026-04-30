@@ -2,8 +2,6 @@ import SwiftUI
 
 struct TodoView: View {
     @Environment(TodoStore.self) private var todoStore
-    @Environment(CareLogStore.self) private var careLogStore
-    @Environment(CalendarStore.self) private var calendarStore
     @State private var showAddTodo = false
     @State private var filter = 0 // 0=全部, 1=待處理, 2=已完成
 
@@ -74,15 +72,8 @@ struct TodoView: View {
         .sheet(isPresented: $showAddTodo) {
             AddTodoView { newTodo in
                 todoStore.addTodo(newTodo)
-                // Sync to shared calendar
-                let calEvent = CalendarEvent(
-                    id: UUID().uuidString,
-                    title: "📋 \(newTodo.title)",
-                    date: newTodo.dueDate ?? Date(),
-                    location: "負責人：\(newTodo.assignee)",
-                    type: "待辦"
-                )
-                calendarStore.addEvent(calEvent)
+                // No separate calendar event — SharedCalendarView reads from
+                // TodoStore directly and renders todos alongside events.
             }
         }
         .task { todoStore.load() }
@@ -90,36 +81,16 @@ struct TodoView: View {
 
     private func toggleTodo(_ todo: TodoItem) {
         if let index = todoStore.todos.firstIndex(where: { $0.id == todo.id }) {
-            let wasCompleted = todoStore.todos[index].isCompleted
             var updated = todoStore.todos[index]
             updated.isCompleted.toggle()
             withAnimation {
                 todoStore.updateTodo(updated)
             }
-
-            // Sync completion to care log + calendar
-            if !wasCompleted {
-                // Add care log entry
-                let logEntry = CareLogEntry(
-                    id: UUID().uuidString,
-                    type: .note,
-                    title: "待辦完成：\(todo.title)",
-                    detail: "負責人：\(todo.assignee)｜優先度：\(todo.priority.displayName)",
-                    timestamp: Date(),
-                    hasPhoto: false
-                )
-                careLogStore.addEntry(logEntry)
-
-                // Add calendar event
-                let calEvent = CalendarEvent(
-                    id: UUID().uuidString,
-                    title: "✅ \(todo.title)",
-                    date: Date(),
-                    location: nil,
-                    type: "完成"
-                )
-                calendarStore.addEvent(calEvent)
-            }
+            // Backend `update_todo` auto-creates a CareLog (Type.ACTIVITY) when
+            // status flips to completed (apps/todo/views.py). The previous
+            // FE-side note entry duplicated that log with a 備註/優先度 detail
+            // — removed. Calendar visibility comes from the merged todo+event
+            // listing in SharedCalendarView, no separate event needed either.
         }
     }
 

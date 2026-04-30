@@ -4,35 +4,30 @@ struct MedicationView: View {
     var userRole: UserRole = .family
     @Environment(MedicationStore.self) private var medStore
     @Environment(CareLogStore.self) private var careLogStore
-    @Environment(CalendarStore.self) private var calendarStore
     @State private var showAddMedication = false
+
+    /// Hide meds whose endDate has already passed — they should silently
+    /// disappear from the active list once their treatment course is over.
+    private var activeMedications: [Medication] {
+        let today = Calendar.current.startOfDay(for: Date())
+        return medStore.medications.filter { med in
+            guard let end = med.endDate else { return true }   // no end → indefinite
+            return Calendar.current.startOfDay(for: end) >= today
+        }
+    }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
                 todaySummaryCard
 
-                // Medication list
+                // Medication list — title only; family role uses the floating
+                // bottom-right "+" button instead of an inline header button.
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text("目前用藥清單")
-                            .font(.system(size: 17, weight: .bold))
-                        Spacer()
-                        if userRole == .family{
-                            Button {
-                                showAddMedication = true
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "plus.circle.fill")
-                                    Text("新增")
-                                }
-                                .font(.system(size: 14))
-                                .foregroundStyle(Color.brandTeal)
-                            }
-                        }
-                    }
+                    Text("目前用藥清單")
+                        .font(.system(size: 17, weight: .bold))
 
-                    ForEach(medStore.medications) { med in
+                    ForEach(activeMedications) { med in
                         MedicationRow(medication: med)
                     }
                 }
@@ -47,10 +42,28 @@ struct MedicationView: View {
         .background(Color.brandBackground)
         .navigationTitle("用藥管理")
         .navigationBarTitleDisplayMode(.large)
+        .overlay(alignment: .bottomTrailing) {
+            if userRole == .family {
+                Button {
+                    showAddMedication = true
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(Color.brandTeal)
+                            .frame(width: 56, height: 56)
+                            .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
+                        Image(systemName: "plus")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                }
+                .padding(.trailing, 20)
+                .padding(.bottom, 24)
+            }
+        }
         .sheet(isPresented: $showAddMedication) {
-            AddMedicationView { newMed, calEvents in
+            AddMedicationView { newMed in
                 medStore.addMedication(newMed)
-                calendarStore.addEvents(calEvents)
             }
         }
         .task { medStore.load() }
@@ -227,16 +240,28 @@ struct MedicationRow: View {
             if isExpanded {
                 VStack(alignment: .leading, spacing: 8) {
                     Divider()
-                    HStack(spacing: 6) {
-                        Image(systemName: "info.circle.fill")
-                            .foregroundStyle(.orange)
-                            .font(.system(size: 14))
-                        Text(medication.instructions)
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
+                    if !medication.instructions.isEmpty {
+                        HStack(spacing: 6) {
+                            Image(systemName: "info.circle.fill")
+                                .foregroundStyle(.orange)
+                                .font(.system(size: 14))
+                            Text(medication.instructions)
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    .padding(.top, 4)
+                    if let endDate = medication.endDate {
+                        HStack(spacing: 6) {
+                            Image(systemName: "calendar.badge.clock")
+                                .foregroundStyle(Color.brandTeal)
+                                .font(.system(size: 14))
+                            Text("結束服用日：\(endDate.formatted(date: .long, time: .omitted))")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
+                .padding(.top, 4)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
@@ -252,7 +277,7 @@ struct MedicationRow: View {
 // MARK: - Add Medication View
 struct AddMedicationView: View {
     @Environment(\.dismiss) private var dismiss
-    let onAdd: (Medication, [CalendarEvent]) -> Void
+    let onAdd: (Medication) -> Void
 
     @State private var name = ""
     @State private var nameTranslated = ""
@@ -358,32 +383,10 @@ struct AddMedicationView: View {
             endDate: endDate,
             reminderEnabled: true
         )
-
-        var calEvents: [CalendarEvent] = []
-        let calendar = Calendar.current
-        let startOfToday = calendar.startOfDay(for: Date())
-        let endDay = calendar.startOfDay(for: endDate)
-        var currentDay = startOfToday
-
-        while currentDay <= endDay {
-            for timeStr in times {
-                let parts = timeStr.split(separator: ":").compactMap { Int($0) }
-                guard parts.count == 2 else { continue }
-                if let eventDate = calendar.date(bySettingHour: parts[0], minute: parts[1], second: 0, of: currentDay) {
-                    let event = CalendarEvent(
-                        id: UUID().uuidString,
-                        title: "💊 \(med.nameTranslated) \(med.dosage)",
-                        date: eventDate,
-                        location: nil,
-                        type: "用藥"
-                    )
-                    calEvents.append(event)
-                }
-            }
-            currentDay = calendar.date(byAdding: .day, value: 1, to: currentDay) ?? currentDay.addingTimeInterval(86400)
-        }
-
-        onAdd(med, calEvents)
+        // Medications no longer fan out to the shared calendar — endDate is
+        // shown in the medication accordion, and the active list filters out
+        // expired ones automatically (see activeMedications).
+        onAdd(med)
         dismiss()
     }
 
@@ -397,6 +400,5 @@ struct AddMedicationView: View {
         MedicationView(userRole: .caregiver)
             .environment(MedicationStore())
             .environment(CareLogStore())
-            .environment(CalendarStore())
     }
 }

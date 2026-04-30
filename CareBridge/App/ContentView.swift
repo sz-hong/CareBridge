@@ -8,11 +8,12 @@ struct ContentView: View {
     @State private var showSOS = false
     @State private var showProfile = false
     @State private var isInChatDetail = false
+    @State private var isInHomeDetail = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
             Tab("首頁", systemImage: "house.fill", value: 0) {
-                HomeView(showProfile: $showProfile, userRole: userRole)
+                HomeView(showProfile: $showProfile, isInHomeDetail: $isInHomeDetail, userRole: userRole)
             }
             Tab("聊天", systemImage: "message.fill", value: 1) {
                 ChatListView(showProfile: $showProfile, isInChatDetail: $isInChatDetail, userRole: userRole)
@@ -47,10 +48,11 @@ struct ContentView: View {
                 .transition(.scale.combined(with: .opacity))
             }
         }
-        // SOS — only on home tab, mirrored to bottom-right with the same
-        // 52pt circle and bottom inset as the AI button so they line up.
+        // SOS — only on the home tab's root view; hidden when nav is pushed
+        // (e.g. medication detail) to avoid colliding with that page's
+        // floating "+" button. Mirrors the AI button's 52pt circle position.
         .overlay(alignment: .bottomTrailing) {
-            if selectedTab == 0 {
+            if selectedTab == 0 && !isInHomeDetail {
                 Button {
                     showSOS = true
                 } label: {
@@ -70,6 +72,7 @@ struct ContentView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: isInChatDetail)
+        .animation(.easeInOut(duration: 0.2), value: isInHomeDetail)
         .animation(.easeInOut(duration: 0.2), value: selectedTab)
         .sheet(isPresented: $showAIAgent) {
             NavigationStack {
