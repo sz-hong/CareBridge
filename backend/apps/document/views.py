@@ -2,7 +2,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
-from core.responses import success_response
+from core.responses import empty_success_response, success_response
 from core.viewsets import FamilyScopedQuerySetMixin
 
 from .models import Document
@@ -56,4 +56,4 @@ class DocumentViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         instance.delete()
-        return success_response(status=status.HTTP_204_NO_CONTENT)
+        return empty_success_response()

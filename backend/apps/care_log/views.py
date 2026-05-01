@@ -1,13 +1,14 @@
 from datetime import timedelta
 
 from django.db.models import Count, Q
+from django.utils.dateparse import parse_date, parse_datetime
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
-from core.responses import success_response
+from core.responses import empty_success_response, success_response
 from core.viewsets import FamilyScopedQuerySetMixin
 from .models import CareLog
 from .serializers import CareLogSerializer, CreateCareLogSerializer
@@ -21,8 +22,16 @@ class CareLogViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
     def get_queryset(self):
         qs = self.scope_queryset_to_family(CareLog.objects.all()).select_related('recorder')
 
+        exact_date = self.request.query_params.get('date')
         date_from = self.request.query_params.get('date_from')
         date_to = self.request.query_params.get('date_to')
+        if exact_date:
+            parsed_date = parse_date(exact_date)
+            if parsed_date is None:
+                parsed_datetime = parse_datetime(exact_date)
+                parsed_date = parsed_datetime.date() if parsed_datetime else None
+            if parsed_date:
+                qs = qs.filter(timestamp__date=parsed_date)
         if date_from:
             qs = qs.filter(timestamp__date__gte=date_from)
         if date_to:
@@ -85,7 +94,7 @@ class CareLogViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         instance.delete()
-        return success_response(status=204)
+        return empty_success_response()
 
     @action(detail=False, methods=['get'], url_path='summary')
     def summary(self, request):
