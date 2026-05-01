@@ -13,7 +13,7 @@ from apps.chat.serializers import (
     SendMessageSerializer,
 )
 from core.pagination import StandardPagination
-from core.responses import success_response
+from core.responses import empty_success_response, success_response
 from core.translation import SUPPORTED_LANGUAGES, translate_text
 
 logger = logging.getLogger(__name__)
@@ -101,7 +101,7 @@ class ChatViewSet(ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         instance.delete()
-        return success_response(status=204)
+        return empty_success_response()
 
     # ── messages action ────────────────────────────────────────
     @action(detail=True, methods=['get', 'post'], url_path='messages')

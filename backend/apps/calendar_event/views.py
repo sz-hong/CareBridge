@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
-from core.responses import success_response
+from core.responses import empty_success_response, success_response
 from core.viewsets import FamilyScopedQuerySetMixin
 
 from .models import Event
@@ -73,7 +73,7 @@ class EventViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         instance.delete()
-        return success_response(status=status.HTTP_204_NO_CONTENT)
+        return empty_success_response()
 
     @action(detail=False, methods=['post'], url_path='batch')
     def batch_create(self, request):

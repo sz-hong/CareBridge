@@ -6,3 +6,8 @@ def success_response(data=None, status=200, meta=None):
     if meta:
         body["meta"] = meta
     return Response(body, status=status)
+
+
+def empty_success_response(status=200):
+    """Return a success envelope for commands that have no resource payload."""
+    return success_response(data={}, status=status)
