@@ -7,52 +7,32 @@ class APIDataService: DataService {
 
     private let baseURL: String
     private var authToken: String?
-    private let decoder: JSONDecoder
-    private let encoder: JSONEncoder
+    private let apiClient: APIClient
 
     init(baseURL: String = AppConfig.apiBaseURL) {
         self.baseURL = baseURL
-        self.decoder = JSONDecoder()
-        self.decoder.dateDecodingStrategy = .iso8601
-        self.decoder.keyDecodingStrategy = .convertFromSnakeCase
-        self.encoder = JSONEncoder()
-        self.encoder.dateEncodingStrategy = .iso8601
-        self.encoder.keyEncodingStrategy = .convertToSnakeCase
+        self.apiClient = APIClient(baseURL: baseURL)
         self.authToken = KeychainService.accessToken
-    }
-
-    // Used to parse {"success":false,"error":{"code":"...","message":"..."}} error responses
-    private struct _ErrBody: Decodable {
-        struct ErrDetail: Decodable { let message: String? }
-        let error: ErrDetail?
     }
 
     // MARK: - Generic Request Helpers
 
     private func request<T: Codable>(_ method: String, path: String, body: (any Encodable)? = nil, retried: Bool = false) async throws -> T {
-        guard let url = URL(string: "\(baseURL)\(path)") else {
-            throw URLError(.badURL)
-        }
-
-        var req = URLRequest(url: url)
-        req.httpMethod = method
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        if let token = authToken {
-            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-
-        if let body {
-            req.httpBody = try encoder.encode(AnyEncodable(body))
-        }
-
-        let (data, response) = try await URLSession.shared.data(for: req)
-        guard let http = response as? HTTPURLResponse else {
-            throw APIError.serverError(statusCode: 0)
-        }
-
-        // 401 → try refresh once, then retry the original request
-        if http.statusCode == 401, !retried, authToken != nil {
+        do {
+            return try await apiClient.request(
+                method,
+                path: path,
+                body: body,
+                authToken: authToken
+            )
+        } catch APIError.serverError(let statusCode) where statusCode == 401 && !retried && authToken != nil {
+            if await refreshAccessToken() {
+                return try await request(method, path: path, body: body, retried: true)
+            }
+            authToken = nil
+            KeychainService.clearAll()
+            throw APIError.serverError(statusCode: 401)
+        } catch APIError.backendError(let statusCode, _) where statusCode == 401 && !retried && authToken != nil {
             if await refreshAccessToken() {
                 return try await request(method, path: path, body: body, retried: true)
             }
@@ -60,21 +40,6 @@ class APIDataService: DataService {
             KeychainService.clearAll()
             throw APIError.serverError(statusCode: 401)
         }
-
-        guard 200...299 ~= http.statusCode else {
-            // 嘗試解析後端錯誤訊息 {"success":false,"error":{"code":"...","message":"..."}}
-            if let parsed = try? decoder.decode(_ErrBody.self, from: data),
-               let msg = parsed.error?.message, !msg.isEmpty {
-                throw APIError.backendError(statusCode: http.statusCode, message: msg)
-            }
-            throw APIError.serverError(statusCode: http.statusCode)
-        }
-
-        let apiResponse = try decoder.decode(APIResponse<T>.self, from: data)
-        guard let result = apiResponse.data else {
-            throw APIError.emptyResponse
-        }
-        return result
     }
 
     /// Biometric login: exchange the stored refresh token for a fresh access
@@ -94,7 +59,7 @@ class APIDataService: DataService {
     /// Response format is `{access, refresh}` without the `{success,data}` envelope.
     private func refreshAccessToken() async -> Bool {
         guard let refresh = KeychainService.refreshToken,
-              let url = URL(string: "\(baseURL)/auth/token/refresh/") else { return false }
+              let url = URL(string: "\(baseURL)\(APIEndpoint.tokenRefresh)") else { return false }
 
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -218,9 +183,9 @@ class APIDataService: DataService {
             formatter.timeZone = .current
             formatter.dateFormat = "yyyy-MM-dd"
             let dateStr = formatter.string(from: date)
-            return try await get(path: "/care-logs/?date=\(dateStr)")
+            return try await get(path: APIEndpoint.careLogs(on: dateStr))
         }
-        return try await get(path: "/care-logs/")
+        return try await get(path: APIEndpoint.careLogs)
     }
     func createCareLogEntry(_ entry: CareLogEntry) async throws -> CareLogEntry { try await post(path: "/care-logs/", body: entry) }
 
@@ -300,7 +265,7 @@ class APIDataService: DataService {
         ]
         return try await post(path: "/documents/", body: body)
     }
-    func deleteDocument(id: String) async throws { try await delete(path: "/documents/\(id)/") }
+    func deleteDocument(id: String) async throws { try await delete(path: APIEndpoint.document(id: id)) }
 
     // MARK: - Notifications
     func fetchNotifications() async throws -> [AppNotification] { try await get(path: "/notifications/") }
@@ -362,17 +327,3 @@ enum APIError: LocalizedError {
 }
 
 struct EmptyResponse: Codable {}
-
-struct AnyEncodable: Encodable {
-    private let _encode: (Encoder) throws -> Void
-
-    init(_ wrapped: any Encodable) {
-        _encode = { encoder in
-            try wrapped.encode(to: encoder)
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        try _encode(encoder)
-    }
-}
