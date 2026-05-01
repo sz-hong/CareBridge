@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
 from core.responses import success_response
+from core.viewsets import FamilyScopedQuerySetMixin
 
 from apps.auth_account.models import User
 from apps.calendar_event.models import Event
@@ -20,12 +21,12 @@ from .serializers import (
 )
 
 
-class LeaveViewSet(ModelViewSet):
+class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = LeaveSerializer
 
     def get_queryset(self):
-        qs = Leave.objects.filter(family=self.request.user.family)
+        qs = self.scope_queryset_to_family(Leave.objects.all())
         s = self.request.query_params.get('status')
         if s:
             qs = qs.filter(status=s)

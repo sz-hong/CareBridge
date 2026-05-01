@@ -6,6 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
 from core.responses import success_response
+from core.viewsets import FamilyScopedQuerySetMixin
 from core.translation import translate_text, SUPPORTED_LANGUAGES
 from apps.care_log.models import CareLog
 from .models import Medication, MedicationConfirmation
@@ -19,14 +20,14 @@ from .serializers import (
 logger = logging.getLogger(__name__)
 
 
-class MedicationViewSet(ModelViewSet):
+class MedicationViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = MedicationSerializer
 
     def get_queryset(self):
         from django.db.models import Q
 
-        qs = Medication.objects.filter(family=self.request.user.family)
+        qs = self.scope_queryset_to_family(Medication.objects.all())
         is_active = self.request.query_params.get('is_active')
         if is_active is not None:
             qs = qs.filter(is_active=is_active.lower() == 'true')

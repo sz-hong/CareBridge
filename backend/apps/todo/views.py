@@ -4,18 +4,19 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
 from core.responses import success_response
+from core.viewsets import FamilyScopedQuerySetMixin
 
 from apps.care_log.models import CareLog
 from .models import Todo
 from .serializers import CreateTodoSerializer, TodoSerializer
 
 
-class TodoViewSet(ModelViewSet):
+class TodoViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = TodoSerializer
 
     def get_queryset(self):
-        qs = Todo.objects.filter(family=self.request.user.family)
+        qs = self.scope_queryset_to_family(Todo.objects.all())
         s = self.request.query_params.get('status')
         if s:
             qs = qs.filter(status=s)

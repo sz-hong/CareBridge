@@ -8,19 +8,18 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
 from core.responses import success_response
+from core.viewsets import FamilyScopedQuerySetMixin
 from .models import CareLog
 from .serializers import CareLogSerializer, CreateCareLogSerializer
 
 
-class CareLogViewSet(ModelViewSet):
+class CareLogViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = CareLogSerializer
     filterset_fields = ['type']
 
     def get_queryset(self):
-        qs = CareLog.objects.filter(
-            family=self.request.user.family,
-        ).select_related('recorder')
+        qs = self.scope_queryset_to_family(CareLog.objects.all()).select_related('recorder')
 
         date_from = self.request.query_params.get('date_from')
         date_to = self.request.query_params.get('date_to')

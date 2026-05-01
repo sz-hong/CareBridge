@@ -3,17 +3,18 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
 from core.responses import success_response
+from core.viewsets import FamilyScopedQuerySetMixin
 
 from .models import Document
 from .serializers import CreateDocumentSerializer, DocumentSerializer
 
 
-class DocumentViewSet(ModelViewSet):
+class DocumentViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = DocumentSerializer
 
     def get_queryset(self):
-        qs = Document.objects.filter(family=self.request.user.family)
+        qs = self.scope_queryset_to_family(Document.objects.all())
         category = self.request.query_params.get('category')
         if category:
             qs = qs.filter(category=category)

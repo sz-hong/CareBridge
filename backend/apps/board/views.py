@@ -4,17 +4,18 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
 from core.responses import success_response
+from core.viewsets import FamilyScopedQuerySetMixin
 
 from .models import BoardRequest
 from .serializers import BoardRequestSerializer, CreateBoardRequestSerializer
 
 
-class BoardRequestViewSet(ModelViewSet):
+class BoardRequestViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = BoardRequestSerializer
 
     def get_queryset(self):
-        qs = BoardRequest.objects.filter(family=self.request.user.family)
+        qs = self.scope_queryset_to_family(BoardRequest.objects.all())
         s = self.request.query_params.get('status')
         if s:
             qs = qs.filter(status=s)
