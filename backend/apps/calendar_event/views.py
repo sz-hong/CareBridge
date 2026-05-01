@@ -4,18 +4,19 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
 from core.responses import success_response
+from core.viewsets import FamilyScopedQuerySetMixin
 
 from .models import Event
 from .serializers import CreateEventSerializer, EventSerializer
 
 
-class EventViewSet(ModelViewSet):
+class EventViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = EventSerializer
     pagination_class = None
 
     def get_queryset(self):
-        qs = Event.objects.filter(family=self.request.user.family)
+        qs = self.scope_queryset_to_family(Event.objects.all())
         event_type = self.request.query_params.get('type')
         if event_type:
             qs = qs.filter(type=event_type)

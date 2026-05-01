@@ -7,6 +7,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ViewSet
 
 from core.responses import success_response
+from core.viewsets import FamilyScopedQuerySetMixin
 
 from .models import SOSRecord
 from .serializers import SOSRecordSerializer, TriggerSOSSerializer
@@ -14,7 +15,7 @@ from .serializers import SOSRecordSerializer, TriggerSOSSerializer
 logger = logging.getLogger(__name__)
 
 
-class SOSViewSet(ViewSet):
+class SOSViewSet(FamilyScopedQuerySetMixin, ViewSet):
     permission_classes = [IsAuthenticated]
 
     @action(detail=False, methods=['post'], url_path='trigger')
@@ -88,9 +89,7 @@ class SOSViewSet(ViewSet):
     @action(detail=False, methods=['get'], url_path='history')
     def history(self, request):
         """GET /sos/history/ — SOS history for the family."""
-        qs = SOSRecord.objects.filter(
-            family=request.user.family,
-        ).select_related('triggered_by')
+        qs = self.scope_queryset_to_family(SOSRecord.objects.all()).select_related('triggered_by')
         serializer = SOSRecordSerializer(qs, many=True)
         return success_response(data=serializer.data)
 
@@ -101,9 +100,7 @@ class SOSViewSet(ViewSet):
         Mark an SOS as resolved and notify family.
         """
         try:
-            sos = SOSRecord.objects.get(
-                id=pk, family=request.user.family,
-            )
+            sos = self.scope_queryset_to_family(SOSRecord.objects.all()).get(id=pk)
         except SOSRecord.DoesNotExist:
             return success_response(
                 data={'detail': 'SOS record not found.'},

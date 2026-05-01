@@ -9,6 +9,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ViewSet
 
 from core.responses import success_response
+from core.viewsets import FamilyScopedQuerySetMixin
 from .models import HealthData, HealthAlert, HealthAlertThreshold
 from .serializers import (
     HealthDataSerializer,
@@ -76,13 +77,12 @@ def _check_thresholds(family, data_point):
     return None
 
 
-class HealthDataViewSet(ViewSet):
+class HealthDataViewSet(FamilyScopedQuerySetMixin, ViewSet):
     permission_classes = [IsAuthenticated]
 
     def list(self, request):
         """GET /health-data/ with optional filters: type, date_from, date_to, aggregation."""
-        family = request.user.family
-        qs = HealthData.objects.filter(family=family)
+        qs = self.scope_queryset_to_family(HealthData.objects.all())
 
         data_type = request.query_params.get('type')
         date_from = request.query_params.get('date_from')
@@ -172,12 +172,11 @@ class HealthDataViewSet(ViewSet):
     @action(detail=False, methods=['get'], url_path='dashboard')
     def dashboard(self, request):
         """GET /health-data/dashboard/ — latest value for each health type."""
-        family = request.user.family
         latest = {}
         for type_choice in HealthData.Type.values:
             entry = (
-                HealthData.objects
-                .filter(family=family, type=type_choice)
+                self.scope_queryset_to_family(HealthData.objects.all())
+                .filter(type=type_choice)
                 .order_by('-recorded_at')
                 .first()
             )
@@ -189,8 +188,7 @@ class HealthDataViewSet(ViewSet):
     @action(detail=False, methods=['get'], url_path='alerts')
     def alerts(self, request):
         """GET /health-data/alerts/ — list alerts for the family."""
-        family = request.user.family
-        qs = HealthAlert.objects.filter(family=family).order_by('-created_at')
+        qs = self.scope_queryset_to_family(HealthAlert.objects.all()).order_by('-created_at')
         serializer = HealthAlertSerializer(qs[:100], many=True)
         return success_response(data=serializer.data)
 
@@ -201,9 +199,9 @@ class HealthDataViewSet(ViewSet):
     )
     def acknowledge_alert(self, request, alert_id=None):
         """PUT /health-data/alerts/<id>/acknowledge/"""
-        family = request.user.family
+        qs = self.scope_queryset_to_family(HealthAlert.objects.all())
         try:
-            alert = HealthAlert.objects.get(id=alert_id, family=family)
+            alert = qs.get(id=alert_id)
         except HealthAlert.DoesNotExist:
             return success_response(data={'detail': 'Alert not found.'}, status=404)
 
@@ -242,13 +240,11 @@ class HealthDataViewSet(ViewSet):
     @action(detail=False, methods=['get'], url_path='weekly-steps')
     def weekly_steps(self, request):
         """GET /health-data/weekly-steps/ — array of 7 daily step totals."""
-        family = request.user.family
         today = timezone.now().date()
         seven_days_ago = today - timedelta(days=6)
 
         results = (
-            HealthData.objects.filter(
-                family=family,
+            self.scope_queryset_to_family(HealthData.objects.all()).filter(
                 type=HealthData.Type.STEP_COUNT,
                 recorded_at__date__gte=seven_days_ago,
                 recorded_at__date__lte=today,

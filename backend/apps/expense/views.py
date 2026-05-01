@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
 from core.responses import success_response
+from core.viewsets import FamilyScopedQuerySetMixin
 from .models import Expense
 from .serializers import (
     ExpenseSerializer,
@@ -16,13 +17,13 @@ from .serializers import (
 )
 
 
-class ExpenseViewSet(ModelViewSet):
+class ExpenseViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = ExpenseSerializer
     filterset_fields = ['status']
 
     def get_queryset(self):
-        qs = Expense.objects.filter(family=self.request.user.family)
+        qs = self.scope_queryset_to_family(Expense.objects.all())
 
         date_from = self.request.query_params.get('date_from')
         date_to = self.request.query_params.get('date_to')
