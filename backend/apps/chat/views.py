@@ -190,6 +190,7 @@ class ChatViewSet(ModelViewSet):
         # Phase 7: Notify other chat members of new message
         try:
             from apps.notification.tasks import send_notification_task
+            from apps.notification.types import NotificationType
             sender_name = request.user.name or request.user.email
             member_ids = (
                 ChatMember.objects.filter(chat=chat)
@@ -200,7 +201,7 @@ class ChatViewSet(ModelViewSet):
             for uid in member_ids:
                 send_notification_task.delay(
                     user_id=str(uid),
-                    type='chat_message',
+                    type=NotificationType.CHAT_MESSAGE,
                     title=f'New message from {sender_name}',
                     body=content_preview,
                     data={

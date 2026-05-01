@@ -8,6 +8,8 @@ import logging
 
 from celery import shared_task
 
+from apps.notification.types import NotificationType
+
 logger = logging.getLogger(__name__)
 
 
@@ -77,18 +79,18 @@ def send_medication_reminders():
     now = timezone.localtime()
     current_time = now.strftime('%H:%M')
 
-    # Find active medications with a time slot matching the current 15-min window
-    active_meds = Medication.objects.filter(is_active=True)
+    # Find medications with reminders enabled and a time matching the current window.
+    active_meds = Medication.objects.filter(is_active=True, reminder_enabled=True)
 
     for med in active_meds:
-        if not med.time_slots:
+        if not med.times:
             continue
-        for slot in med.time_slots:
+        for slot in med.times:
             # Check if the scheduled time falls within ±7 min of now
             if _time_within_window(slot, current_time, window_minutes=7):
                 broadcast_family(
                     family=med.family,
-                    type='medication_reminder',
+                    type=NotificationType.MEDICATION_REMINDER,
                     title=f'Medication Reminder: {med.name}',
                     body=f'Time to take {med.name} ({med.dosage})',
                     data={

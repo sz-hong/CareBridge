@@ -12,6 +12,7 @@ from core.viewsets import FamilyScopedQuerySetMixin
 
 from apps.auth_account.models import User
 from apps.calendar_event.models import Event
+from apps.notification.types import NotificationType
 from .models import Leave, LeaveVote
 from .serializers import (
     CreateLeaveSerializer,
@@ -110,7 +111,7 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             status_label = 'Approved' if new_status == 'approved' else 'Rejected'
             send_notification_task.delay(
                 user_id=str(instance.applicant.id),
-                type='leave_status',
+                type=NotificationType.LEAVE_STATUS,
                 title=f'Leave {status_label}',
                 body=f'Your {instance.get_type_display()} leave has been {status_label.lower()}.',
                 data={

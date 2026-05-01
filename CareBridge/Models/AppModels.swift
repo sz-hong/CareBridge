@@ -1477,12 +1477,15 @@ enum NotificationCategory: String, Codable {
     case medication          = "medication_reminder"
     case medicationConfirmed = "medication_confirmed"
     case leave               = "leave_request"
+    case leaveStatus         = "leave_status"
     case leaveApproved       = "leave_approved"
     case leaveRejected       = "leave_rejected"
     case purchase            = "board_request"
     case purchaseApproved    = "board_approved"
     case expenseScanned      = "expense_scanned"
-    case sos                 = "sos_triggered"
+    case sos                 = "sos"
+    case sosTriggered        = "sos_triggered"
+    case sosResolved         = "sos_resolved"
     case eventReminder       = "event_reminder"
     case todo                = "todo_assigned"
     case chat                = "chat_message"
@@ -1491,9 +1494,9 @@ enum NotificationCategory: String, Codable {
         switch self {
         case .health: return "heart.fill"
         case .medication, .medicationConfirmed: return "pills.fill"
-        case .leave, .leaveApproved, .leaveRejected: return "calendar.badge.exclamationmark"
+        case .leave, .leaveStatus, .leaveApproved, .leaveRejected: return "calendar.badge.exclamationmark"
         case .chat: return "message.fill"
-        case .sos: return "sos"
+        case .sos, .sosTriggered, .sosResolved: return "sos"
         case .todo: return "checkmark.circle.fill"
         case .purchase, .purchaseApproved: return "cart.fill"
         case .expenseScanned: return "doc.text.viewfinder"
@@ -1505,11 +1508,11 @@ enum NotificationCategory: String, Codable {
         switch self {
         case .health: return .red
         case .medication, .medicationConfirmed: return Color(red: 0.0, green: 0.55, blue: 0.6)
-        case .leave: return .orange
+        case .leave, .leaveStatus: return .orange
         case .leaveApproved: return .green
         case .leaveRejected: return .red
         case .chat: return .green
-        case .sos: return .red
+        case .sos, .sosTriggered, .sosResolved: return .red
         case .todo: return .purple
         case .purchase, .purchaseApproved: return .blue
         case .expenseScanned: return .teal

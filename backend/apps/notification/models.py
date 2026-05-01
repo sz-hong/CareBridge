@@ -3,6 +3,8 @@ import uuid
 from django.conf import settings
 from django.db import models
 
+from .types import NotificationType
+
 
 class Notification(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -11,7 +13,7 @@ class Notification(models.Model):
         on_delete=models.CASCADE,
         related_name='notifications',
     )
-    type = models.CharField(max_length=30)
+    type = models.CharField(max_length=30, choices=NotificationType.choices)
     title = models.CharField(max_length=200)
     title_translated = models.JSONField(null=True, blank=True)
     body = models.TextField()
