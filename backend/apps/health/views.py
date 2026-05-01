@@ -10,6 +10,7 @@ from rest_framework.viewsets import ViewSet
 
 from core.responses import success_response
 from core.viewsets import FamilyScopedQuerySetMixin
+from apps.notification.types import NotificationType
 from .models import HealthData, HealthAlert, HealthAlertThreshold
 from .serializers import (
     HealthDataSerializer,
@@ -58,7 +59,7 @@ def _check_thresholds(family, data_point):
             severity_label = 'Critical' if severity == HealthAlert.Severity.CRITICAL else 'Warning'
             broadcast_family_task.delay(
                 family_id=str(family.id),
-                type='health_alert',
+                type=NotificationType.HEALTH_ALERT,
                 title=f'Health Alert: {data_point.get_type_display()} ({severity_label})',
                 body=f'{data_point.get_type_display()} value {float(value)} is abnormal (threshold: {float(threshold_value)}).',
                 data={

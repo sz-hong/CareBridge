@@ -36,7 +36,7 @@ def send_notification(user, type, title, body, data=None, push=True):
 
     Args:
         user: User instance to notify.
-        type: Notification type string (e.g. 'health_alert', 'medication', 'sos').
+        type: Notification type string from apps.notification.types.NotificationType.
         title: Notification title.
         body: Notification body text.
         data: Optional dict of extra data.
@@ -46,6 +46,10 @@ def send_notification(user, type, title, body, data=None, push=True):
         Notification instance.
     """
     from apps.notification.models import Notification, Device
+    from apps.notification.types import NotificationType
+
+    if type not in NotificationType.values:
+        raise ValueError(f'Unsupported notification type: {type}')
 
     notification = Notification.objects.create(
         user=user,

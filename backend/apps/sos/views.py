@@ -8,6 +8,7 @@ from rest_framework.viewsets import ViewSet
 
 from core.responses import success_response
 from core.viewsets import FamilyScopedQuerySetMixin
+from apps.notification.types import NotificationType
 
 from .models import SOSRecord
 from .serializers import SOSRecordSerializer, TriggerSOSSerializer
@@ -55,7 +56,7 @@ class SOSViewSet(FamilyScopedQuerySetMixin, ViewSet):
 
             notifications = broadcast_family(
                 family=family,
-                type='sos',
+                type=NotificationType.SOS,
                 title='SOS Emergency Alert',
                 body=f'{user_name} triggered an SOS!{location_str} {sos.situation or ""}',
                 data={
@@ -123,7 +124,7 @@ class SOSViewSet(FamilyScopedQuerySetMixin, ViewSet):
             resolver_name = request.user.name or request.user.email
             broadcast_family_task.delay(
                 family_id=str(request.user.family.id),
-                type='sos_resolved',
+                type=NotificationType.SOS_RESOLVED,
                 title='SOS Resolved',
                 body=f'The SOS alert has been resolved by {resolver_name}.',
                 data={
