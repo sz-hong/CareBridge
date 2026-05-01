@@ -222,10 +222,10 @@ class APIDataService: DataService {
     // MARK: - Medication
     func fetchMedications(elderId: String) async throws -> [Medication] { try await get(path: "/medications/") }
     func createMedication(_ medication: Medication) async throws -> Medication { try await post(path: "/medications/", body: medication) }
-    func updateMedication(_ medication: Medication) async throws -> Medication { try await put(path: "/medications/\(medication.id)", body: medication) }
-    func fetchTodayConfirmations() async throws -> [MedicationConfirmation] { try await get(path: "/medications/today_confirmations") }
+    func updateMedication(_ medication: Medication) async throws -> Medication { try await put(path: "/medications/\(medication.id)/", body: medication) }
+    func fetchTodayConfirmations() async throws -> [MedicationConfirmation] { try await get(path: "/medications/today_confirmations/") }
     func confirmMedication(id: String, request: ConfirmMedicationRequest) async throws -> MedicationConfirmation {
-        try await post(path: "/medications/\(id)/confirm", body: request)
+        try await post(path: "/medications/\(id)/confirm/", body: request)
     }
 
     // MARK: - Expenses
