@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
-from core.responses import empty_success_response, success_response
+from core.responses import empty_success_response, error_response, success_response
 from core.viewsets import FamilyScopedQuerySetMixin
 
 from .models import BoardRequest
@@ -75,8 +75,9 @@ class BoardRequestViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         reply = request.data.get('reply', '')
 
         if new_status not in ('approved', 'rejected', 'completed'):
-            return success_response(
-                data={'detail': 'Invalid status.'},
+            return error_response(
+                code='invalid_status',
+                message='Invalid status.',
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

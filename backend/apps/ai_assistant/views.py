@@ -20,7 +20,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
-from core.responses import success_response
+from core.responses import error_response, success_response
 from .models import AIConversation, FirstAidDocument
 from .serializers import (
     AIChatSerializer,
@@ -81,8 +81,9 @@ class AIChatView(APIView):
                     id=conversation_id, user=user,
                 )
             except AIConversation.DoesNotExist:
-                return success_response(
-                    data={'detail': 'Conversation not found.'},
+                return error_response(
+                    code='not_found',
+                    message='Conversation not found.',
                     status=404,
                 )
         else:
