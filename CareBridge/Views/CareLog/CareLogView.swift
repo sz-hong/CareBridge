@@ -43,6 +43,20 @@ struct CareLogView: View {
 
                 ScrollView {
                     LazyVStack(spacing: 0, pinnedViews: []) {
+                        if careLogStore.isLoading && careLogStore.entries.isEmpty {
+                            ProgressView()
+                                .padding(.top, 32)
+                        }
+
+                        if let errorMessage = careLogStore.errorMessage {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 12)
+                        }
+
                         ForEach(groupedEntries, id: \.0) { dateString, dayEntries in
                             VStack(alignment: .leading, spacing: 0) {
                                 // Date header
