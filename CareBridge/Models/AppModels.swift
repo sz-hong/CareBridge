@@ -622,9 +622,16 @@ class UserStore {
 // MARK: - Care Log Store (shared state → API synced)
 @Observable
 class CareLogStore {
-    var entries: [CareLogEntry] = []
-    var isLoading = false
+    private var state = AsyncViewState<[CareLogEntry]>(value: [])
     private let service: DataService
+
+    var entries: [CareLogEntry] {
+        get { state.value }
+        set { state.finish(with: newValue) }
+    }
+
+    var isLoading: Bool { state.isLoading }
+    var errorMessage: String? { state.errorMessage }
 
     init(service: DataService = MockDataService()) {
         self.service = service
@@ -632,19 +639,21 @@ class CareLogStore {
 
     func load() {
         guard !isLoading else { return }
-        isLoading = true
+        state.beginLoading()
         Task { @MainActor in
             do {
-                entries = try await service.fetchCareLogEntries(date: nil)
+                state.finish(with: try await service.fetchCareLogEntries(date: nil))
             } catch {
+                state.fail(error)
                 print("[CareLogStore] fetch failed: \(error)")
             }
-            isLoading = false
         }
     }
 
     func addEntry(_ entry: CareLogEntry) {
-        entries.insert(entry, at: 0)
+        state.updateValue { entries in
+            entries.insert(entry, at: 0)
+        }
         Task {
             do {
                 _ = try await service.createCareLogEntry(entry)
