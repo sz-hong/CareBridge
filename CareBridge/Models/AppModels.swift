@@ -585,36 +585,68 @@ struct CareLogEntry: Identifiable, Codable {
 }
 
 // MARK: - User Store (current user + family members)
+private struct UserStoreData {
+    var currentUser: UserProfile?
+    var familyMembers: [UserProfile] = []
+}
+
 @Observable
 class UserStore {
-    var currentUser: UserProfile? = nil
-    var familyMembers: [UserProfile] = []
-    var isLoading = false
+    private var state = AsyncViewState<UserStoreData>(
+        value: UserStoreData(currentUser: nil)
+    )
     private let service: DataService
 
     init(service: DataService = MockDataService()) { self.service = service }
 
-    /// Called immediately after login — pre-populates profile from AuthResponse
-    func populate(from authResponse: AuthResponse) {
-        currentUser = authResponse.user
+    var currentUser: UserProfile? {
+        get { state.value.currentUser }
+        set {
+            state.updateValue { data in
+                data.currentUser = newValue
+            }
+        }
     }
 
-    /// Fetches up-to-date profile + family members from API
-    func load() {
-        isLoading = true
-        Task {
-            do {
-                async let profile = service.fetchProfile()
-                async let members = service.fetchFamilyMembers()
-                let (p, m) = try await (profile, members)
-                await MainActor.run {
-                    currentUser = p
-                    familyMembers = m
-                }
-            } catch {
-                print("[UserStore] fetch failed: \(error)")
+    var familyMembers: [UserProfile] {
+        get { state.value.familyMembers }
+        set {
+            state.updateValue { data in
+                data.familyMembers = newValue
             }
-            await MainActor.run { isLoading = false }
+        }
+    }
+
+    var isLoading: Bool { state.isLoading }
+    var errorMessage: String? { state.errorMessage }
+
+    /// Called immediately after login -- pre-populates profile from AuthResponse.
+    func populate(from authResponse: AuthResponse) {
+        state.updateValue { data in
+            data.currentUser = authResponse.user
+        }
+    }
+
+    /// Fire-and-forget compatibility wrapper for existing SwiftUI call sites.
+    func load() {
+        Task { @MainActor in
+            await reload()
+        }
+    }
+
+    /// Fetches up-to-date profile + family members from API.
+    @MainActor
+    func reload() async {
+        guard !isLoading else { return }
+        state.beginLoading()
+        do {
+            async let profile = service.fetchProfile()
+            async let members = service.fetchFamilyMembers()
+            let (p, m) = try await (profile, members)
+            state.finish(with: UserStoreData(currentUser: p, familyMembers: m))
+        } catch {
+            state.fail(error)
+            print("[UserStore] fetch failed: \(error)")
         }
     }
 }
@@ -1799,4 +1831,3 @@ struct FirstAidScenario: Identifiable, Codable {
         ]
     }
 }
-
