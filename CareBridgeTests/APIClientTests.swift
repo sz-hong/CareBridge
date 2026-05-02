@@ -34,6 +34,43 @@ struct APIClientTests {
         #expect(APIEndpoint.document(id: "abc") == "/documents/abc/")
     }
 
+    @Test func buildsDomainEndpoints() {
+        #expect(APIEndpoint.authRegister == "/auth/register/")
+        #expect(APIEndpoint.authLogin == "/auth/login/")
+        #expect(APIEndpoint.authJoinFamily == "/auth/join-family/")
+        #expect(APIEndpoint.authLogout == "/auth/logout/")
+        #expect(APIEndpoint.authMe == "/auth/me/")
+        #expect(APIEndpoint.families == "/families/")
+        #expect(APIEndpoint.familyMembers == "/families/members/")
+        #expect(APIEndpoint.healthDashboard == "/health-data/dashboard/")
+        #expect(APIEndpoint.healthWeeklySteps == "/health-data/weekly-steps/")
+        #expect(APIEndpoint.chats == "/chats/")
+        #expect(APIEndpoint.chatMessages(roomId: "room-1") == "/chats/room-1/messages/")
+        #expect(APIEndpoint.medications == "/medications/")
+        #expect(APIEndpoint.medication(id: "med-1") == "/medications/med-1/")
+        #expect(APIEndpoint.medicationTodayConfirmations == "/medications/today_confirmations/")
+        #expect(APIEndpoint.medicationConfirm(id: "med-1") == "/medications/med-1/confirm/")
+        #expect(APIEndpoint.expenses == "/expenses/")
+        #expect(APIEndpoint.expenseMonthly == "/expenses/monthly/")
+        #expect(APIEndpoint.expenseUploadURL == "/expenses/upload-url/")
+        #expect(APIEndpoint.todos == "/todos/")
+        #expect(APIEndpoint.todo(id: "todo-1") == "/todos/todo-1/")
+        #expect(APIEndpoint.events == "/events/")
+        #expect(APIEndpoint.eventBatch == "/events/batch/")
+        #expect(APIEndpoint.leaves == "/leaves/")
+        #expect(APIEndpoint.leaveStatus(id: "leave-1") == "/leaves/leave-1/status/")
+        #expect(APIEndpoint.leaveVote(id: "leave-1") == "/leaves/leave-1/vote/")
+        #expect(APIEndpoint.documents == "/documents/")
+        #expect(APIEndpoint.notifications == "/notifications/")
+        #expect(APIEndpoint.notificationRead(id: "notif-1") == "/notifications/notif-1/read/")
+        #expect(APIEndpoint.notificationDevice == "/notifications/device/")
+        #expect(APIEndpoint.board == "/board/")
+        #expect(APIEndpoint.boardStatus(id: "board-1") == "/board/board-1/status/")
+        #expect(APIEndpoint.aiChat == "/ai/chat/")
+        #expect(APIEndpoint.aiFirstAid == "/ai/first-aid/")
+        #expect(APIEndpoint.sosTrigger == "/sos/trigger/")
+    }
+
     @Test func decodesSuccessEnvelopeData() async throws {
         let session = MockHTTPSession(
             json: #"{"success":true,"data":{"value":"decoded"}}"#
