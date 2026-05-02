@@ -111,7 +111,7 @@ class APIDataService: DataService {
             let phone: String?; let language: String?
         }
         let result: AuthResponse = try await post(
-            path: "/auth/register/",
+            path: APIEndpoint.authRegister,
             body: Req(name: name, email: email, password: password,
                       phone: phone, language: language)
         )
@@ -125,7 +125,7 @@ class APIDataService: DataService {
         // Clear stale tokens so login request is unauthenticated
         authToken = nil
         KeychainService.clearAll()
-        let result: AuthResponse = try await post(path: "/auth/login/", body: ["email": email, "password": password])
+        let result: AuthResponse = try await post(path: APIEndpoint.authLogin, body: ["email": email, "password": password])
         authToken = result.tokens.access
         KeychainService.accessToken = result.tokens.access
         KeychainService.refreshToken = result.tokens.refresh
@@ -134,7 +134,7 @@ class APIDataService: DataService {
 
     func joinFamily(inviteCode: String, role: UserRole) async throws -> AuthResponse {
         let result: AuthResponse = try await post(
-            path: "/auth/join-family/",
+            path: APIEndpoint.authJoinFamily,
             body: ["invite_code": inviteCode, "role": role.rawValue]
         )
         authToken = result.tokens.access
@@ -144,32 +144,32 @@ class APIDataService: DataService {
     }
 
     func logout() async throws {
-        let _: EmptyResponse = try await post(path: "/auth/logout/")
+        let _: EmptyResponse = try await post(path: APIEndpoint.authLogout)
         authToken = nil
         KeychainService.clearAll()
     }
 
     // MARK: - Profile
-    func fetchProfile() async throws -> UserProfile { try await get(path: "/auth/me/") }
-    func updateProfile(_ profile: UserProfile) async throws -> UserProfile { try await put(path: "/auth/me/", body: profile) }
-    func fetchFamilyMembers() async throws -> [UserProfile] { try await get(path: "/families/members/") }
+    func fetchProfile() async throws -> UserProfile { try await get(path: APIEndpoint.authMe) }
+    func updateProfile(_ profile: UserProfile) async throws -> UserProfile { try await put(path: APIEndpoint.authMe, body: profile) }
+    func fetchFamilyMembers() async throws -> [UserProfile] { try await get(path: APIEndpoint.familyMembers) }
     func createFamily(name: String, elderName: String, elderBirthDate: String) async throws -> FamilyInfo {
         struct Req: Encodable { let name: String; let elderName: String; let elderBirthDate: String }
-        return try await post(path: "/families/", body: Req(name: name, elderName: elderName, elderBirthDate: elderBirthDate))
+        return try await post(path: APIEndpoint.families, body: Req(name: name, elderName: elderName, elderBirthDate: elderBirthDate))
     }
 
     // MARK: - Health
-    func fetchHealthData(elderId: String) async throws -> HealthData { try await get(path: "/health-data/dashboard/") }
-    func fetchWeeklySteps(elderId: String) async throws -> [Int] { try await get(path: "/health-data/weekly-steps/") }
+    func fetchHealthData(elderId: String) async throws -> HealthData { try await get(path: APIEndpoint.healthDashboard) }
+    func fetchWeeklySteps(elderId: String) async throws -> [Int] { try await get(path: APIEndpoint.healthWeeklySteps) }
 
     // MARK: - Chat
-    func fetchChatRooms() async throws -> [ChatRoom] { try await get(path: "/chats/") }
-    func fetchMessages(roomId: String) async throws -> [ChatMessage] { try await get(path: "/chats/\(roomId)/messages/") }
+    func fetchChatRooms() async throws -> [ChatRoom] { try await get(path: APIEndpoint.chats) }
+    func fetchMessages(roomId: String) async throws -> [ChatMessage] { try await get(path: APIEndpoint.chatMessages(roomId: roomId)) }
     func sendMessage(roomId: String, content: String) async throws -> ChatMessage {
-        try await post(path: "/chats/\(roomId)/messages/", body: ["type": "text", "content": content])
+        try await post(path: APIEndpoint.chatMessages(roomId: roomId), body: ["type": "text", "content": content])
     }
     func sendRequestMessage(roomId: String, messageType: String, referenceId: String, content: String) async throws -> ChatMessage {
-        try await post(path: "/chats/\(roomId)/messages/", body: [
+        try await post(path: APIEndpoint.chatMessages(roomId: roomId), body: [
             "type": messageType, "reference_id": referenceId, "content": content
         ])
     }
@@ -187,21 +187,21 @@ class APIDataService: DataService {
         }
         return try await get(path: APIEndpoint.careLogs)
     }
-    func createCareLogEntry(_ entry: CareLogEntry) async throws -> CareLogEntry { try await post(path: "/care-logs/", body: entry) }
+    func createCareLogEntry(_ entry: CareLogEntry) async throws -> CareLogEntry { try await post(path: APIEndpoint.careLogs, body: entry) }
 
     // MARK: - Medication
-    func fetchMedications(elderId: String) async throws -> [Medication] { try await get(path: "/medications/") }
-    func createMedication(_ medication: Medication) async throws -> Medication { try await post(path: "/medications/", body: medication) }
-    func updateMedication(_ medication: Medication) async throws -> Medication { try await put(path: "/medications/\(medication.id)/", body: medication) }
-    func fetchTodayConfirmations() async throws -> [MedicationConfirmation] { try await get(path: "/medications/today_confirmations/") }
+    func fetchMedications(elderId: String) async throws -> [Medication] { try await get(path: APIEndpoint.medications) }
+    func createMedication(_ medication: Medication) async throws -> Medication { try await post(path: APIEndpoint.medications, body: medication) }
+    func updateMedication(_ medication: Medication) async throws -> Medication { try await put(path: APIEndpoint.medication(id: medication.id), body: medication) }
+    func fetchTodayConfirmations() async throws -> [MedicationConfirmation] { try await get(path: APIEndpoint.medicationTodayConfirmations) }
     func confirmMedication(id: String, request: ConfirmMedicationRequest) async throws -> MedicationConfirmation {
-        try await post(path: "/medications/\(id)/confirm/", body: request)
+        try await post(path: APIEndpoint.medicationConfirm(id: id), body: request)
     }
 
     // MARK: - Expenses
-    func fetchExpenses(month: Date?) async throws -> [Expense] { try await get(path: "/expenses/") }
-    func fetchSpendingSummary(month: Date?) async throws -> SpendingSummary { try await get(path: "/expenses/monthly/") }
-    func createExpense(_ expense: Expense) async throws -> Expense { try await post(path: "/expenses/", body: expense) }
+    func fetchExpenses(month: Date?) async throws -> [Expense] { try await get(path: APIEndpoint.expenses) }
+    func fetchSpendingSummary(month: Date?) async throws -> SpendingSummary { try await get(path: APIEndpoint.expenseMonthly) }
+    func createExpense(_ expense: Expense) async throws -> Expense { try await post(path: APIEndpoint.expenses, body: expense) }
 
     /// Request a presigned PUT URL from the backend, upload the JPEG bytes directly
     /// to object storage, then return the bare `image_url` to send back with the
@@ -214,7 +214,7 @@ class APIDataService: DataService {
         }
 
         let info: UploadURLResponse = try await post(
-            path: "/expenses/upload-url/",
+            path: APIEndpoint.expenseUploadURL,
             body: ["content_type": "image/jpeg"]
         )
 
@@ -231,27 +231,27 @@ class APIDataService: DataService {
     }
 
     // MARK: - Todo
-    func fetchTodos() async throws -> [TodoItem] { try await get(path: "/todos/") }
-    func createTodo(_ todo: TodoItem) async throws -> TodoItem { try await post(path: "/todos/", body: todo) }
-    func updateTodo(_ todo: TodoItem) async throws -> TodoItem { try await put(path: "/todos/\(todo.id)/", body: todo) }
+    func fetchTodos() async throws -> [TodoItem] { try await get(path: APIEndpoint.todos) }
+    func createTodo(_ todo: TodoItem) async throws -> TodoItem { try await post(path: APIEndpoint.todos, body: todo) }
+    func updateTodo(_ todo: TodoItem) async throws -> TodoItem { try await put(path: APIEndpoint.todo(id: todo.id), body: todo) }
 
     // MARK: - Calendar
-    func fetchCalendarEvents(month: Date) async throws -> [CalendarEvent] { try await get(path: "/events/") }
-    func createCalendarEvent(_ event: CalendarEvent) async throws -> CalendarEvent { try await post(path: "/events/", body: event) }
-    func createCalendarEvents(_ events: [CalendarEvent]) async throws -> [CalendarEvent] { try await post(path: "/events/batch/", body: events) }
+    func fetchCalendarEvents(month: Date) async throws -> [CalendarEvent] { try await get(path: APIEndpoint.events) }
+    func createCalendarEvent(_ event: CalendarEvent) async throws -> CalendarEvent { try await post(path: APIEndpoint.events, body: event) }
+    func createCalendarEvents(_ events: [CalendarEvent]) async throws -> [CalendarEvent] { try await post(path: APIEndpoint.eventBatch, body: events) }
 
     // MARK: - Leave
-    func fetchLeaveRequests() async throws -> [LeaveRequest] { try await get(path: "/leaves/") }
-    func createLeaveRequest(_ request: LeaveRequest) async throws -> LeaveRequest { try await post(path: "/leaves/", body: request) }
+    func fetchLeaveRequests() async throws -> [LeaveRequest] { try await get(path: APIEndpoint.leaves) }
+    func createLeaveRequest(_ request: LeaveRequest) async throws -> LeaveRequest { try await post(path: APIEndpoint.leaves, body: request) }
     func updateLeaveStatus(id: String, status: LeaveStatus) async throws -> LeaveRequest {
-        try await patch(path: "/leaves/\(id)/status/", body: ["status": status.rawValue])
+        try await patch(path: APIEndpoint.leaveStatus(id: id), body: ["status": status.rawValue])
     }
     func voteLeave(id: String, isAvailable: Bool) async throws -> LeaveRequest {
-        try await post(path: "/leaves/\(id)/vote/", body: ["is_available": isAvailable])
+        try await post(path: APIEndpoint.leaveVote(id: id), body: ["is_available": isAvailable])
     }
 
     // MARK: - Documents
-    func fetchDocuments() async throws -> [AppDocument] { try await get(path: "/documents/") }
+    func fetchDocuments() async throws -> [AppDocument] { try await get(path: APIEndpoint.documents) }
     /// Backend CreateDocumentSerializer requires `file_url, file_size, mime_type`.
     /// Caller must upload bytes to object storage first and supply the resulting URL.
     /// Until that flow exists, we send placeholders to avoid 400s on empty required fields.
@@ -263,32 +263,32 @@ class APIDataService: DataService {
             "file_size": AnyEncodable(fileData.count),
             "mime_type": AnyEncodable("application/octet-stream"),
         ]
-        return try await post(path: "/documents/", body: body)
+        return try await post(path: APIEndpoint.documents, body: body)
     }
     func deleteDocument(id: String) async throws { try await delete(path: APIEndpoint.document(id: id)) }
 
     // MARK: - Notifications
-    func fetchNotifications() async throws -> [AppNotification] { try await get(path: "/notifications/") }
+    func fetchNotifications() async throws -> [AppNotification] { try await get(path: APIEndpoint.notifications) }
     func markNotificationRead(id: String) async throws {
-        let _: EmptyResponse = try await put(path: "/notifications/\(id)/read/")
+        let _: EmptyResponse = try await put(path: APIEndpoint.notificationRead(id: id))
     }
 
     // MARK: - Purchase Requests
-    func fetchPurchaseRequests() async throws -> [PurchaseRequest] { try await get(path: "/board/") }
-    func createPurchaseRequest(_ request: PurchaseRequest) async throws -> PurchaseRequest { try await post(path: "/board/", body: request) }
+    func fetchPurchaseRequests() async throws -> [PurchaseRequest] { try await get(path: APIEndpoint.board) }
+    func createPurchaseRequest(_ request: PurchaseRequest) async throws -> PurchaseRequest { try await post(path: APIEndpoint.board, body: request) }
     func updatePurchaseRequestStatus(id: String, status: String) async throws -> PurchaseRequest {
-        try await patch(path: "/board/\(id)/status/", body: ["status": status])
+        try await patch(path: APIEndpoint.boardStatus(id: id), body: ["status": status])
     }
 
     // MARK: - AI
     func sendAIMessage(content: String) async throws -> AIMessage {
-        try await post(path: "/ai/chat/", body: ["message": content])
+        try await post(path: APIEndpoint.aiChat, body: ["message": content])
     }
 
     // MARK: - Push Token
     func registerPushToken(_ token: String) async throws {
         let deviceName = UIDevice.current.name
-        let _: EmptyResponse = try await post(path: "/notifications/device/", body: [
+        let _: EmptyResponse = try await post(path: APIEndpoint.notificationDevice, body: [
             "device_token": token,
             "platform":     "ios",
             "device_name":  deviceName,
@@ -296,7 +296,7 @@ class APIDataService: DataService {
     }
 
     // MARK: - First Aid
-    func fetchFirstAidScenarios() async throws -> [FirstAidScenario] { try await get(path: "/ai/first-aid/") }
+    func fetchFirstAidScenarios() async throws -> [FirstAidScenario] { try await get(path: APIEndpoint.aiFirstAid) }
 
     // MARK: - SOS
     /// Backend TriggerSOSSerializer: `location` is a JSONField (dict), `situation` optional text.
@@ -305,7 +305,7 @@ class APIDataService: DataService {
         if let location, !location.isEmpty {
             body["location"] = AnyEncodable(["address": location])
         }
-        let _: EmptyResponse = try await post(path: "/sos/trigger/", body: body)
+        let _: EmptyResponse = try await post(path: APIEndpoint.sosTrigger, body: body)
     }
 }
 
