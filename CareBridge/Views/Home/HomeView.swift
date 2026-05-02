@@ -286,83 +286,31 @@ struct HomeView: View {
             Text("今日處理事項")
                 .font(.system(size: 17, weight: .bold))
 
-            // Today's events (calendar)
-            if !todayEvents.isEmpty {
-                NavigationLink(value: HomeDestination.calendar) {
-                    HStack(spacing: 14) {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color.blue.opacity(0.15))
-                            .frame(width: 44, height: 44)
-                            .overlay {
-                                Image(systemName: "calendar")
-                                    .foregroundStyle(.blue)
-                            }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("今日行程")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(.primary)
-                            Text(todayEvents.first.map { "\($0.date.formatted(date: .omitted, time: .shortened))  \($0.title)" } ?? "")
-                                .font(.system(size: 13))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("\(todayEvents.count)")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(.blue)
-                            Text("項")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.secondary)
-                        }
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(12)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemBackground)))
-                }
-                .buttonStyle(.plain)
+            // Today's events (always visible — empty state when no events)
+            NavigationLink(value: HomeDestination.calendar) {
+                taskRow(
+                    icon: "calendar",
+                    title: "今日行程",
+                    subtitle: todayEvents.first.map {
+                        "\($0.date.formatted(date: .omitted, time: .shortened))  \($0.title)"
+                    } ?? "今日無行程",
+                    primaryValue: "\(todayEvents.count)",
+                    secondaryValue: "項"
+                )
             }
+            .buttonStyle(.plain)
 
-            // Today's todos (incomplete, due today)
-            if !todayTodos.isEmpty {
-                NavigationLink(value: HomeDestination.todos) {
-                    HStack(spacing: 14) {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color.orange.opacity(0.15))
-                            .frame(width: 44, height: 44)
-                            .overlay {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.orange)
-                            }
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("今日待辦")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(.primary)
-                            Text(todayTodos.first?.title ?? "")
-                                .font(.system(size: 13))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("\(todayTodos.count)")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(.orange)
-                            Text("待完成")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.secondary)
-                        }
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(12)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemBackground)))
-                }
-                .buttonStyle(.plain)
+            // Today's todos (always visible — empty state when no todos)
+            NavigationLink(value: HomeDestination.todos) {
+                taskRow(
+                    icon: "checkmark.circle.fill",
+                    title: "今日待辦",
+                    subtitle: todayTodos.first?.title ?? "今日無待辦",
+                    primaryValue: "\(todayTodos.count)",
+                    secondaryValue: "待完成"
+                )
             }
+            .buttonStyle(.plain)
 
             // Medication row
             NavigationLink(value: HomeDestination.medication) {
@@ -438,6 +386,49 @@ struct HomeView: View {
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 16).fill(.white))
+    }
+
+    /// Shared row layout used by 今日行程 / 今日待辦 — matches the Medication
+    /// row's brandTeal palette so the four entries form a consistent column.
+    private func taskRow(
+        icon: String,
+        title: String,
+        subtitle: String,
+        primaryValue: String,
+        secondaryValue: String
+    ) -> some View {
+        HStack(spacing: 14) {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.brandTealLight)
+                .frame(width: 44, height: 44)
+                .overlay {
+                    Image(systemName: icon)
+                        .foregroundStyle(Color.brandTeal)
+                }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.primary)
+                Text(subtitle)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(primaryValue)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(Color.brandTeal)
+                Text(secondaryValue)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemBackground)))
     }
 
     // MARK: - Heart Rate Card

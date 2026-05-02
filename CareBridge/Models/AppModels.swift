@@ -801,27 +801,55 @@ class CalendarStore {
     }
 
     func addEvent(_ event: CalendarEvent) {
+        // Optimistic insert with the local UUID for instant UI; the backend
+        // ignores the wire id and assigns its own, so reconcile by swapping
+        // the local copy with the server's response. Otherwise any later
+        // update/delete would target a non-existent id → 404.
+        let optimistic = event
         state.updateValue { events in
-            events.append(event)
+            events.append(optimistic)
         }
-        Task {
+        Task { @MainActor in
             do {
-                _ = try await service.createCalendarEvent(event)
+                let saved = try await service.createCalendarEvent(optimistic)
+                state.updateValue { events in
+                    if let idx = events.firstIndex(where: { $0.id == optimistic.id }) {
+                        events[idx] = saved
+                    }
+                }
             } catch {
                 print("[CalendarStore] create failed: \(error)")
+                state.updateValue { events in
+                    events.removeAll { $0.id == optimistic.id }
+                }
             }
         }
     }
 
     func addEvents(_ newEvents: [CalendarEvent]) {
+        // Same reconciliation as `addEvent` but for batch posts. We match
+        // server-returned events back to their local optimistic counterparts
+        // by **position** in the request order — the backend preserves it.
+        let optimistic = newEvents
         state.updateValue { events in
-            events.append(contentsOf: newEvents)
+            events.append(contentsOf: optimistic)
         }
-        Task {
+        Task { @MainActor in
             do {
-                _ = try await service.createCalendarEvents(newEvents)
+                let saved = try await service.createCalendarEvents(optimistic)
+                state.updateValue { events in
+                    for (i, opt) in optimistic.enumerated() where i < saved.count {
+                        if let idx = events.firstIndex(where: { $0.id == opt.id }) {
+                            events[idx] = saved[i]
+                        }
+                    }
+                }
             } catch {
                 print("[CalendarStore] batch create failed: \(error)")
+                let optimisticIds = Set(optimistic.map(\.id))
+                state.updateValue { events in
+                    events.removeAll { optimisticIds.contains($0.id) }
+                }
             }
         }
     }
@@ -875,33 +903,73 @@ class MedicationStore {
     }
 
     func addMedication(_ medication: Medication) {
+        // Optimistic insert (instant UI). The backend ignores the wire id,
+        // so once it responds we replace the local copy AND rewrite the
+        // dose timeline entries to use the server-assigned medication id —
+        // otherwise tapping "服用" later calls confirmMedication(id:) with
+        // a non-existent local UUID and 404s.
+        let optimistic = medication
         state.updateValue { medications in
-            medications.append(medication)
+            medications.append(optimistic)
         }
-        // Add dose entries for today's timeline
-        for time in medication.times {
-            doses.append(DoseEntry(medicationId: medication.id, time: time, name: "\(medication.nameTranslated) \(medication.dosage)", isDone: false))
+        for time in optimistic.times {
+            doses.append(DoseEntry(
+                medicationId: optimistic.id, time: time,
+                name: "\(optimistic.nameTranslated) \(optimistic.dosage)",
+                isDone: false
+            ))
         }
         doses.sort { $0.time < $1.time }
-        Task {
+
+        Task { @MainActor in
             do {
-                _ = try await service.createMedication(medication)
+                let saved = try await service.createMedication(optimistic)
+                state.updateValue { medications in
+                    if let idx = medications.firstIndex(where: { $0.id == optimistic.id }) {
+                        medications[idx] = saved
+                    }
+                }
+                // Rewrite any dose entries that still reference the local id.
+                for i in doses.indices where doses[i].medicationId == optimistic.id {
+                    doses[i] = DoseEntry(
+                        medicationId: saved.id,
+                        time: doses[i].time,
+                        name: doses[i].name,
+                        isDone: doses[i].isDone
+                    )
+                }
             } catch {
                 print("[MedicationStore] create failed: \(error)")
+                state.updateValue { medications in
+                    medications.removeAll { $0.id == optimistic.id }
+                }
+                doses.removeAll { $0.medicationId == optimistic.id }
             }
         }
     }
 
     func markDoseTaken(index: Int) {
-        guard index < doses.count else { return }
-        doses[index].isDone = true
+        guard index < doses.count, !doses[index].isDone else { return }
+        // Optimistic flip for instant UI feedback. Capture the dose's stable
+        // UUID before the network call so we can revert exactly the same row
+        // even if `doses` was reordered or rebuilt by a concurrent reload.
+        let doseId = doses[index].id
         let dose = doses[index]
-        let request = ConfirmMedicationRequest(scheduledTime: dose.time, photoUrl: nil, note: nil)
-        Task {
+        doses[index].isDone = true
+        let request = ConfirmMedicationRequest(
+            scheduledTime: dose.time, photoUrl: nil, note: nil
+        )
+        Task { @MainActor in
             do {
-                _ = try await service.confirmMedication(id: dose.medicationId, request: request)
+                _ = try await service.confirmMedication(
+                    id: dose.medicationId, request: request
+                )
             } catch {
                 print("[MedicationStore] mark dose taken failed: \(error)")
+                // Rollback the optimistic check so the UI matches reality.
+                if let idx = doses.firstIndex(where: { $0.id == doseId }) {
+                    doses[idx].isDone = false
+                }
             }
         }
     }
