@@ -1,10 +1,11 @@
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
+from rest_framework.test import APIClient
 
 from apps.auth_account.models import User
 from apps.family.models import Family
 from apps.medication.models import Medication
-from apps.notification.models import Notification
+from apps.notification.models import Device, Notification
 from apps.notification.tasks import send_medication_reminders
 from apps.notification.types import NotificationType
 
@@ -66,3 +67,126 @@ class MedicationReminderTaskTests(TestCase):
         self.assertEqual(notification.type, 'medication_reminder')
         self.assertEqual(notification.data['medication_id'], str(medication.id))
         self.assertEqual(notification.data['scheduled_time'], current_time)
+
+
+class NotificationAPIEndpointTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            email='notifications@example.com',
+            password='password123',
+            name='Notifications',
+            role=User.Role.FAMILY_MEMBER,
+        )
+        self.other_user = User.objects.create_user(
+            email='other-notifications@example.com',
+            password='password123',
+            name='Other Notifications',
+            role=User.Role.FAMILY_MEMBER,
+        )
+        self.family = Family.objects.create(
+            name='Notifications Family',
+            elder_name='Elder',
+            invite_code='555333',
+            created_by=self.user,
+        )
+        self.user.family = self.family
+        self.user.save(update_fields=['family'])
+        self.client.force_authenticate(self.user)
+
+    def test_list_returns_only_authenticated_users_notifications(self):
+        own = Notification.objects.create(
+            user=self.user,
+            type=NotificationType.CHAT_MESSAGE,
+            title='Own',
+            body='Visible',
+        )
+        Notification.objects.create(
+            user=self.other_user,
+            type=NotificationType.CHAT_MESSAGE,
+            title='Other',
+            body='Hidden',
+        )
+
+        response = self.client.get('/api/v1/notifications/')
+
+        self.assertEqual(response.status_code, 200)
+        ids = {item['id'] for item in response.json()['data']}
+        self.assertEqual(ids, {str(own.id)})
+
+    def test_mark_read_updates_only_owned_notification(self):
+        notification = Notification.objects.create(
+            user=self.user,
+            type=NotificationType.HEALTH_ALERT,
+            title='Alert',
+            body='Check',
+        )
+
+        response = self.client.put(f'/api/v1/notifications/{notification.id}/read/')
+
+        notification.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(notification.is_read)
+        self.assertIsNotNone(notification.read_at)
+        self.assertTrue(response.json()['data']['is_read'])
+
+    def test_mark_all_read_updates_only_authenticated_user(self):
+        own_unread = Notification.objects.create(
+            user=self.user,
+            type=NotificationType.CHAT_MESSAGE,
+            title='Own unread',
+            body='Visible',
+        )
+        own_read = Notification.objects.create(
+            user=self.user,
+            type=NotificationType.CHAT_MESSAGE,
+            title='Own read',
+            body='Visible',
+            is_read=True,
+            read_at=timezone.now(),
+        )
+        other_unread = Notification.objects.create(
+            user=self.other_user,
+            type=NotificationType.CHAT_MESSAGE,
+            title='Other unread',
+            body='Hidden',
+        )
+
+        response = self.client.put('/api/v1/notifications/read-all/')
+
+        own_unread.refresh_from_db()
+        own_read.refresh_from_db()
+        other_unread.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['data']['updated_count'], 1)
+        self.assertTrue(own_unread.is_read)
+        self.assertTrue(own_read.is_read)
+        self.assertFalse(other_unread.is_read)
+
+    def test_register_device_upserts_existing_token_for_user(self):
+        response = self.client.post(
+            '/api/v1/notifications/device/',
+            {
+                'device_token': 'token-1',
+                'platform': Device.Platform.IOS,
+                'device_name': 'Old phone',
+            },
+            format='json',
+        )
+        self.assertEqual(response.status_code, 201)
+
+        response = self.client.post(
+            '/api/v1/notifications/device/',
+            {
+                'device_token': 'token-1',
+                'platform': Device.Platform.IOS,
+                'device_name': 'New phone',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(Device.objects.filter(user=self.user).count(), 1)
+        device = Device.objects.get(user=self.user, device_token='token-1')
+        self.assertEqual(device.device_name, 'New phone')
+        self.assertTrue(device.is_active)
