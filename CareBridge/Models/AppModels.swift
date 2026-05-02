@@ -667,9 +667,16 @@ class CareLogStore {
 // MARK: - Todo Store (shared state → API synced)
 @Observable
 class TodoStore {
-    var todos: [TodoItem] = []
-    var isLoading = false
+    private var state = AsyncViewState<[TodoItem]>(value: [])
     private let service: DataService
+
+    var todos: [TodoItem] {
+        get { state.value }
+        set { state.finish(with: newValue) }
+    }
+
+    var isLoading: Bool { state.isLoading }
+    var errorMessage: String? { state.errorMessage }
 
     init(service: DataService = MockDataService()) {
         self.service = service
@@ -677,14 +684,14 @@ class TodoStore {
 
     func load() {
         guard !isLoading else { return }
-        isLoading = true
+        state.beginLoading()
         Task { @MainActor in
             do {
-                todos = try await service.fetchTodos()
+                state.finish(with: try await service.fetchTodos())
             } catch {
+                state.fail(error)
                 print("[TodoStore] fetch failed: \(error)")
             }
-            isLoading = false
         }
     }
 
@@ -694,23 +701,31 @@ class TodoStore {
         // so we must reconcile by replacing the local copy with the server's
         // response — otherwise later updates PUT a non-existent id → 404.
         let optimistic = todo
-        todos.insert(optimistic, at: 0)
+        state.updateValue { todos in
+            todos.insert(optimistic, at: 0)
+        }
         Task { @MainActor in
             do {
                 let saved = try await service.createTodo(optimistic)
                 if let idx = todos.firstIndex(where: { $0.id == optimistic.id }) {
-                    todos[idx] = saved
+                    state.updateValue { todos in
+                        todos[idx] = saved
+                    }
                 }
             } catch {
                 print("[TodoStore] create failed: \(error)")
-                todos.removeAll { $0.id == optimistic.id }
+                state.updateValue { todos in
+                    todos.removeAll { $0.id == optimistic.id }
+                }
             }
         }
     }
 
     func updateTodo(_ todo: TodoItem) {
         if let index = todos.firstIndex(where: { $0.id == todo.id }) {
-            todos[index] = todo
+            state.updateValue { todos in
+                todos[index] = todo
+            }
         }
         Task {
             do {
@@ -725,9 +740,16 @@ class TodoStore {
 // MARK: - Calendar Store (shared state → API synced)
 @Observable
 class CalendarStore {
-    var events: [CalendarEvent] = []
-    var isLoading = false
+    private var state = AsyncViewState<[CalendarEvent]>(value: [])
     private let service: DataService
+
+    var events: [CalendarEvent] {
+        get { state.value }
+        set { state.finish(with: newValue) }
+    }
+
+    var isLoading: Bool { state.isLoading }
+    var errorMessage: String? { state.errorMessage }
 
     init(service: DataService = MockDataService()) {
         self.service = service
@@ -735,19 +757,21 @@ class CalendarStore {
 
     func load() {
         guard !isLoading else { return }
-        isLoading = true
+        state.beginLoading()
         Task { @MainActor in
             do {
-                events = try await service.fetchCalendarEvents(month: Date())
+                state.finish(with: try await service.fetchCalendarEvents(month: Date()))
             } catch {
+                state.fail(error)
                 print("[CalendarStore] fetch failed: \(error)")
             }
-            isLoading = false
         }
     }
 
     func addEvent(_ event: CalendarEvent) {
-        events.append(event)
+        state.updateValue { events in
+            events.append(event)
+        }
         Task {
             do {
                 _ = try await service.createCalendarEvent(event)
@@ -758,7 +782,9 @@ class CalendarStore {
     }
 
     func addEvents(_ newEvents: [CalendarEvent]) {
-        events.append(contentsOf: newEvents)
+        state.updateValue { events in
+            events.append(contentsOf: newEvents)
+        }
         Task {
             do {
                 _ = try await service.createCalendarEvents(newEvents)
@@ -772,10 +798,17 @@ class CalendarStore {
 // MARK: - Medication Store (shared state → API synced)
 @Observable
 class MedicationStore {
-    var medications: [Medication] = []
+    private var state = AsyncViewState<[Medication]>(value: [])
     var doses: [DoseEntry] = []
-    var isLoading = false
     private let service: DataService
+
+    var medications: [Medication] {
+        get { state.value }
+        set { state.finish(with: newValue) }
+    }
+
+    var isLoading: Bool { state.isLoading }
+    var errorMessage: String? { state.errorMessage }
 
     init(service: DataService = MockDataService()) {
         self.service = service
@@ -783,17 +816,17 @@ class MedicationStore {
 
     func load() {
         guard !isLoading else { return }
-        isLoading = true
+        state.beginLoading()
         Task { @MainActor in
             do {
                 async let medsTask = service.fetchMedications(elderId: "")
                 async let confsTask = service.fetchTodayConfirmations()
                 let (fetchedMeds, confs) = try await (medsTask, confsTask)
-                medications = fetchedMeds
+                state.finish(with: fetchedMeds)
                 
                 // Build today's dose timeline
                 var newDoses: [DoseEntry] = []
-                for med in medications {
+                for med in fetchedMeds {
                     for time in med.times {
                         let isConfirmed = confs.contains { $0.medication == med.id && $0.scheduledTime == time }
                         newDoses.append(DoseEntry(medicationId: med.id, time: time, name: "\(med.nameTranslated) \(med.dosage)", isDone: isConfirmed))
@@ -803,14 +836,16 @@ class MedicationStore {
                 doses = newDoses.sorted { $0.time < $1.time }
                 
             } catch {
+                state.fail(error)
                 print("[MedicationStore] fetch failed: \(error)")
             }
-            isLoading = false
         }
     }
 
     func addMedication(_ medication: Medication) {
-        medications.append(medication)
+        state.updateValue { medications in
+            medications.append(medication)
+        }
         // Add dose entries for today's timeline
         for time in medication.times {
             doses.append(DoseEntry(medicationId: medication.id, time: time, name: "\(medication.nameTranslated) \(medication.dosage)", isDone: false))
