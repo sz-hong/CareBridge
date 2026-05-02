@@ -24,7 +24,13 @@ class FamilyViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Family.objects.all()
+        if self.action == 'join':
+            return Family.objects.all()
+
+        family_id = getattr(self.request.user, 'family_id', None)
+        if not family_id:
+            return Family.objects.none()
+        return Family.objects.filter(id=family_id)
 
     def get_serializer_class(self):
         if self.action == 'create':
