@@ -112,6 +112,12 @@ class JoinFamilyView(APIView):
             user.is_primary = False
         user.save(update_fields=["family", "is_primary", "role"])
 
+        # Auto-add the joiner to every existing chat in this family. Without
+        # this, ChatViewSet.get_queryset() filters by members__user= and
+        # the new user sees an empty chat list despite being in the family.
+        from apps.chat.services import enroll_user_in_family_chats
+        enroll_user_in_family_chats(user)
+
         return success_response(data={
             "user": UserSerializer(user).data,
             "tokens": get_tokens_for_user(user),
