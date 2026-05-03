@@ -2,9 +2,15 @@
 CareBridge API — 正式環境設定
 """
 import os
+from django.core.exceptions import ImproperlyConfigured
 from .base import *
 
 DEBUG = False
+
+if not SECRET_KEY:
+    raise ImproperlyConfigured(
+        'DJANGO_SECRET_KEY environment variable is required in production'
+    )
 
 # PostgreSQL
 DATABASES = {
