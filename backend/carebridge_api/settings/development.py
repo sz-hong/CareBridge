@@ -5,6 +5,9 @@ from .base import *
 
 DEBUG = True
 
+if not SECRET_KEY:
+    SECRET_KEY = 'django-insecure-dev-only-do-not-use-in-prod'
+
 ALLOWED_HOSTS = ['*']
 
 # 開發環境使用 SQLite（不需要 PostgreSQL）
