@@ -195,9 +195,10 @@ print(f'   ✓ Family: {Family.objects.count()} 筆，成員 {family.members.cou
 
 
 # ============================================================================
-# 3. Chat / ChatMember / Message — 含請假/採購卡片訊息
+# 3. Chat 預備 — 先建立 chat / 成員，但訊息留到 Leave/Board 建好後再灌入，
+#    確保 chat card 的內容（日期、品項）與後端真實資料一致
 # ============================================================================
-print('💬 建立聊天室與訊息...')
+print('💬 建立聊天室...')
 
 now = timezone.now()
 
@@ -236,28 +237,8 @@ Message.objects.create(
     sent_at=now - timedelta(hours=1, minutes=50),
 )
 
-# 採購需求卡片訊息 — message_type='purchase_request'，content 是顯示文字，
-# reference_id 連到下面建的 BoardRequest（FE 點卡片進詳情頁靠這個）
-purchase_msg_id = uuid.uuid4()  # 預先生成讓 BoardRequest 用同一個 id
-
-Message.objects.create(
-    chat=chat, sender=rita, type='text',
-    message_type='purchase_request',
-    reference_id=purchase_msg_id,
-    content='📦 採購需求：成人紙尿褲',
-    sent_at=now - timedelta(hours=1, minutes=20),
-)
-
-# 請假申請卡片訊息 — 同樣模式，reference_id 連到下面建的 Leave
-leave_msg_id = uuid.uuid4()
-
-Message.objects.create(
-    chat=chat, sender=rita, type='text',
-    message_type='leave_request',
-    reference_id=leave_msg_id,
-    content='📋 請假申請：事假 5/8–5/9',
-    sent_at=now - timedelta(hours=1),
-)
+# 卡片訊息（採購 / 請假）暫不建立——等 BoardRequest 跟 Leave 建好後，再用
+# 它們的真實 id 跟 dates 一起補上，避免 hardcoded 文字跟 detail 頁日期對不上。
 
 print(f'   ✓ Chat: {Chat.objects.count()}, Message: {Message.objects.count()}')
 
@@ -267,9 +248,8 @@ print(f'   ✓ Chat: {Chat.objects.count()}, Message: {Message.objects.count()}'
 # ============================================================================
 print('🛒 建立採購需求...')
 
-# 對應上面那則 purchase_request chat card
-BoardRequest.objects.create(
-    id=purchase_msg_id,  # 與 chat message 的 reference_id 對齊
+# 留一筆 reference 給 chat 卡片用
+purchase_for_card = BoardRequest.objects.create(
     family=family, requester=rita,
     category='daily',
     items=[
@@ -490,9 +470,8 @@ print(f'   ✓ Expense: {Expense.objects.count()} 筆')
 # ============================================================================
 print('📋 建立請假申請與投票...')
 
-# 8a. Pending（無投票）— 跟上面 chat 卡片連結
+# 8a. Pending（無投票）— 之後會連結到 chat 卡片
 leave_pending = Leave.objects.create(
-    id=leave_msg_id,
     family=family, applicant=rita,
     type='personal',
     start_date=today + timedelta(days=7),
@@ -566,6 +545,52 @@ LeaveVote.objects.create(
 )
 
 print(f'   ✓ Leave: {Leave.objects.count()}, LeaveVote: {LeaveVote.objects.count()}')
+
+
+# ============================================================================
+# 8.5  補上聊天室的卡片訊息（用 BoardRequest / Leave 真實資料）
+# ============================================================================
+print('💬 補上請假/採購卡片訊息...')
+
+
+def _format_md(d):
+    return f'{d.month}/{d.day}'
+
+
+# 採購卡片 — content 含品項名，reference_id 指向真實 BoardRequest
+purchase_item_name = (
+    purchase_for_card.items[0].get('name_translated')
+    or purchase_for_card.items[0].get('name')
+    or '未命名品項'
+)
+Message.objects.create(
+    chat=chat, sender=rita, type='text',
+    message_type='purchase_request',
+    reference_id=purchase_for_card.id,
+    content=f'📦 採購需求：{purchase_item_name}',
+    sent_at=now - timedelta(hours=1, minutes=20),
+)
+
+# 請假卡片 — 假別 + 真實日期，reference_id 指向 leave_pending
+leave_type_label = {
+    'personal':  '事假',
+    'sick':      '病假',
+    'emergency': '緊急假',
+}.get(leave_pending.type, leave_pending.type)
+
+leave_card_text = (
+    f'📋 請假申請：{leave_type_label} '
+    f'{_format_md(leave_pending.start_date)}–{_format_md(leave_pending.end_date)}'
+)
+Message.objects.create(
+    chat=chat, sender=rita, type='text',
+    message_type='leave_request',
+    reference_id=leave_pending.id,
+    content=leave_card_text,
+    sent_at=now - timedelta(hours=1),
+)
+
+print(f'   ✓ Message 卡片補完，聊天室訊息共 {Message.objects.count()} 則')
 
 
 # ============================================================================

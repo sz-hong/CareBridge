@@ -14,7 +14,9 @@ enum AppConfig {
     /// When targeting a physical device, update `lanIP` to your Mac's current
     /// LAN IP (check with `ipconfig getifaddr en0`). Device and Mac must be
     /// on the same Wi-Fi.
-    static let lanIP = "192.168.1.110"
+
+    //static let lanIP = "192.168.1.110"
+    static let lanIP = "100.125.106.32"
 
     // MARK: - Derived
     enum Mode {
