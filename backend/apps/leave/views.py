@@ -142,7 +142,17 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         return success_response(data=LeaveSerializer(instance).data)
 
     def _maybe_resolve_status(self, leave, actor):
-        """Flip leave.status once every voting-eligible family member voted.
+        """Resolve leave.status from the family's votes.
+
+        Asymmetric short-circuit logic:
+          • **Any** family-role member voting "available" (有空) → APPROVED
+            immediately, no need to wait for the rest. Helps the leave
+            request resolve as soon as a willing caregiver-substitute
+            exists.
+          • **All** family-role members voting "unavailable" (沒空) →
+            REJECTED. Must wait for every eligible member to weigh in
+            before rejecting, in case a later vote rescues it.
+          • Otherwise → stays PENDING.
 
         Voting-eligible = users in this family with role=family_member
         (caregivers don't vote; they're the applicant on caregiver leaves).
@@ -150,22 +160,23 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         if leave.status != Leave.Status.PENDING:
             return  # Already resolved — don't overwrite
 
-        eligible_count = User.objects.filter(
-            family=leave.family,
-            role=User.Role.FAMILY_MEMBER,
-        ).count()
         # Query LeaveVote directly to bypass any prefetch_related('votes')
         # cache on the leave instance — get_queryset prefetches votes for
         # list views, and that cached queryset wouldn't reflect the vote we
         # just created in the same request.
         votes = list(LeaveVote.objects.filter(leave=leave))
-        if len(votes) < eligible_count:
-            return  # Still waiting on more votes
 
         if any(v.is_available for v in votes):
             leave.status = Leave.Status.APPROVED
         else:
+            eligible_count = User.objects.filter(
+                family=leave.family,
+                role=User.Role.FAMILY_MEMBER,
+            ).count()
+            if len(votes) < eligible_count:
+                return  # Still waiting on more "no" votes before rejecting
             leave.status = Leave.Status.REJECTED
+
         leave.reviewed_by = actor
         leave.reviewed_at = timezone.now()
 
