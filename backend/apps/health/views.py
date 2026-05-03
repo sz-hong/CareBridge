@@ -8,7 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ViewSet
 
-from core.responses import success_response
+from core.responses import error_response, success_response
 from core.viewsets import FamilyScopedQuerySetMixin
 from apps.notification.types import NotificationType
 from .models import HealthData, HealthAlert, HealthAlertThreshold
@@ -204,7 +204,11 @@ class HealthDataViewSet(FamilyScopedQuerySetMixin, ViewSet):
         try:
             alert = qs.get(id=alert_id)
         except HealthAlert.DoesNotExist:
-            return success_response(data={'detail': 'Alert not found.'}, status=404)
+            return error_response(
+                code='not_found',
+                message='Alert not found.',
+                status=404,
+            )
 
         alert.acknowledged_by = request.user
         alert.acknowledged_at = timezone.now()

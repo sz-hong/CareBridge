@@ -6,7 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ViewSet
 
-from core.responses import success_response
+from core.responses import error_response, success_response
 from core.viewsets import FamilyScopedQuerySetMixin
 from apps.notification.types import NotificationType
 
@@ -103,14 +103,16 @@ class SOSViewSet(FamilyScopedQuerySetMixin, ViewSet):
         try:
             sos = self.scope_queryset_to_family(SOSRecord.objects.all()).get(id=pk)
         except SOSRecord.DoesNotExist:
-            return success_response(
-                data={'detail': 'SOS record not found.'},
+            return error_response(
+                code='not_found',
+                message='SOS record not found.',
                 status=404,
             )
 
         if sos.status == SOSRecord.Status.RESOLVED:
-            return success_response(
-                data={'detail': 'SOS is already resolved.'},
+            return error_response(
+                code='sos_already_resolved',
+                message='SOS is already resolved.',
                 status=400,
             )
 

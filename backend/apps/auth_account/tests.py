@@ -9,6 +9,7 @@ from apps.auth_account.models import User
 from apps.expense.models import Expense
 from apps.family.models import Family
 from apps.health.models import HealthData
+from apps.board.models import BoardRequest
 from apps.medication.models import Medication
 from apps.sos.models import SOSRecord
 
@@ -171,3 +172,68 @@ class FamilyScopeContractTests(TestCase):
         response = self.client.get(f"/api/v1/medications/{other_med.id}/")
 
         self.assertEqual(response.status_code, 404)
+
+
+class ErrorResponseContractTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            email="errors@example.com",
+            password="password123",
+            name="Errors",
+            role=User.Role.FAMILY_MEMBER,
+        )
+        self.family = Family.objects.create(
+            name="Error Family",
+            elder_name="Elder",
+            invite_code="333444",
+            created_by=self.user,
+        )
+        self.user.family = self.family
+        self.user.save(update_fields=["family"])
+        self.client.force_authenticate(self.user)
+
+    def test_manual_bad_request_uses_error_envelope(self):
+        board_request = BoardRequest.objects.create(
+            family=self.family,
+            requester=self.user,
+            category=BoardRequest.Category.DAILY,
+            items=[{"name": "Tissue", "quantity": "1"}],
+        )
+
+        response = self.client.patch(
+            f"/api/v1/board/{board_request.id}/status/",
+            {"status": "invalid"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json(),
+            {
+                "success": False,
+                "error": {
+                    "code": "invalid_status",
+                    "message": "Invalid status.",
+                },
+            },
+        )
+
+    def test_manual_not_found_uses_error_envelope(self):
+        missing_id = uuid4()
+
+        response = self.client.put(
+            f"/api/v1/health-data/alerts/{missing_id}/acknowledge/"
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(
+            response.json(),
+            {
+                "success": False,
+                "error": {
+                    "code": "not_found",
+                    "message": "Alert not found.",
+                },
+            },
+        )

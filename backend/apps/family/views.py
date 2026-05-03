@@ -6,7 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
-from core.responses import success_response
+from core.responses import error_response, success_response
 
 from .models import Family
 from .serializers import FamilySerializer, CreateFamilySerializer, JoinFamilySerializer
@@ -112,8 +112,9 @@ class FamilyViewSet(ModelViewSet):
         family = self.get_object()
 
         if family.invite_code != invite_code:
-            return success_response(
-                data={"detail": "Invalid invite code."},
+            return error_response(
+                code='invalid_invite',
+                message='Invalid invite code.',
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -134,8 +135,9 @@ class FamilyViewSet(ModelViewSet):
             from apps.auth_account.models import User
             member = User.objects.get(id=user_id, family=family)
         except User.DoesNotExist:
-            return success_response(
-                data={"detail": "Member not found in this family."},
+            return error_response(
+                code='not_found',
+                message='Member not found in this family.',
                 status=status.HTTP_404_NOT_FOUND,
             )
 
