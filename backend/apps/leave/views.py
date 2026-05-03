@@ -87,21 +87,9 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         instance.reviewed_at = timezone.now()
 
         if new_status == 'approved':
-            # Auto-create calendar event for the leave period
-            event = Event.objects.create(
-                family=instance.family,
-                title=f'{instance.get_type_display()} Leave - {instance.applicant.name}',
-                start_time=datetime.combine(instance.start_date, datetime.min.time()),
-                end_time=datetime.combine(
-                    instance.end_date, datetime.max.time().replace(microsecond=0),
-                ),
-                type=Event.Type.LEAVE,
-                source=Event.Source.LEAVE,
-                source_id=instance.id,
-                note=instance.reason,
-                created_by=request.user,
+            instance.calendar_event = self._ensure_calendar_event(
+                instance, request.user,
             )
-            instance.calendar_event = event
 
         instance.save()
 
@@ -182,19 +170,29 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         leave.reviewed_at = timezone.now()
 
         if leave.status == Leave.Status.APPROVED and not leave.calendar_event_id:
-            event = Event.objects.create(
-                family=leave.family,
-                title=f'{leave.get_type_display()} Leave - {leave.applicant.name}',
-                start_time=datetime.combine(leave.start_date, datetime.min.time()),
-                end_time=datetime.combine(
-                    leave.end_date, datetime.max.time().replace(microsecond=0),
-                ),
-                type=Event.Type.LEAVE,
-                source=Event.Source.LEAVE,
-                source_id=leave.id,
-                note=leave.reason,
-                created_by=actor,
-            )
-            leave.calendar_event = event
+            leave.calendar_event = self._ensure_calendar_event(leave, actor)
 
         leave.save()
+
+    def _ensure_calendar_event(self, leave, actor):
+        if leave.calendar_event_id:
+            return leave.calendar_event
+
+        return Event.objects.create(
+            family=leave.family,
+            title=f'{leave.get_type_display()} Leave - {leave.applicant.name}',
+            start_time=timezone.make_aware(
+                datetime.combine(leave.start_date, datetime.min.time()),
+            ),
+            end_time=timezone.make_aware(
+                datetime.combine(
+                    leave.end_date,
+                    datetime.max.time().replace(microsecond=0),
+                ),
+            ),
+            type=Event.Type.LEAVE,
+            source=Event.Source.LEAVE,
+            source_id=leave.id,
+            note=leave.reason,
+            created_by=actor,
+        )
