@@ -5,6 +5,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
+from apps.auth_account.models import User
 from apps.chat.models import Chat, ChatMember, Message
 from apps.chat.serializers import (
     ChatSerializer,
@@ -13,7 +14,7 @@ from apps.chat.serializers import (
     SendMessageSerializer,
 )
 from core.pagination import StandardPagination
-from core.responses import empty_success_response, success_response
+from core.responses import empty_success_response, error_response, success_response
 from core.translation import SUPPORTED_LANGUAGES, translate_text
 
 logger = logging.getLogger(__name__)
@@ -60,18 +61,38 @@ class ChatViewSet(ModelViewSet):
     def create(self, request, *args, **kwargs):
         ser = CreateChatSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
+        family_id = ser.validated_data['family_id']
+        member_ids = set(ser.validated_data['member_ids'])
+
+        if request.user.family_id != family_id:
+            return error_response(
+                code='permission_denied',
+                message='Cannot create a chat outside your family.',
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        family_member_count = User.objects.filter(
+            id__in=member_ids,
+            family_id=request.user.family_id,
+        ).count()
+        if family_member_count != len(member_ids):
+            return error_response(
+                code='invalid_members',
+                message='All chat members must belong to your family.',
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         chat = Chat.objects.create(
             type=ser.validated_data['type'],
             name=ser.validated_data.get('name', ''),
-            family_id=ser.validated_data['family_id'],
+            family_id=family_id,
         )
 
         # Add creator as a member
         ChatMember.objects.create(chat=chat, user=request.user)
 
         # Add other requested members (skip if creator is already included)
-        for uid in ser.validated_data['member_ids']:
+        for uid in member_ids:
             if uid != request.user.id:
                 ChatMember.objects.get_or_create(chat=chat, user_id=uid)
 
