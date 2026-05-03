@@ -1,13 +1,12 @@
 import Foundation
-import UIKit
 
 /// Real API implementation — connects to backend REST API via JSON.
 /// Replace `baseURL` with your actual server address.
 class APIDataService: DataService {
 
-    private let baseURL: String
-    private var authToken: String?
-    private let apiClient: APIClient
+    let baseURL: String
+    var authToken: String?
+    let apiClient: APIClient
 
     init(baseURL: String = AppConfig.apiBaseURL) {
         self.baseURL = baseURL
@@ -17,7 +16,7 @@ class APIDataService: DataService {
 
     // MARK: - Generic Request Helpers
 
-    private func request<T: Codable>(_ method: String, path: String, body: (any Encodable)? = nil, retried: Bool = false) async throws -> T {
+    func request<T: Codable>(_ method: String, path: String, body: (any Encodable)? = nil, retried: Bool = false) async throws -> T {
         do {
             return try await apiClient.request(
                 method,
@@ -42,22 +41,9 @@ class APIDataService: DataService {
         }
     }
 
-    /// Biometric login: exchange the stored refresh token for a fresh access
-    /// token, then fetch the user profile. Throws if no refresh token is
-    /// stored (user has never logged in on this device) or the refresh call
-    /// fails (refresh token expired or revoked).
-    func loginWithStoredRefreshToken() async throws -> UserProfile {
-        guard KeychainService.refreshToken != nil else {
-            throw APIError.unauthorized
-        }
-        let ok = await refreshAccessToken()
-        guard ok else { throw APIError.unauthorized }
-        return try await fetchProfile()
-    }
-
     /// Exchange refresh token for a new access token (SimpleJWT, rotation enabled).
     /// Response format is `{access, refresh}` without the `{success,data}` envelope.
-    private func refreshAccessToken() async -> Bool {
+    func refreshAccessToken() async -> Bool {
         guard let refresh = KeychainService.refreshToken,
               let url = URL(string: "\(baseURL)\(APIEndpoint.tokenRefresh)") else { return false }
 
@@ -84,228 +70,24 @@ class APIDataService: DataService {
         }
     }
 
-    private func get<T: Codable>(path: String) async throws -> T {
+    func get<T: Codable>(path: String) async throws -> T {
         try await request("GET", path: path)
     }
 
-    private func post<T: Codable>(path: String, body: (any Encodable)? = nil) async throws -> T {
+    func post<T: Codable>(path: String, body: (any Encodable)? = nil) async throws -> T {
         try await request("POST", path: path, body: body)
     }
 
-    private func put<T: Codable>(path: String, body: (any Encodable)? = nil) async throws -> T {
+    func put<T: Codable>(path: String, body: (any Encodable)? = nil) async throws -> T {
         try await request("PUT", path: path, body: body)
     }
 
-    private func patch<T: Codable>(path: String, body: (any Encodable)? = nil) async throws -> T {
+    func patch<T: Codable>(path: String, body: (any Encodable)? = nil) async throws -> T {
         try await request("PATCH", path: path, body: body)
     }
 
-    private func delete(path: String) async throws {
+    func delete(path: String) async throws {
         let _: EmptyResponse = try await request("DELETE", path: path)
-    }
-
-    // MARK: - Auth
-    func register(name: String, email: String, password: String, phone: String?, language: String?) async throws -> AuthResponse {
-        struct Req: Encodable {
-            let name: String; let email: String; let password: String
-            let phone: String?; let language: String?
-        }
-        let result: AuthResponse = try await post(
-            path: APIEndpoint.authRegister,
-            body: Req(name: name, email: email, password: password,
-                      phone: phone, language: language)
-        )
-        authToken = result.tokens.access
-        KeychainService.accessToken  = result.tokens.access
-        KeychainService.refreshToken = result.tokens.refresh
-        return result
-    }
-
-    func login(email: String, password: String) async throws -> AuthResponse {
-        // Clear stale tokens so login request is unauthenticated
-        authToken = nil
-        KeychainService.clearAll()
-        let result: AuthResponse = try await post(path: APIEndpoint.authLogin, body: ["email": email, "password": password])
-        authToken = result.tokens.access
-        KeychainService.accessToken = result.tokens.access
-        KeychainService.refreshToken = result.tokens.refresh
-        return result
-    }
-
-    func joinFamily(inviteCode: String, role: UserRole) async throws -> AuthResponse {
-        let result: AuthResponse = try await post(
-            path: APIEndpoint.authJoinFamily,
-            body: ["invite_code": inviteCode, "role": role.rawValue]
-        )
-        authToken = result.tokens.access
-        KeychainService.accessToken = result.tokens.access
-        KeychainService.refreshToken = result.tokens.refresh
-        return result
-    }
-
-    func logout() async throws {
-        let _: EmptyResponse = try await post(path: APIEndpoint.authLogout)
-        authToken = nil
-        KeychainService.clearAll()
-    }
-
-    // MARK: - Profile
-    func fetchProfile() async throws -> UserProfile { try await get(path: APIEndpoint.authMe) }
-    func updateProfile(_ profile: UserProfile) async throws -> UserProfile { try await put(path: APIEndpoint.authMe, body: profile) }
-    func fetchFamilyMembers() async throws -> [UserProfile] { try await get(path: APIEndpoint.familyMembers) }
-    func createFamily(name: String, elderName: String, elderBirthDate: String) async throws -> FamilyInfo {
-        struct Req: Encodable { let name: String; let elderName: String; let elderBirthDate: String }
-        return try await post(path: APIEndpoint.families, body: Req(name: name, elderName: elderName, elderBirthDate: elderBirthDate))
-    }
-
-    // MARK: - Health
-    func fetchHealthData(elderId: String) async throws -> HealthData { try await get(path: APIEndpoint.healthDashboard) }
-    func fetchWeeklySteps(elderId: String) async throws -> [Int] { try await get(path: APIEndpoint.healthWeeklySteps) }
-
-    // MARK: - Chat
-    func fetchChatRooms() async throws -> [ChatRoom] { try await get(path: APIEndpoint.chats) }
-    func fetchMessages(roomId: String) async throws -> [ChatMessage] { try await get(path: APIEndpoint.chatMessages(roomId: roomId)) }
-    func sendMessage(roomId: String, content: String) async throws -> ChatMessage {
-        try await post(path: APIEndpoint.chatMessages(roomId: roomId), body: ["type": "text", "content": content])
-    }
-    func sendRequestMessage(roomId: String, messageType: String, referenceId: String, content: String) async throws -> ChatMessage {
-        try await post(path: APIEndpoint.chatMessages(roomId: roomId), body: [
-            "type": messageType, "reference_id": referenceId, "content": content
-        ])
-    }
-
-    // MARK: - Care Log
-    func fetchCareLogEntries(date: Date?) async throws -> [CareLogEntry] {
-        if let date {
-            let formatter = DateFormatter()
-            formatter.calendar = Calendar(identifier: .gregorian)
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = .current
-            formatter.dateFormat = "yyyy-MM-dd"
-            let dateStr = formatter.string(from: date)
-            return try await get(path: APIEndpoint.careLogs(on: dateStr))
-        }
-        return try await get(path: APIEndpoint.careLogs)
-    }
-    func createCareLogEntry(_ entry: CareLogEntry) async throws -> CareLogEntry { try await post(path: APIEndpoint.careLogs, body: entry) }
-
-    // MARK: - Medication
-    func fetchMedications(elderId: String) async throws -> [Medication] { try await get(path: APIEndpoint.medications) }
-    func createMedication(_ medication: Medication) async throws -> Medication { try await post(path: APIEndpoint.medications, body: medication) }
-    func updateMedication(_ medication: Medication) async throws -> Medication { try await put(path: APIEndpoint.medication(id: medication.id), body: medication) }
-    func fetchTodayConfirmations() async throws -> [MedicationConfirmation] { try await get(path: APIEndpoint.medicationTodayConfirmations) }
-    func confirmMedication(id: String, request: ConfirmMedicationRequest) async throws -> MedicationConfirmation {
-        try await post(path: APIEndpoint.medicationConfirm(id: id), body: request)
-    }
-
-    // MARK: - Expenses
-    func fetchExpenses(month: Date?) async throws -> [Expense] { try await get(path: APIEndpoint.expenses) }
-    func fetchSpendingSummary(month: Date?) async throws -> SpendingSummary { try await get(path: APIEndpoint.expenseMonthly) }
-    func createExpense(_ expense: Expense) async throws -> Expense { try await post(path: APIEndpoint.expenses, body: expense) }
-
-    /// Request a presigned PUT URL from the backend, upload the JPEG bytes directly
-    /// to object storage, then return the bare `image_url` to send back with the
-    /// expense POST. Throws on encode/upload failure.
-    func uploadReceiptImage(_ image: UIImage) async throws -> String {
-        struct UploadURLResponse: Codable { let uploadUrl: String; let imageUrl: String }
-
-        guard let data = image.jpegData(compressionQuality: 0.85) else {
-            throw APIError.emptyResponse
-        }
-
-        let info: UploadURLResponse = try await post(
-            path: APIEndpoint.expenseUploadURL,
-            body: ["content_type": "image/jpeg"]
-        )
-
-        guard let putURL = URL(string: info.uploadUrl) else { throw URLError(.badURL) }
-        var putReq = URLRequest(url: putURL)
-        putReq.httpMethod = "PUT"
-        putReq.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
-
-        let (_, response) = try await URLSession.shared.upload(for: putReq, from: data)
-        guard let http = response as? HTTPURLResponse, 200...299 ~= http.statusCode else {
-            throw APIError.serverError(statusCode: (response as? HTTPURLResponse)?.statusCode ?? 0)
-        }
-        return info.imageUrl
-    }
-
-    // MARK: - Todo
-    func fetchTodos() async throws -> [TodoItem] { try await get(path: APIEndpoint.todos) }
-    func createTodo(_ todo: TodoItem) async throws -> TodoItem { try await post(path: APIEndpoint.todos, body: todo) }
-    func updateTodo(_ todo: TodoItem) async throws -> TodoItem { try await put(path: APIEndpoint.todo(id: todo.id), body: todo) }
-
-    // MARK: - Calendar
-    func fetchCalendarEvents(month: Date) async throws -> [CalendarEvent] { try await get(path: APIEndpoint.events) }
-    func createCalendarEvent(_ event: CalendarEvent) async throws -> CalendarEvent { try await post(path: APIEndpoint.events, body: event) }
-    func createCalendarEvents(_ events: [CalendarEvent]) async throws -> [CalendarEvent] { try await post(path: APIEndpoint.eventBatch, body: events) }
-
-    // MARK: - Leave
-    func fetchLeaveRequests() async throws -> [LeaveRequest] { try await get(path: APIEndpoint.leaves) }
-    func createLeaveRequest(_ request: LeaveRequest) async throws -> LeaveRequest { try await post(path: APIEndpoint.leaves, body: request) }
-    func updateLeaveStatus(id: String, status: LeaveStatus) async throws -> LeaveRequest {
-        try await patch(path: APIEndpoint.leaveStatus(id: id), body: ["status": status.rawValue])
-    }
-    func voteLeave(id: String, isAvailable: Bool) async throws -> LeaveRequest {
-        try await post(path: APIEndpoint.leaveVote(id: id), body: ["is_available": isAvailable])
-    }
-
-    // MARK: - Documents
-    func fetchDocuments() async throws -> [AppDocument] { try await get(path: APIEndpoint.documents) }
-    /// Backend CreateDocumentSerializer requires `file_url, file_size, mime_type`.
-    /// Caller must upload bytes to object storage first and supply the resulting URL.
-    /// Until that flow exists, we send placeholders to avoid 400s on empty required fields.
-    func uploadDocument(title: String, category: String, fileData: Data) async throws -> AppDocument {
-        let body: [String: AnyEncodable] = [
-            "title":     AnyEncodable(title),
-            "category":  AnyEncodable(category),
-            "file_url":  AnyEncodable(""),
-            "file_size": AnyEncodable(fileData.count),
-            "mime_type": AnyEncodable("application/octet-stream"),
-        ]
-        return try await post(path: APIEndpoint.documents, body: body)
-    }
-    func deleteDocument(id: String) async throws { try await delete(path: APIEndpoint.document(id: id)) }
-
-    // MARK: - Notifications
-    func fetchNotifications() async throws -> [AppNotification] { try await get(path: APIEndpoint.notifications) }
-    func markNotificationRead(id: String) async throws {
-        let _: EmptyResponse = try await put(path: APIEndpoint.notificationRead(id: id))
-    }
-
-    // MARK: - Purchase Requests
-    func fetchPurchaseRequests() async throws -> [PurchaseRequest] { try await get(path: APIEndpoint.board) }
-    func createPurchaseRequest(_ request: PurchaseRequest) async throws -> PurchaseRequest { try await post(path: APIEndpoint.board, body: request) }
-    func updatePurchaseRequestStatus(id: String, status: String) async throws -> PurchaseRequest {
-        try await patch(path: APIEndpoint.boardStatus(id: id), body: ["status": status])
-    }
-
-    // MARK: - AI
-    func sendAIMessage(content: String) async throws -> AIMessage {
-        try await post(path: APIEndpoint.aiChat, body: ["message": content])
-    }
-
-    // MARK: - Push Token
-    func registerPushToken(_ token: String) async throws {
-        let deviceName = UIDevice.current.name
-        let _: EmptyResponse = try await post(path: APIEndpoint.notificationDevice, body: [
-            "device_token": token,
-            "platform":     "ios",
-            "device_name":  deviceName,
-        ])
-    }
-
-    // MARK: - First Aid
-    func fetchFirstAidScenarios() async throws -> [FirstAidScenario] { try await get(path: APIEndpoint.aiFirstAid) }
-
-    // MARK: - SOS
-    /// Backend TriggerSOSSerializer: `location` is a JSONField (dict), `situation` optional text.
-    func triggerSOS(location: String?) async throws {
-        var body: [String: AnyEncodable] = [:]
-        if let location, !location.isEmpty {
-            body["location"] = AnyEncodable(["address": location])
-        }
-        let _: EmptyResponse = try await post(path: APIEndpoint.sosTrigger, body: body)
     }
 }
 
