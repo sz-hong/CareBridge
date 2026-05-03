@@ -106,6 +106,7 @@ protocol DataService {
 
     // AI
     func sendAIMessage(content: String) async throws -> AIMessage
+    func streamAIResponse(prompt: String) -> AsyncThrowingStream<String, Error>
 
     // First Aid (static content, can be cached)
     func fetchFirstAidScenarios() async throws -> [FirstAidScenario]

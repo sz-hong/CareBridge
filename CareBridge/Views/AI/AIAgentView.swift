@@ -3,6 +3,7 @@ import SwiftUI
 struct AIAgentView: View {
     var isModal: Bool = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dataService) private var dataService
     @State private var messages: [AIMessage] = []
     @State private var inputText = ""
     @State private var isLoading = false
@@ -140,46 +141,40 @@ struct AIAgentView: View {
         }
 
         do {
-            guard let url = URL(string: "\(AppConfig.apiBaseURL)/ai/chat/") else {
-                throw URLError(.badURL)
-            }
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-            if let token = KeychainService.accessToken {
-                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-            }
-            request.httpBody = try? JSONEncoder().encode(["message": prompt])
-
-            let (bytes, _) = try await URLSession.shared.bytes(for: request)
             var accumulated = ""
+            for try await chunk in dataService.streamAIResponse(prompt: prompt) {
+                accumulated += chunk
+                let updated = accumulated
+                await MainActor.run {
+                    if let idx = messages.firstIndex(where: { $0.id == replyId }) {
+                        messages[idx] = AIMessage(
+                            id: replyId,
+                            content: updated,
+                            isUser: false,
+                            timestamp: Date()
+                        )
+                    }
+                }
+            }
 
-            for try await line in bytes.lines {
-                guard line.hasPrefix("data: ") else { continue }
-                let payload = String(line.dropFirst(6))
-                if let data = payload.data(using: .utf8),
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    if let type_ = json["type"] as? String, type_ == "done" { break }
-                    if let type_ = json["type"] as? String, type_ == "token",
-                       let tokenStr = json["content"] as? String {
-                        accumulated += tokenStr
-                        let updated = accumulated
-                        await MainActor.run {
-                            if let idx = messages.firstIndex(where: { $0.id == replyId }) {
-                                messages[idx] = AIMessage(id: replyId, content: updated, isUser: false, timestamp: Date())
-                            }
-                        }
+            if accumulated.isEmpty {
+                await MainActor.run {
+                    if let idx = messages.firstIndex(where: { $0.id == replyId }) {
+                        messages[idx] = AIMessage(
+                            id: replyId,
+                            content: "AI response completed without content.",
+                            isUser: false,
+                            timestamp: Date()
+                        )
                     }
                 }
             }
         } catch {
-            // Fallback：後端未就緒時顯示 mock 回應
             await MainActor.run {
                 if let idx = messages.firstIndex(where: { $0.id == replyId }) {
                     messages[idx] = AIMessage(
                         id: replyId,
-                        content: "根據您的問題，我正在分析相關照護數據。目前長者的整體狀態穩定，建議繼續維持現有的照護計畫。如需更詳細的分析，請提供更多資訊。",
+                        content: "AI response failed. Please try again.",
                         isUser: false,
                         timestamp: Date()
                     )
@@ -189,6 +184,7 @@ struct AIAgentView: View {
 
         await MainActor.run { isLoading = false }
     }
+
 }
 
 // MARK: - AI Message Bubble
