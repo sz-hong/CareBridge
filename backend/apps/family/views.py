@@ -122,6 +122,9 @@ class FamilyViewSet(ModelViewSet):
         request.user.is_primary = False
         request.user.save(update_fields=['family', 'is_primary'])
 
+        from apps.chat.services import enroll_user_in_family_chats
+        enroll_user_in_family_chats(request.user)
+
         return success_response(data=FamilySerializer(family).data)
 
     @action(

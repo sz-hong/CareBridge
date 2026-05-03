@@ -99,27 +99,7 @@ struct HealthMonitorView: View {
     @State private var showThresholdSettings = false
     @State private var healthKit = HealthKitManager()
 
-    /// 🔧 Debug toggle for the teal column investigation. Set to true to
-    /// render an empty HealthMonitorView and confirm whether the artifact
-    /// is from view content or something at the system / NavigationStack
-    /// level. Flip back to `false` after the test.
-    private let debugIsolate = false
-
     var body: some View {
-        if debugIsolate {
-            return AnyView(
-                Text("🔧 Debug HealthMonitorView (empty)")
-                    .font(.system(size: 16))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.brandBackground)
-                    .navigationTitle("健康監測")
-                    .navigationBarTitleDisplayMode(.large)
-            )
-        }
-        return AnyView(realBody)
-    }
-
-    private var realBody: some View {
         ScrollView {
             VStack(spacing: 16) {
                 // Range selector — custom segmented control with explicit
@@ -177,6 +157,8 @@ struct HealthMonitorView: View {
                     }
                     .frame(height: 160)
                     .chartYScale(domain: 40...140)
+                    .clipped()
+                    .compositingGroup()
                 }
 
                 // Blood Oxygen Chart（HealthKit 歷史資料）
@@ -203,6 +185,8 @@ struct HealthMonitorView: View {
                     }
                     .frame(height: 160)
                     .chartYScale(domain: 90...100)
+                    .clipped()
+                    .compositingGroup()
                 }
 
                 // Anomaly history
@@ -249,26 +233,24 @@ struct HealthMonitorView: View {
     }
 
     private var rangeSelector: some View {
-        // iOS 26 Liquid Glass had RoundedRectangle.fill leaking past its
-        // frame inside a ScrollView. The fix is to:
-        //   1. Lock the row height with an explicit `.frame(height:)`
-        //   2. Use `Color` (not RoundedRectangle.fill) for the segment fill
-        //   3. Apply rounding via `.clipShape` AFTER the fill, so the clip
-        //      bounds = the same rect the fill paints into.
+        // iOS 26 Liquid Glass was applying its own glass background to
+        // `Button` views even with `.buttonStyle(.plain)`, causing the
+        // selected segment's fill to bleed across the full ScrollView
+        // height. We sidestep `Button` entirely with a Rectangle hit area
+        // and `.onTapGesture`, plus `.compositingGroup()` to render each
+        // segment offscreen first so its fill cannot escape its bounds.
         HStack(spacing: 6) {
             ForEach(rangeLabels.indices, id: \.self) { i in
                 let isSelected = selectedRange == i
-                Button {
-                    selectedRange = i
-                } label: {
-                    Text(rangeLabels[i])
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(isSelected ? .white : Color.brandTeal)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(isSelected ? Color.brandTeal : Color.brandTealLight)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-                .buttonStyle(.plain)
+                Text(rangeLabels[i])
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(isSelected ? .white : Color.brandTeal)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(isSelected ? Color.brandTeal : Color.brandTealLight)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .compositingGroup()
+                    .contentShape(Rectangle())
+                    .onTapGesture { selectedRange = i }
             }
         }
         .frame(height: 36)
