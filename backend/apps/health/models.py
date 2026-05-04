@@ -10,19 +10,22 @@ class HealthData(models.Model):
         BLOOD_OXYGEN = 'blood_oxygen', 'Blood Oxygen'
         STEP_COUNT = 'step_count', 'Step Count'
         ACTIVE_ENERGY = 'active_energy', 'Active Energy'
+        BLOOD_PRESSURE_SYSTOLIC = 'blood_pressure_systolic', 'Blood Pressure Systolic'
+        BLOOD_PRESSURE_DIASTOLIC = 'blood_pressure_diastolic', 'Blood Pressure Diastolic'
 
     class Unit(models.TextChoices):
         BPM = 'bpm', 'BPM'
         PERCENT = '%', '%'
         STEPS = 'steps', 'Steps'
         KCAL = 'kcal', 'kcal'
+        MMHG = 'mmHg', 'mmHg'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     family = models.ForeignKey(
         'family.Family', on_delete=models.CASCADE, related_name='health_data'
     )
     device_id = models.CharField(max_length=100, null=True, blank=True)
-    type = models.CharField(max_length=20, choices=Type.choices)
+    type = models.CharField(max_length=32, choices=Type.choices)
     value = models.DecimalField(max_digits=10, decimal_places=2)
     unit = models.CharField(max_length=10, choices=Unit.choices)
     recorded_at = models.DateTimeField()
@@ -73,7 +76,7 @@ class HealthAlert(models.Model):
     family = models.ForeignKey(
         'family.Family', on_delete=models.CASCADE, related_name='health_alerts'
     )
-    type = models.CharField(max_length=20)
+    type = models.CharField(max_length=32)
     value = models.DecimalField(max_digits=10, decimal_places=2)
     threshold = models.DecimalField(max_digits=10, decimal_places=2)
     severity = models.CharField(max_length=10, choices=Severity.choices)
