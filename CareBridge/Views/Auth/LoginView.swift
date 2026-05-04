@@ -13,6 +13,7 @@ struct LoginView: View {
 
     @Environment(\.dataService) private var service
     @Environment(UserStore.self) private var userStore
+    @Environment(LocaleStore.self) private var localeStore
 
     var body: some View {
         ZStack {
@@ -23,6 +24,44 @@ struct LoginView: View {
                 endPoint: .bottom
             )
             .ignoresSafeArea()
+
+            // Language picker — top-right corner. Available before login so
+            // users can switch the UI language without an account first.
+            VStack {
+                HStack {
+                    Spacer()
+                    Menu {
+                        ForEach(SupportedLanguage.all, id: \.code) { lang in
+                            Button {
+                                localeStore.code = lang.code
+                            } label: {
+                                if lang.code == localeStore.code {
+                                    Label(lang.displayName, systemImage: "checkmark")
+                                } else {
+                                    Text(lang.displayName)
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "globe")
+                            Text(SupportedLanguage.displayName(for: localeStore.code))
+                                .font(.system(size: 13, weight: .medium))
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 10))
+                        }
+                        .foregroundStyle(Color.brandTeal)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(.ultraThinMaterial))
+                    }
+                    .padding(.trailing, 16)
+                    .padding(.top, 8)
+                }
+                Spacer()
+            }
+            .ignoresSafeArea(.keyboard)
+            .zIndex(1)
 
             ScrollView {
                 VStack(spacing: 28) {
@@ -359,4 +398,6 @@ struct ForgotPasswordView: View {
 
 #Preview {
     LoginView(isLoggedIn: .constant(false), userRole: .constant(.family))
+        .environment(UserStore())
+        .environment(LocaleStore())
 }
