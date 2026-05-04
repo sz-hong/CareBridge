@@ -1,11 +1,13 @@
 import string
 import secrets
 
+from django.db.models import Prefetch
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
+from apps.auth_account.models import User
 from core.responses import error_response, success_response
 
 from .models import Family
@@ -24,13 +26,16 @@ class FamilyViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
+        queryset = Family.objects.select_related('created_by').prefetch_related(
+            Prefetch('members', queryset=User.objects.select_related('family')),
+        )
         if self.action == 'join':
-            return Family.objects.all()
+            return queryset
 
         family_id = getattr(self.request.user, 'family_id', None)
         if not family_id:
-            return Family.objects.none()
-        return Family.objects.filter(id=family_id)
+            return queryset.none()
+        return queryset.filter(id=family_id)
 
     def get_serializer_class(self):
         if self.action == 'create':

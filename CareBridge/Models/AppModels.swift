@@ -223,6 +223,41 @@ enum SupportedLanguage {
         }
         return "zh-TW"
     }
+
+    /// Backend chat-translation code → iOS xcstrings locale identifier.
+    /// `tl` has no UI translation yet; fall back to English.
+    static func uiLocale(for chatCode: String?) -> Locale {
+        switch chatCode {
+        case "zh-TW", "zh-Hant": return Locale(identifier: "zh-Hant")
+        case "id":               return Locale(identifier: "id")
+        case "vi":               return Locale(identifier: "vi")
+        case "tl":               return Locale(identifier: "en")  // 暫無 tl UI 翻譯
+        default:                 return Locale(identifier: "zh-Hant")
+        }
+    }
+}
+
+// MARK: - Locale Store (UI 語言切換)
+/// 跨整個 app 的 UI 語言開關。AppStorage 持久化，App 重啟仍記得。
+/// 注意：UI 語言 code 跟 chat 翻譯 code 共用 SupportedLanguage 的值
+/// （zh-TW / id / vi / tl），UI 渲染時會透過 `SupportedLanguage.uiLocale(for:)`
+/// 對應到正確的 xcstrings locale。
+@Observable
+class LocaleStore {
+    private let storageKey = "appLocaleCode"
+    var code: String {
+        didSet { UserDefaults.standard.set(code, forKey: storageKey) }
+    }
+
+    init() {
+        if let saved = UserDefaults.standard.string(forKey: "appLocaleCode") {
+            self.code = saved
+        } else {
+            self.code = SupportedLanguage.defaultFromLocale
+        }
+    }
+
+    var locale: Locale { SupportedLanguage.uiLocale(for: code) }
 }
 
 // MARK: - Chat Message

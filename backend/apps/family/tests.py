@@ -1,8 +1,11 @@
 from django.test import TestCase
-from rest_framework.test import APIClient
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+from rest_framework.test import APIClient, APIRequestFactory
 
 from apps.auth_account.models import User
 from apps.family.models import Family
+from apps.family.views import FamilyViewSet
 
 
 class FamilyAPIEndpointTests(TestCase):
@@ -52,6 +55,39 @@ class FamilyAPIEndpointTests(TestCase):
         self.assertEqual(response.status_code, 200)
         ids = {item['id'] for item in response.json()['data']}
         self.assertEqual(ids, {str(self.family.id)})
+
+    def test_list_prefetches_members_without_per_member_family_queries(self):
+        for index in range(5):
+            member = User.objects.create_user(
+                email=f'family-member-{index}@example.com',
+                password='password123',
+                name=f'Family Member {index}',
+                role=User.Role.FAMILY_MEMBER,
+            )
+            member.family = self.family
+            member.save(update_fields=['family'])
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get('/api/v1/families/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertLessEqual(len(queries), 3)
+
+    def test_queryset_selects_creator_and_prefetches_members(self):
+        request = APIRequestFactory().get('/api/v1/families/')
+        request.user = self.user
+        view = FamilyViewSet()
+        view.request = request
+        view.action = 'list'
+
+        queryset = view.get_queryset()
+        prefetches = {
+            getattr(lookup, 'prefetch_to', lookup)
+            for lookup in queryset._prefetch_related_lookups
+        }
+
+        self.assertIn('members', prefetches)
+        self.assertEqual(queryset.query.select_related, {'created_by': {}})
 
     def test_retrieve_other_family_returns_not_found(self):
         response = self.client.get(f'/api/v1/families/{self.other_family.id}/')
