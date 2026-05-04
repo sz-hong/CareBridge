@@ -1,326 +1,249 @@
 # CareBridge 照護橋
 
-**CareBridge** 是一款專為外籍看護、長者及其家屬設計的智慧照護管理 APP，旨在透過科技打破語言與距離的障礙，讓照護溝通更順暢、健康管理更即時、日常事務更透明。
+CareBridge 是一款面向外籍看護、長者與家屬的智慧照護管理 App。專案以 iOS App 搭配 Django API 後端，整合跨語言溝通、照護紀錄、健康監測、用藥提醒、消費記帳、AI 助理與 SOS 緊急支援。
 
-本專案為參加 **2026 MAIC 行動應用創意競賽** 之作品。
+本專案為 2026 MAIC 行動應用創意競賽作品。
 
-## 核心特色
+## 功能亮點
 
-- **即時翻譯聊天** — 看護與家屬跨語言無障礙溝通（中/印尼/越南/菲律賓語）
-- **健康監測儀表板** — 整合 Apple Watch / HealthKit，即時追蹤長者心率、血氧、步數等生理數據
-- **照護日誌** — 每日照護紀錄，含用餐、用藥、活動、生命徵象等項目
-- **用藥管理** — 藥物排程與提醒，餵藥拍照確認，避免漏服
-- **消費記帳** — 收據 OCR 掃描，照護相關支出透明記錄
-- **AI 智慧助理** — 照護建議、健康分析、交接報告生成（OpenAI GPT-4o）
-- **SOS 緊急呼叫** — 一鍵求助，自動發送定位與通知所有家庭成員
-- **Apple Watch 支援** — 長者端獨立運作，健康監測、跌倒偵測與 SOS
-
-## 技術棧
-
-| 類別 | 技術 |
-|---|---|
-| **前端** | Swift / SwiftUI / iOS 26 Liquid Glass |
-| **後端** | Python 3.12 / Django 5.x / Django REST Framework |
-| **資料庫** | PostgreSQL 16 + pgvector / Redis 7 |
-| **AI** | OpenAI GPT-4o（Function Calling / SSE / Vision / Embedding） |
-| **即時通訊** | Django Channels（WebSocket） |
-| **背景任務** | Celery + Redis |
-| **儲存** | AWS S3（django-storages） |
-| **推播** | APNs（Apple Push Notification service） |
-| **容器化** | Docker / Docker Compose |
-| **平台** | iOS 26 / iPadOS 26 / watchOS 26 |
+- **跨語言照護溝通**：家庭聊天室、看護留言板、請假申請與多語翻譯情境。
+- **照護日常管理**：照護日誌、用藥排程、餵藥確認、行事曆、代辦事項。
+- **健康資料追蹤**：支援 HealthKit / Apple Watch 情境，呈現心率、血氧、步數與異常警示。
+- **家庭協作**：家庭群組、成員管理、文件管理、推播通知與照護資訊共享。
+- **消費透明化**：收據圖片上傳、照護支出紀錄、月結統計與分類摘要。
+- **AI 照護助理**：以自然語言查詢照護資訊、產生照護分析、交接報告與急救指引。
+- **緊急支援**：SOS 觸發、定位資訊、家庭成員通知與急救小幫手入口。
 
 ## 使用者角色
 
-| 角色 | 說明 |
+| 角色 | 主要用途 |
 |---|---|
-| 看護 | 外籍看護，負責日常照護紀錄與溝通 |
-| 家屬 | 長者家屬，遠端關心與管理 |
-| 長者 | 被照護者，主要透過 Apple Watch 互動 |
+| 看護 | 記錄照護日常、回報用藥、提出採購或請假、與家屬溝通 |
+| 家屬 | 建立家庭、管理成員、查看健康與照護資料、審核請假或採購需求 |
+| 長者 | 主要透過 Apple Watch 情境提供健康資料與 SOS 互動 |
 
-## 資料夾結構
+## 技術架構
 
-```
+| 層級 | 技術 |
+|---|---|
+| iOS App | Swift、SwiftUI、SwiftData、Keychain、UserNotifications |
+| Apple 生態整合 | HealthKit、Swift Charts、CoreLocation、APNs |
+| 後端 API | Python、Django、Django REST Framework、Simple JWT |
+| 即時與背景任務 | Django Channels、Redis、Celery |
+| 資料與儲存 | SQLite（開發）、PostgreSQL + pgvector（部署）、S3 / MinIO |
+| AI | OpenAI API、Embedding、SSE 串流回應 |
+| 開發與部署 | Docker、Docker Compose、Gunicorn、Uvicorn |
+
+## 專案結構
+
+```text
 CareBridge/
-├── README.md
-├── .gitignore
-│
-├── CareBridge_Feature_List.md          # 系統功能清單（96 項功能）
-├── CareBridge_Tech_Stack.md            # 技術棧分析
-├── CareBridge_Frontend_Tasks.md        # 前端開發工作清單
-├── CareBridge_Backend_Tasks.md         # 後端開發工作清單
-├── CareBridge_Database_Schema.md       # 資料庫 Schema 設計（22 張表）
-│
-├── CareBridge/                         # iOS App（SwiftUI 前端）
-│   ├── App/
-│   │   ├── CareBridgeApp.swift         # App 進入點
-│   │   └── ContentView.swift           # 主畫面（TabView）
-│   ├── Models/
-│   │   └── AppModels.swift             # 資料模型定義
-│   ├── Services/
-│   │   ├── DataService.swift           # 資料服務 Protocol
-│   │   ├── APIDataService.swift        # API 實作
-│   │   └── MockDataService.swift       # Mock 資料（開發用）
-│   ├── Views/
-│   │   ├── Home/HomeView.swift         # 首頁（健康摘要、SOS）
-│   │   ├── Chat/ChatListView.swift     # 聊天列表
-│   │   ├── CareLog/CareLogView.swift   # 照護日誌
-│   │   ├── Spending/SpendingView.swift # 消費記帳
-│   │   ├── More/MoreView.swift         # 更多功能入口
-│   │   ├── Health/HealthMonitorView.swift
-│   │   ├── Medication/MedicationView.swift
-│   │   ├── Calendar/SharedCalendarView.swift
-│   │   ├── Calendar/TodoView.swift
-│   │   ├── Leave/LeaveManagementView.swift
-│   │   ├── Board/MessageBoardView.swift
-│   │   ├── Document/DocumentsView.swift
-│   │   ├── Notification/NotificationCenterView.swift
-│   │   ├── AI/AIAgentView.swift        # AI 智慧助理
-│   │   ├── AI/FirstAidView.swift       # AI 急救小幫手
-│   │   ├── SOS/SOSView.swift           # SOS 緊急呼叫
-│   │   ├── Auth/LoginView.swift
-│   │   ├── Auth/JoinFamilyView.swift
-│   │   └── Shared/ProfileView.swift
-│   └── Resources/
-│       └── Assets.xcassets/            # 圖片與顏色資源
-│
-├── backend/                            # Django 後端 API
+├── CareBridge/                     # iOS App 原始碼
+│   ├── App/                        # App 進入點與主 TabView
+│   ├── Models/                     # Swift 資料模型與狀態模型
+│   ├── Services/                   # API client、資料服務、Keychain、AppConfig
+│   ├── Views/                      # SwiftUI 功能畫面
+│   └── Resources/                  # App icon、String Catalog、多語系資源
+├── CareBridge.xcodeproj/           # Xcode 專案
+├── CareBridgeTests/                # iOS 單元測試
+├── CareBridgeUITests/              # iOS UI 測試
+├── backend/                        # Django API 後端
+│   ├── apps/                       # 功能模組
+│   ├── carebridge_api/             # Django 設定、URL、ASGI/WSGI、Celery
+│   ├── core/                       # 共用權限、分頁、錯誤處理、通知與儲存
+│   ├── docker/                     # Dockerfile 與 docker-compose.yml
+│   ├── docs/                       # 後端資料文件
 │   ├── manage.py
-│   ├── requirements.txt                # Python 依賴
-│   ├── .env.example                    # 環境變數範本
-│   │
-│   ├── carebridge_api/                 # Django 專案設定
-│   │   ├── settings/
-│   │   │   ├── base.py                 # 共用設定
-│   │   │   ├── development.py          # 開發環境（SQLite）
-│   │   │   └── production.py           # 正式環境（PostgreSQL）
-│   │   ├── urls.py                     # API v1 路由總入口
-│   │   ├── celery.py                   # Celery 設定
-│   │   ├── asgi.py                     # ASGI（WebSocket）
-│   │   └── wsgi.py                     # WSGI
-│   │
-│   ├── apps/                           # Django Apps（15 個模組）
-│   │   ├── auth_account/               # 認證與帳號管理
-│   │   ├── family/                     # 家庭群組
-│   │   ├── chat/                       # 即時聊天（WebSocket）
-│   │   ├── board/                      # 留言板（採購需求）
-│   │   ├── care_log/                   # 照護日誌
-│   │   ├── medication/                 # 用藥管理
-│   │   ├── expense/                    # 消費記帳（OCR）
-│   │   ├── leave/                      # 請假管理
-│   │   ├── health/                     # 健康監測（Watch 數據）
-│   │   ├── calendar_event/             # 行事曆
-│   │   ├── todo/                       # 代辦事項
-│   │   ├── document/                   # 文件管理
-│   │   ├── ai_assistant/               # AI 智慧助理 + RAG 急救
-│   │   ├── sos/                        # SOS 緊急呼叫
-│   │   └── notification/               # 通知 + 裝置管理
-│   │
-│   ├── core/                           # 共用模組
-│   │   ├── pagination.py               # 統一分頁
-│   │   ├── exceptions.py               # 統一錯誤回應
-│   │   ├── permissions.py              # 角色權限
-│   │   ├── translation.py              # OpenAI 翻譯服務
-│   │   ├── apns.py                     # APNs 推播
-│   │   └── storage.py                  # S3 儲存
-│   │
-│   ├── docker/
-│   │   ├── Dockerfile
-│   │   └── docker-compose.yml          # Django + PostgreSQL + Redis + Celery
-│   │
-│   └── docs/
-│       └── first-aid-docs/             # RAG 用急救文件
-│
-├── CareBridge.xcodeproj/               # Xcode 專案設定
-├── CareBridgeTests/                    # 單元測試
-└── CareBridgeUITests/                  # UI 測試
+│   └── requirements.txt
+├── Doc/                            # 補充技術文件、圖表與範例
+├── CareBridge_API_Documentation.md
+├── CareBridge_Database_Schema.md
+├── CareBridge_Feature_List.md
+├── CareBridge_Tech_Stack.md
+└── README.md
 ```
 
-## 後端開發環境設定
+## 開發需求
 
-```bash
-# 進入後端目錄
-cd backend
+### iOS App
 
-# 建立虛擬環境
-python -m venv venv
-source venv/bin/activate        # macOS/Linux
-source venv/Scripts/activate    # Windows (Git Bash)
+- macOS 與 Xcode 26 或更新版本
+- iOS 26.4 Simulator 或實機
+- Apple Developer 帳號（需要測試 APNs、HealthKit 或實機能力時）
 
-# 安裝依賴
-pip install -r requirements.txt
+### 後端
 
-# 複製環境變數
-cp .env.example .env
+- Python 3.12+
+- Docker Desktop（建議）
+- PostgreSQL / Redis / MinIO（使用 Docker Compose 時會自動啟動）
 
-# 資料庫遷移
-python manage.py migrate
+## 快速開始
 
-# 啟動開發伺服器
-python manage.py runserver
-```
+### 1. 啟動後端
 
-## 如何開啟後台（Backend API）
-
-建議使用 Docker Compose 開啟後台，因為它會一起啟動 Django、PostgreSQL、Redis、Celery 和 MinIO。
-
-### 1. 準備環境變數
+建議先用 Docker Compose 啟動完整後端環境：
 
 ```powershell
 cd C:\CareBridge\backend
-
-# 第一次執行才需要建立 .env
-if (!(Test-Path .env)) { Copy-Item .env.example .env }
-```
-
-如果是本機開發，確認 `.env` 至少有這些設定：
-
-```env
-DJANGO_ENV=development
-DJANGO_DEBUG=True
-SECURE_SSL_REDIRECT=False
-ALLOWED_HOSTS=localhost,127.0.0.1
-AWS_S3_ENDPOINT_URL=http://localhost:9000
-```
-
-如果是給 iPhone 透過 Cloudflare Tunnel 測試，改用：
-
-```env
-DJANGO_ENV=production
-DJANGO_DEBUG=False
-SECURE_SSL_REDIRECT=True
-ALLOWED_HOSTS=api.carebridge-lab.com,localhost,127.0.0.1
-DB_HOST=db
-REDIS_URL=redis://redis:6379/0
-CELERY_BROKER_URL=redis://redis:6379/1
-CELERY_RESULT_BACKEND=redis://redis:6379/1
-AWS_S3_ENDPOINT_URL=https://storage.carebridge-lab.com
-```
-
-### 2. 啟動後台服務
-
-```powershell
-cd C:\CareBridge\backend
+Copy-Item .env.example .env
 docker compose -f docker\docker-compose.yml up --build
 ```
 
-看到 `web-1` 顯示 `Application startup complete`，代表 Django 後台已經啟動。
-
-### 3. 初始化資料庫
-
-另開一個 PowerShell 視窗執行：
+另開一個 PowerShell 視窗執行資料庫遷移：
 
 ```powershell
 cd C:\CareBridge\backend
 docker compose -f docker\docker-compose.yml exec web python manage.py migrate
 ```
 
-需要測試資料時可以再執行：
-
-```powershell
-docker compose -f docker\docker-compose.yml exec web python -c "exec(open('/app/seed_data.py').read())"
-```
-
-### 4. 確認後台可用
-
-本機開發模式：
+確認 API 可用：
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8000/api/v1/health/
 ```
 
-Cloudflare Tunnel 模式：
-
-```powershell
-Invoke-RestMethod https://api.carebridge-lab.com/api/v1/health/
-```
-
-成功時會看到：
+成功時會回傳：
 
 ```json
 {"status":"ok"}
 ```
 
-### 5. 開啟 Django Admin
+### 2. 建立管理員帳號
 
 ```powershell
+cd C:\CareBridge\backend
 docker compose -f docker\docker-compose.yml exec web python manage.py createsuperuser
 ```
 
-建立帳號後開啟：
+建立完成後可開啟：
 
-- 本機：`http://127.0.0.1:8000/admin/`
-- Cloudflare Tunnel：`https://api.carebridge-lab.com/admin/`
+- Django Admin: `http://127.0.0.1:8000/admin/`
+- MinIO Console: `http://127.0.0.1:9001/`
 
-Cloudflare Tunnel 會把 Admin 暴露到公開網路。只建議短時間測試使用；正式環境應限制來源、加上 Cloudflare Access，或關閉 Admin 對外路由。
+MinIO 預設帳密來自 `.env.example`：
 
-MinIO 後台可用來查看上傳檔案：
+```text
+minioadmin / minioadmin
+```
 
-- Console: `http://localhost:9001`
-- 帳號: `minioadmin`
-- 密碼: `minioadmin`
+### 3. 啟動 iOS App
 
-## 前端開發環境
+1. 用 Xcode 開啟 `CareBridge.xcodeproj`。
+2. 確認 `CareBridge/Services/AppConfig.swift` 的 `mode` 符合你的後端位置。
+3. 選擇 iOS Simulator 或實機。
+4. Build & Run。
 
-- **Xcode 26+**
-- **macOS Tahoe 26+**
-- **iOS 26 Simulator 或實機**
+`AppConfig` 支援三種後端連線模式：
 
-## API 端點
+| 模式 | 用途 |
+|---|---|
+| `.simulator` | iOS Simulator 連到本機 `127.0.0.1:8000` |
+| `.device` | 實機透過同 Wi-Fi LAN IP 連到開發機 |
+| `.publicTunnel` | 實機透過公開 HTTPS host 測試 |
 
-後端提供 RESTful API，基礎路徑為 `/api/v1/`：
+## 不使用 Docker 的後端啟動方式
+
+開發環境預設使用 SQLite，因此只要 Python 環境即可跑基本 API：
+
+```powershell
+cd C:\CareBridge\backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env
+python manage.py migrate
+python manage.py runserver
+```
+
+若要測試 Redis、Celery、WebSocket、MinIO 或 PostgreSQL，仍建議使用 Docker Compose。
+
+## 後端 API
+
+後端 API 基礎路徑為：
+
+```text
+/api/v1/
+```
+
+主要端點：
 
 | 路徑 | 模組 |
 |---|---|
-| `/api/v1/auth/` | 認證（註冊/登入/JWT） |
-| `/api/v1/families/` | 家庭管理 |
-| `/api/v1/chats/` | 聊天 |
-| `/api/v1/board/` | 留言板 |
+| `/api/v1/health/` | Health check |
+| `/api/v1/auth/` | 註冊、登入、登出、個人資料、加入家庭 |
+| `/api/v1/auth/token/` | JWT token |
+| `/api/v1/auth/token/refresh/` | JWT refresh |
+| `/api/v1/families/` | 家庭與成員管理 |
+| `/api/v1/chats/` | 聊天室與訊息 |
+| `/api/v1/board/` | 採購需求與留言板 |
 | `/api/v1/care-logs/` | 照護日誌 |
 | `/api/v1/medications/` | 用藥管理 |
 | `/api/v1/expenses/` | 消費記帳 |
 | `/api/v1/leaves/` | 請假管理 |
-| `/api/v1/health-data/` | 健康監測 |
+| `/api/v1/health-data/` | 健康資料 |
 | `/api/v1/events/` | 行事曆 |
 | `/api/v1/todos/` | 代辦事項 |
 | `/api/v1/documents/` | 文件管理 |
-| `/api/v1/ai/` | AI 智慧助理 |
-| `/api/v1/sos/` | SOS 緊急呼叫 |
-| `/api/v1/notifications/` | 通知系統 |
-| `/api/v1/health/` | Health Check |
+| `/api/v1/ai/` | AI 助理、照護分析、交接報告、急救指引 |
+| `/api/v1/sos/` | SOS 紀錄與觸發 |
+| `/api/v1/notifications/` | 通知與裝置 token |
 
-## 開發者後台
+更完整的 request / response 格式請參考 `CareBridge_API_Documentation.md`。
 
-### 🗄️ MinIO 物件儲存後台
+## 環境變數
 
-本地開發使用 MinIO 模擬 AWS S3，可在後台查看所有上傳的收據圖片與檔案。
+後端環境變數範本位於：
 
-| 項目 | 說明 |
-|---|---|
-| **Console** | http://localhost:9001 |
-| **帳號** | `minioadmin` |
-| **密碼** | `minioadmin` |
-
-> 上傳的收據圖片（receipt）可在 MinIO Console 的 Bucket 中查看。
-
-### 🔧 Django 後台
-
-Django Admin 後台可管理所有資料庫資料（使用者、家庭、藥物、日誌等）。
-
-| 項目 | 說明 |
-|---|---|
-| **Console** | http://127.0.0.1:8000/admin/ |
-
-**建立後台登入帳號：**
-
-```bash
-docker compose -f docker/docker-compose.yml exec web python manage.py createsuperuser
+```text
+backend/.env.example
 ```
 
-## 團隊
+本機開發通常至少需要確認：
 
-唐寶與他的夥伴
+```env
+DJANGO_ENV=development
+DJANGO_DEBUG=True
+ALLOWED_HOSTS=localhost,127.0.0.1
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxx
+AWS_ACCESS_KEY_ID=minioadmin
+AWS_SECRET_ACCESS_KEY=minioadmin
+AWS_STORAGE_BUCKET_NAME=carebridge-storage
+AWS_S3_ENDPOINT_URL=http://localhost:9000
+```
+
+APNs、正式 S3、Email 與 PostgreSQL 連線資訊只在對應功能或部署情境下需要填寫。
+
+## 測試
+
+### 後端測試
+
+```powershell
+cd C:\CareBridge\backend
+python manage.py test
+```
+
+### iOS 測試
+
+在 Xcode 中選擇 `CareBridge` scheme 後執行 Test，或使用 `xcodebuild`：
+
+```bash
+xcodebuild test -project CareBridge.xcodeproj -scheme CareBridge -destination 'platform=iOS Simulator,name=iPhone 16'
+```
+
+## 相關文件
+
+- `CareBridge_API_Documentation.md`：API 規格與整合說明。
+- `CareBridge_Database_Schema.md`：資料表與資料模型設計。
+- `CareBridge_Feature_List.md`：功能模組與角色矩陣。
+- `CareBridge_Tech_Stack.md`：技術選型與架構說明。
+- `Doc/diagrams/`：系統架構、SOS 流程、聊天翻譯流程與健康 AI 流程圖。
+
+## 注意事項
+
+- 本專案是競賽與原型開發用途，醫療、急救與健康分析內容不能取代專業醫療判斷。
+- 請勿將真實金鑰、APNs 憑證、S3 憑證或個人健康資料提交到版本控制。
+- 若公開 Django Admin 或物件儲存服務，務必加上存取限制與 HTTPS 保護。
 
 ## 授權
 
-本專案為競賽作品，未經授權請勿轉載或使用。
+本專案為競賽作品，未經授權請勿轉載、散布或商業使用。
