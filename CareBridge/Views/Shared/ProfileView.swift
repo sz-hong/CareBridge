@@ -5,6 +5,7 @@ struct ProfileView: View {
     let userRole: UserRole
     @Environment(\.dismiss) private var dismiss
     @Environment(UserStore.self) private var userStore
+    @Environment(LocaleStore.self) private var localeStore
     @Environment(\.dataService) private var service
     @State private var showLogoutConfirm = false
     @State private var showEditProfile = false
@@ -128,7 +129,7 @@ struct ProfileView: View {
                             Button {
                                 Task { await updateLanguage(lang.code) }
                             } label: {
-                                if lang.code == (user?.language ?? "zh-TW") {
+                                if lang.code == localeStore.code {
                                     Label(lang.displayName, systemImage: "checkmark")
                                 } else {
                                     Text(lang.displayName)
@@ -137,7 +138,7 @@ struct ProfileView: View {
                         }
                     } label: {
                         profileRow(icon: "globe", label: "語言",
-                                   value: SupportedLanguage.displayName(for: user?.language))
+                                   value: SupportedLanguage.displayName(for: localeStore.code))
                     }
                     .foregroundStyle(.primary)
                 }
@@ -188,6 +189,10 @@ struct ProfileView: View {
     }
 
     private func updateLanguage(_ code: String) async {
+        // Apply UI locale immediately so the rest of the app re-renders in
+        // the new language even if the backend update is slow / fails.
+        localeStore.code = code
+
         guard var profile = userStore.currentUser, profile.language != code else { return }
         profile.language = code
         if let updated = try? await service.updateProfile(profile) {
@@ -393,4 +398,6 @@ struct NotificationPreferencesView: View {
 
 #Preview {
     ProfileView(isLoggedIn: .constant(true), userRole: .family)
+        .environment(UserStore())
+        .environment(LocaleStore())
 }

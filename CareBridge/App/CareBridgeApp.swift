@@ -16,6 +16,7 @@ struct CareBridgeApp: App {
     @State private var todoStore: TodoStore
     @State private var calendarStore: CalendarStore
     @State private var medicationStore: MedicationStore
+    @State private var localeStore = LocaleStore()
 
     init() {
         let service: DataService = APIDataService()
@@ -44,6 +45,8 @@ struct CareBridgeApp: App {
             .environment(todoStore)
             .environment(calendarStore)
             .environment(medicationStore)
+            .environment(localeStore)
+            .environment(\.locale, localeStore.locale)
             .environment(\.dataService, dataService)
             .preferredColorScheme(.light)
         }
