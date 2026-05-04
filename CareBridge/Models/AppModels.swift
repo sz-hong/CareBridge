@@ -9,9 +9,9 @@ enum UserRole: String, CaseIterable, Codable {
 
     var displayName: String {
         switch self {
-        case .caregiver: return "看護"
-        case .family:    return "家屬"
-        case .elder:     return "長者"
+        case .caregiver: return String(localized: "看護")
+        case .family:    return String(localized: "家屬")
+        case .elder:     return String(localized: "長者")
         }
     }
 }
@@ -445,11 +445,11 @@ enum CareLogType: String, CaseIterable, Codable {
 
     var displayName: String {
         switch self {
-        case .medication: return "用藥"
-        case .vital:      return "生理"
-        case .meal:       return "飲食"
-        case .activity:   return "活動"
-        case .note:       return "備註"
+        case .medication: return String(localized: "用藥")
+        case .vital:      return String(localized: "生命徵象")
+        case .meal:       return String(localized: "飲食")
+        case .activity:   return String(localized: "活動")
+        case .note:       return String(localized: "備註")
         }
     }
 
@@ -1278,9 +1278,9 @@ enum Priority: String, CaseIterable, Codable {
 
     var displayName: String {
         switch self {
-        case .high:   return "高"
-        case .medium: return "中"
-        case .low:    return "低"
+        case .high:   return String(localized: "高")
+        case .medium: return String(localized: "中")
+        case .low:    return String(localized: "低")
         }
     }
 
@@ -1463,9 +1463,9 @@ enum LeaveStatus: String, Codable {
 
     var displayName: String {
         switch self {
-        case .pending:  return "待審核"
-        case .approved: return "已核准"
-        case .rejected: return "已駁回"
+        case .pending:  return String(localized: "待審核")
+        case .approved: return String(localized: "已核准")
+        case .rejected: return String(localized: "已拒絕")
         }
     }
 
@@ -1537,9 +1537,9 @@ struct LeaveRequest: Identifiable, Codable {
 
     var typeDisplayName: String {
         switch type {
-        case "personal", "事假": return "事假"
-        case "sick",     "病假": return "病假"
-        case "emergency","緊急": return "緊急假"
+        case "personal", "事假": return String(localized: "事假")
+        case "sick",     "病假": return String(localized: "病假")
+        case "emergency","緊急": return String(localized: "緊急假")
         default: return type
         }
     }
@@ -1629,11 +1629,11 @@ struct AppDocument: Identifiable, Codable {
 
     var categoryDisplayName: String {
         switch category {
-        case "insurance":  return "保險"
-        case "medical":    return "醫療"
-        case "id_document": return "證件"
-        case "contract":   return "合約"
-        case "other":      return "其他"
+        case "insurance":  return String(localized: "保險")
+        case "medical":    return String(localized: "醫療")
+        case "id_document": return String(localized: "證件")
+        case "contract":   return String(localized: "合約")
+        case "other":      return String(localized: "其他")
         default:           return category
         }
     }
@@ -1826,10 +1826,10 @@ struct PurchaseRequest: Identifiable, Codable {
 
     var statusDisplayName: String {
         switch status {
-        case "pending":   return "待確認"
-        case "approved":  return "已核准"
-        case "completed": return "已完成"
-        case "rejected":  return "已駁回"
+        case "pending":   return String(localized: "待確認")
+        case "approved":  return String(localized: "已核准")
+        case "completed": return String(localized: "已完成")
+        case "rejected":  return String(localized: "已拒絕")
         default:          return status
         }
     }
