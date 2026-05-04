@@ -380,9 +380,23 @@ struct CareLogView: View {
 
 // MARK: - Filter Chip
 struct FilterChip: View {
-    let title: String
+    let title: LocalizedStringKey
     let isSelected: Bool
     let action: () -> Void
+
+    /// Convenience initializer to accept plain String (from enum displayName etc.)
+    /// and convert it to LocalizedStringKey for lookup.
+    init(title: String, isSelected: Bool, action: @escaping () -> Void) {
+        self.title = LocalizedStringKey(title)
+        self.isSelected = isSelected
+        self.action = action
+    }
+
+    init(title: LocalizedStringKey, isSelected: Bool, action: @escaping () -> Void) {
+        self.title = title
+        self.isSelected = isSelected
+        self.action = action
+    }
 
     var body: some View {
         Button(action: action) {

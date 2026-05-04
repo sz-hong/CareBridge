@@ -15,9 +15,10 @@ struct MoreView: View {
     @Binding var showProfile: Bool
     let userRole: UserRole
 
-    struct FeatureItem {
-        let title: String
-        let subtitle: String
+    struct FeatureItem: Identifiable {
+        let id = UUID()
+        let title: LocalizedStringKey
+        let subtitle: LocalizedStringKey
         let icon: String
         let color: Color
         let destination: MoreDestination
@@ -47,7 +48,7 @@ struct MoreView: View {
         NavigationStack {
             ScrollView {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                    ForEach(features, id: \.title) { feature in
+                    ForEach(features) { feature in
                         NavigationLink(value: feature.destination) {
                             FeatureCard(item: feature)
                         }
