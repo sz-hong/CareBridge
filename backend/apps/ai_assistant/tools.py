@@ -7,6 +7,9 @@ during a conversation (e.g. "How is grandma's blood pressure this week?").
 import json
 import logging
 
+from apps.care_log.models import CareLog
+from apps.health.models import HealthData
+
 from .domain_queries import (
     query_care_logs,
     query_events,
@@ -35,10 +38,7 @@ TOOL_DEFINITIONS = [
                 "properties": {
                     "data_type": {
                         "type": "string",
-                        "enum": [
-                            "heart_rate", "blood_oxygen",
-                            "step_count", "active_energy",
-                        ],
+                        "enum": list(HealthData.Type.values),
                         "description": "Type of health data to query. Omit to get all types.",
                     },
                     "days": {
@@ -63,10 +63,7 @@ TOOL_DEFINITIONS = [
                 "properties": {
                     "log_type": {
                         "type": "string",
-                        "enum": [
-                            "medication", "vital", "meal",
-                            "activity", "note",
-                        ],
+                        "enum": list(CareLog.Type.values),
                         "description": "Filter by log type. Omit for all types.",
                     },
                     "days": {

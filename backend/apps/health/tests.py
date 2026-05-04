@@ -67,6 +67,63 @@ class HealthAPIEndpointTests(TestCase):
         ids = {item['id'] for item in response.json()['data']}
         self.assertEqual(ids, {str(own.id)})
 
+    def test_accepts_blood_pressure_metric_types_used_by_seed_data(self):
+        type_field = HealthData._meta.get_field('type')
+        self.assertGreaterEqual(
+            type_field.max_length,
+            len('blood_pressure_diastolic'),
+        )
+        self.assertIn('blood_pressure_systolic', HealthData.Type.values)
+        self.assertIn('blood_pressure_diastolic', HealthData.Type.values)
+        self.assertIn('mmHg', HealthData.Unit.values)
+
+        systolic = self.create_data(
+            type='blood_pressure_systolic',
+            value=128,
+            unit='mmHg',
+        )
+        diastolic = self.create_data(
+            type='blood_pressure_diastolic',
+            value=82,
+            unit='mmHg',
+        )
+
+        self.assertEqual(systolic.type, 'blood_pressure_systolic')
+        self.assertEqual(diastolic.type, 'blood_pressure_diastolic')
+
+    def test_sync_accepts_blood_pressure_metrics(self):
+        recorded_at = timezone.now().isoformat()
+
+        response = self.client.post(
+            '/api/v1/health-data/sync/',
+            {
+                'data': [
+                    {
+                        'type': 'blood_pressure_systolic',
+                        'value': '128',
+                        'unit': 'mmHg',
+                        'recorded_at': recorded_at,
+                        'device_id': 'watch-1',
+                    },
+                    {
+                        'type': 'blood_pressure_diastolic',
+                        'value': '82',
+                        'unit': 'mmHg',
+                        'recorded_at': recorded_at,
+                        'device_id': 'watch-1',
+                    },
+                ],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()['data']['synced'], 2)
+        self.assertEqual(
+            set(HealthData.objects.values_list('type', flat=True)),
+            {'blood_pressure_systolic', 'blood_pressure_diastolic'},
+        )
+
     @patch('apps.notification.tasks.broadcast_family_task.delay')
     def test_sync_deduplicates_points_and_returns_threshold_alerts(self, _delay):
         HealthAlertThreshold.objects.create(

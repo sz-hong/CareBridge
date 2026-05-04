@@ -2,42 +2,63 @@ import Foundation
 
 /// Centralized backend endpoint configuration.
 ///
-/// Switch between simulator and physical device by changing `mode` below.
-/// All REST/WebSocket call sites derive their URLs from this struct.
+/// Switch between simulator, physical device, and public tunnel by changing
+/// `mode` below. All REST/WebSocket call sites derive their URLs from this
+/// struct.
 enum AppConfig {
 
-    // MARK: - 🔧 Switch here
+    // MARK: - Switch here
     /// Change this one line to flip between targets.
     //static let mode: Mode = .simulator
-    static let mode: Mode = .device
+    //static let mode: Mode = .device
+    static let mode: Mode = .publicTunnel
 
     /// When targeting a physical device, update `lanIP` to your Mac's current
-    /// LAN IP (check with `ipconfig getifaddr en0`). Device and Mac must be
-    /// on the same Wi-Fi.
-
+    /// LAN IP. Device and Mac must be on the same Wi-Fi.
     //static let lanIP = "192.168.1.110"
     static let lanIP = "100.125.106.32"
+    static let publicHost = "api.carebridge-lab.com"
 
     // MARK: - Derived
-    enum Mode {
-        case simulator      // 127.0.0.1 — iOS Simulator on this Mac
-        case device         // LAN IP    — physical iPhone/iPad on same Wi-Fi
+    enum Mode: Equatable {
+        case simulator      // 127.0.0.1: iOS Simulator on this Mac
+        case device         // LAN IP: physical iPhone/iPad on same Wi-Fi
+        case publicTunnel   // Cloudflare Tunnel public HTTPS hostname
     }
 
     static let port = "8000"
-    static let scheme = "http"
-    static let wsScheme = "ws"
 
-    static var host: String {
+    static var scheme: String { scheme(for: mode) }
+    static var wsScheme: String { wsScheme(for: mode) }
+    static var host: String { host(for: mode) }
+
+    /// e.g. `https://api.carebridge-lab.com/api/v1`
+    static var apiBaseURL: String { apiBaseURL(for: mode) }
+
+    /// e.g. `wss://api.carebridge-lab.com/ws`
+    static var wsBaseURL: String { wsBaseURL(for: mode) }
+
+    static func apiBaseURL(for mode: Mode) -> String {
+        "\(scheme(for: mode))://\(host(for: mode))/api/v1"
+    }
+
+    static func wsBaseURL(for mode: Mode) -> String {
+        "\(wsScheme(for: mode))://\(host(for: mode))/ws"
+    }
+
+    static func host(for mode: Mode) -> String {
         switch mode {
         case .simulator: return "127.0.0.1:\(port)"
-        case .device:    return "\(lanIP):\(port)"
+        case .device: return "\(lanIP):\(port)"
+        case .publicTunnel: return publicHost
         }
     }
 
-    /// e.g. `http://127.0.0.1:8000/api/v1`
-    static var apiBaseURL: String { "\(scheme)://\(host)/api/v1" }
+    static func scheme(for mode: Mode) -> String {
+        mode == .publicTunnel ? "https" : "http"
+    }
 
-    /// e.g. `ws://127.0.0.1:8000/ws`
-    static var wsBaseURL: String { "\(wsScheme)://\(host)/ws" }
+    static func wsScheme(for mode: Mode) -> String {
+        mode == .publicTunnel ? "wss" : "ws"
+    }
 }
