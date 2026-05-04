@@ -1,8 +1,11 @@
 import json
 from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from django.test import TestCase
 from django.utils import timezone
+from rest_framework.test import APIClient
 
 from apps.ai_assistant.tools import TOOL_DEFINITIONS, execute_tool
 from apps.auth_account.models import User
@@ -91,3 +94,64 @@ class AIToolQueryTests(TestCase):
             care_log_tool["function"]["parameters"]["properties"]["log_type"]["enum"],
             list(CareLog.Type.values),
         )
+
+
+class AIChatStreamingContractTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            email="ai-stream@example.com",
+            password="password123",
+            name="AI Stream User",
+            role=User.Role.FAMILY_MEMBER,
+        )
+        self.family = Family.objects.create(
+            name="AI Stream Family",
+            elder_name="Grandma Lin",
+            invite_code="345678",
+            created_by=self.user,
+        )
+        self.user.family = self.family
+        self.user.save(update_fields=["family"])
+        self.client.force_authenticate(self.user)
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_chat_accepts_event_stream_accept_header_without_query_param(self, mock_get_client):
+        mock_client = Mock()
+        mock_client.chat.completions.create.side_effect = [
+            SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        finish_reason="stop",
+                        message=SimpleNamespace(tool_calls=None),
+                    )
+                ],
+                usage=SimpleNamespace(total_tokens=3),
+            ),
+            [
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=SimpleNamespace(content="收到，我會協助你。"),
+                        )
+                    ]
+                )
+            ],
+        ]
+        mock_get_client.return_value = mock_client
+
+        response = self.client.post(
+            "/api/v1/ai/chat/",
+            {"message": "請幫我看今天的照護狀況"},
+            format="json",
+            HTTP_ACCEPT="text/event-stream",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.streaming)
+        self.assertTrue(response["Content-Type"].startswith("text/event-stream"))
+
+        body = b"".join(response.streaming_content).decode()
+        self.assertIn('"type": "content"', body)
+        self.assertIn('"text": "\\u6536\\u5230\\uff0c\\u6211\\u6703\\u5354\\u52a9\\u4f60\\u3002"', body)
+        self.assertIn('"type": "done"', body)

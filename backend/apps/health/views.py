@@ -245,7 +245,7 @@ class HealthDataViewSet(FamilyScopedQuerySetMixin, ViewSet):
     @action(detail=False, methods=['get'], url_path='weekly-steps')
     def weekly_steps(self, request):
         """GET /health-data/weekly-steps/ — array of 7 daily step totals."""
-        today = timezone.now().date()
+        today = timezone.localdate()
         seven_days_ago = today - timedelta(days=6)
 
         results = (

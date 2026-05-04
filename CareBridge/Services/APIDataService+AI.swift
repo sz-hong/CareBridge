@@ -1,6 +1,14 @@
 import Foundation
 
 extension APIDataService {
+    enum AIStreamEvent: Equatable {
+        case chunk(String)
+        case done
+        case ignore
+    }
+}
+
+extension APIDataService {
     // MARK: - AI
     func sendAIMessage(content: String) async throws -> AIMessage {
         try await post(path: APIEndpoint.aiChat, body: ["message": content])
@@ -28,7 +36,7 @@ extension APIDataService {
         retried: Bool,
         continuation: AsyncThrowingStream<String, Error>.Continuation
     ) async throws {
-        guard let url = URL(string: "\(baseURL)\(APIEndpoint.aiChat)") else {
+        guard let url = Self.aiStreamURL(baseURL: baseURL) else {
             throw URLError(.badURL)
         }
 
@@ -65,18 +73,58 @@ extension APIDataService {
         }
 
         for try await line in bytes.lines {
-            guard line.hasPrefix("data: ") else { continue }
-            let payload = String(line.dropFirst(6))
-            guard let data = payload.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let type = json["type"] as? String else { continue }
-
-            if type == "done" {
+            switch Self.decodeAIStreamEvent(line: line) {
+            case .chunk(let text):
+                continuation.yield(text)
+            case .done:
                 break
+            case .ignore:
+                continue
             }
-            if type == "token", let token = json["content"] as? String {
-                continuation.yield(token)
+        }
+    }
+
+    static func aiStreamURL(baseURL: String) -> URL? {
+        guard var components = URLComponents(string: "\(baseURL)\(APIEndpoint.aiChat)") else {
+            return nil
+        }
+        var queryItems = components.queryItems ?? []
+        queryItems.append(URLQueryItem(name: "stream", value: "true"))
+        components.queryItems = queryItems
+        return components.url
+    }
+
+    static func decodeAIStreamEvent(line: String) -> AIStreamEvent {
+        guard line.hasPrefix("data: ") else { return .ignore }
+
+        let payload = String(line.dropFirst(6))
+        guard let data = payload.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let type = json["type"] as? String else {
+            return .ignore
+        }
+
+        switch type {
+        case "done":
+            return .done
+        case "content":
+            if let text = json["text"] as? String {
+                return .chunk(text)
             }
+            if let content = json["content"] as? String {
+                return .chunk(content)
+            }
+            return .ignore
+        case "token":
+            if let content = json["content"] as? String {
+                return .chunk(content)
+            }
+            if let text = json["text"] as? String {
+                return .chunk(text)
+            }
+            return .ignore
+        default:
+            return .ignore
         }
     }
 }

@@ -18,10 +18,12 @@ from django.utils import timezone
 from openai import OpenAI
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.renderers import JSONRenderer
 from rest_framework.views import APIView
 
 from core.responses import error_response, success_response
 from .models import AIConversation, FirstAidDocument
+from .renderers import EventStreamRenderer
 from .serializers import (
     AIChatSerializer,
     CareAnalysisSerializer,
@@ -47,6 +49,15 @@ SYSTEM_PROMPT = (
 )
 
 
+def _accepts_event_stream(request):
+    accept_header = request.META.get('HTTP_ACCEPT', '')
+    media_types = [
+        item.split(';', 1)[0].strip().lower()
+        for item in accept_header.split(',')
+    ]
+    return 'text/event-stream' in media_types
+
+
 def _get_client():
     api_key = getattr(settings, 'OPENAI_API_KEY', '')
     if not api_key:
@@ -65,6 +76,7 @@ class AIChatView(APIView):
     Supports SSE streaming via ?stream=true query param.
     """
     permission_classes = [IsAuthenticated]
+    renderer_classes = [JSONRenderer, EventStreamRenderer]
 
     def post(self, request):
         serializer = AIChatSerializer(data=request.data)
@@ -101,7 +113,13 @@ class AIChatView(APIView):
         messages.append({"role": "user", "content": user_message})
 
         # Check if streaming requested
-        stream = request.query_params.get('stream', '').lower() == 'true'
+        stream_param = request.query_params.get('stream', '').lower()
+        if stream_param in {'true', '1', 'yes'}:
+            stream = True
+        elif stream_param in {'false', '0', 'no'}:
+            stream = False
+        else:
+            stream = _accepts_event_stream(request)
 
         if stream:
             return self._stream_response(

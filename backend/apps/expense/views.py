@@ -145,7 +145,7 @@ class ExpenseViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
     def monthly(self, request):
         """GET /expenses/monthly/ — Current-month total + category breakdown (%)."""
         family = request.user.family
-        today = timezone.now().date()
+        today = timezone.localdate()
         month_start = today.replace(day=1)
 
         qs = Expense.objects.filter(

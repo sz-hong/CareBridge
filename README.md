@@ -160,6 +160,106 @@ python manage.py migrate
 python manage.py runserver
 ```
 
+## 如何開啟後台（Backend API）
+
+建議使用 Docker Compose 開啟後台，因為它會一起啟動 Django、PostgreSQL、Redis、Celery 和 MinIO。
+
+### 1. 準備環境變數
+
+```powershell
+cd C:\CareBridge\backend
+
+# 第一次執行才需要建立 .env
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
+```
+
+如果是本機開發，確認 `.env` 至少有這些設定：
+
+```env
+DJANGO_ENV=development
+DJANGO_DEBUG=True
+SECURE_SSL_REDIRECT=False
+ALLOWED_HOSTS=localhost,127.0.0.1
+AWS_S3_ENDPOINT_URL=http://localhost:9000
+```
+
+如果是給 iPhone 透過 Cloudflare Tunnel 測試，改用：
+
+```env
+DJANGO_ENV=production
+DJANGO_DEBUG=False
+SECURE_SSL_REDIRECT=True
+ALLOWED_HOSTS=api.carebridge-lab.com,localhost,127.0.0.1
+DB_HOST=db
+REDIS_URL=redis://redis:6379/0
+CELERY_BROKER_URL=redis://redis:6379/1
+CELERY_RESULT_BACKEND=redis://redis:6379/1
+AWS_S3_ENDPOINT_URL=https://storage.carebridge-lab.com
+```
+
+### 2. 啟動後台服務
+
+```powershell
+cd C:\CareBridge\backend
+docker compose -f docker\docker-compose.yml up --build
+```
+
+看到 `web-1` 顯示 `Application startup complete`，代表 Django 後台已經啟動。
+
+### 3. 初始化資料庫
+
+另開一個 PowerShell 視窗執行：
+
+```powershell
+cd C:\CareBridge\backend
+docker compose -f docker\docker-compose.yml exec web python manage.py migrate
+```
+
+需要測試資料時可以再執行：
+
+```powershell
+docker compose -f docker\docker-compose.yml exec web python -c "exec(open('/app/seed_data.py').read())"
+```
+
+### 4. 確認後台可用
+
+本機開發模式：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/health/
+```
+
+Cloudflare Tunnel 模式：
+
+```powershell
+Invoke-RestMethod https://api.carebridge-lab.com/api/v1/health/
+```
+
+成功時會看到：
+
+```json
+{"status":"ok"}
+```
+
+### 5. 開啟 Django Admin
+
+```powershell
+docker compose -f docker\docker-compose.yml exec web python manage.py createsuperuser
+```
+
+建立帳號後開啟：
+
+- 本機：`http://127.0.0.1:8000/admin/`
+- Cloudflare Tunnel：`https://api.carebridge-lab.com/admin/`
+
+Cloudflare Tunnel 會把 Admin 暴露到公開網路。只建議短時間測試使用；正式環境應限制來源、加上 Cloudflare Access，或關閉 Admin 對外路由。
+
+MinIO 後台可用來查看上傳檔案：
+
+- Console: `http://localhost:9001`
+- 帳號: `minioadmin`
+- 密碼: `minioadmin`
+
 ## 前端開發環境
 
 - **Xcode 26+**
