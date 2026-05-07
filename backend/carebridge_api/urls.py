@@ -38,4 +38,5 @@ urlpatterns = [
     path('api/v1/ai/', include('apps.ai_assistant.urls')),
     path('api/v1/sos/', include('apps.sos.urls')),
     path('api/v1/notifications/', include('apps.notification.urls')),
+    path('api/v1/admin/', include('apps.admin_api.urls')),
 ]

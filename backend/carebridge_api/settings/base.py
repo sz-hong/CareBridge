@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from datetime import timedelta
 from dotenv import load_dotenv
+from corsheaders.defaults import default_headers
 
 load_dotenv()
 
@@ -58,6 +59,7 @@ LOCAL_APPS = [
     'apps.ai_assistant',
     'apps.sos',
     'apps.notification',
+    'apps.admin_api',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -192,8 +194,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = env_list(
     'CORS_ALLOWED_ORIGINS',
-    'http://localhost:3000,http://127.0.0.1:3000'
+    'http://localhost:3000,http://127.0.0.1:3000,https://shao-zhen.com,http://127.0.0.1:4173,http://localhost:4321'
 )
+CORS_ALLOW_CREDENTIALS = False
+CORS_ALLOW_HEADERS = list(default_headers)
 
 # ==============================================================================
 # Celery
@@ -250,3 +254,50 @@ APNS_KEY_ID = os.environ.get('APNS_KEY_ID', '')
 APNS_TEAM_ID = os.environ.get('APNS_TEAM_ID', '')
 APNS_TOPIC = os.environ.get('APNS_TOPIC', 'com.carebridge.app')
 APNS_USE_SANDBOX = os.environ.get('APNS_USE_SANDBOX', 'True').lower() == 'true'
+
+# ==============================================================================
+# Logging
+# ==============================================================================
+
+LOG_DIR = BASE_DIR / 'logs'
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'standard': {
+            'format': '{asctime} {name} {levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'standard',
+        },
+        'runtime_file': {
+            'class': 'logging.FileHandler',
+            'filename': LOG_DIR / 'runtime.log',
+            'formatter': 'standard',
+            'encoding': 'utf-8',
+        },
+        'api_errors_file': {
+            'class': 'logging.FileHandler',
+            'filename': LOG_DIR / 'api-errors.log',
+            'formatter': 'standard',
+            'encoding': 'utf-8',
+        },
+    },
+    'loggers': {
+        'carebridge.api': {
+            'handlers': ['console', 'api_errors_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+    'root': {
+        'handlers': ['console', 'runtime_file'],
+        'level': 'INFO',
+    },
+}
