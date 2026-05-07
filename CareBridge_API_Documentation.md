@@ -1,180 +1,217 @@
-# CareBridge 照護橋 — API 文件
+# CareBridge API Documentation
 
-> **版本**: v2.0
-> **最後更新**: 2026/04/12
-> **Base URL**: `http://127.0.0.1:8000/api/v1`
-> **認證方式**: JWT Bearer Token（SimpleJWT）
-> **回應格式**: JSON
+> Version: v3.1
+> Last updated: 2026-05-08
+> Source of truth: `backend/carebridge_api/urls.py`, `backend/apps/*/urls.py`, `views.py`, `serializers.py`, `models.py`
+> Production Base URL: `https://api.carebridge-lab.com/api/v1`
+> Local Development Base URL: `http://127.0.0.1:8000/api/v1`
+> Production WebSocket Base: `wss://api.carebridge-lab.com`
+> Public Storage Base: `https://storage.carebridge-lab.com`
+> Runtime: Django REST Framework, SimpleJWT, Channels WebSocket
 
----
+This document reflects the current backend code and the current public Cloudflare Tunnel setup. Use the production HTTPS base URL for deployed clients and back-office tools; use the local development base URL only when the Django server is running on the same machine.
 
-## 目錄
+## Table of Contents
 
-1. [通用說明](#通用說明)
-2. [Auth 認證](#1-auth-認證)
-3. [Family 家庭管理](#2-family-家庭管理)
-4. [Chat 即時聊天](#3-chat-即時聊天)
-5. [Board 留言板](#4-board-留言板)
-6. [Care Log 照護日誌](#5-care-log-照護日誌)
-7. [Medication 用藥管理](#6-medication-用藥管理)
-8. [Expense 消費記帳](#7-expense-消費記帳)
-9. [Leave 請假管理](#8-leave-請假管理)
-10. [Health 健康監測](#9-health-健康監測)
-11. [Calendar Event 行事曆](#10-calendar-event-行事曆)
-12. [Todo 代辦事項](#11-todo-代辦事項)
-13. [Document 文件管理](#12-document-文件管理)
-14. [AI 智慧助理](#13-ai-智慧助理)
-15. [SOS 緊急呼叫](#14-sos-緊急呼叫)
-16. [Notification 通知系統](#15-notification-通知系統)
-17. [附錄](#附錄)
+1. [Global Contract](#global-contract)
+2. [Authentication](#authentication)
+3. [Users and Families](#users-and-families)
+4. [Chats and WebSocket](#chats-and-websocket)
+5. [Board Requests](#board-requests)
+6. [Care Logs](#care-logs)
+7. [Medications](#medications)
+8. [Expenses](#expenses)
+9. [Leaves](#leaves)
+10. [Health Data](#health-data)
+11. [Calendar Events](#calendar-events)
+12. [Todos](#todos)
+13. [Documents](#documents)
+14. [AI Assistant](#ai-assistant)
+15. [SOS](#sos)
+16. [Notifications and Devices](#notifications-and-devices)
+17. [Enums](#enums)
+18. [Back-office Integration Notes](#back-office-integration-notes)
 
----
+## Global Contract
 
-## 通用說明
+### Authentication
 
-### 認證機制
+Most endpoints require a JWT access token:
 
-所有需要認證的端點必須在 HTTP Header 中附帶 JWT Token：
-
-```
+```http
 Authorization: Bearer <access_token>
 ```
 
-| 項目 | 說明 |
-|---|---|
-| Token 取得 | `POST /auth/token/`（登入取得 Token Pair） |
-| Token 刷新 | `POST /auth/token/refresh/` |
-| Access Token 有效期 | 1 小時 |
-| Refresh Token 有效期 | 30 天 |
-| Token 輪換 | 啟用（刷新時舊 Refresh Token 加入黑名單） |
+Public endpoints:
 
-### 統一回應格式
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/health/` | Basic API health check. |
+| `POST` | `/auth/register/` | Creates account and returns app auth envelope. |
+| `POST` | `/auth/login/` | App login, returns app auth envelope. |
+| `POST` | `/auth/token/` | SimpleJWT raw token endpoint. |
+| `POST` | `/auth/token/refresh/` | SimpleJWT raw refresh endpoint. |
 
-**成功回應：**
+### Success Envelope
+
+Most custom API views return:
 
 ```json
 {
   "success": true,
-  "data": { ... },
-  "meta": {
-    "page": 1,
-    "page_size": 20,
-    "total": 100
-  }
+  "data": {},
+  "meta": {}
 }
 ```
 
-**錯誤回應：**
+`meta` appears only on selected list endpoints. Delete-style commands usually return:
+
+```json
+{
+  "success": true,
+  "data": {}
+}
+```
+
+SimpleJWT endpoints are exceptions and return raw token JSON, not the `success/data` envelope.
+
+### GET `/health/`
+
+Basic health check.
+
+Authentication: none
+
+Response:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+Production example:
+
+```http
+GET https://api.carebridge-lab.com/api/v1/health/
+```
+
+### Error Envelope
+
+DRF exceptions are normalized by `core.exceptions.custom_exception_handler`:
 
 ```json
 {
   "success": false,
   "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "欄位驗證失敗"
+    "code": "validation_error",
+    "message": "field: message"
   }
 }
 ```
 
-### 分頁
+Common codes:
 
-列表端點支援分頁查詢參數：
-
-| 參數 | 型別 | 預設值 | 說明 |
-|---|---|---|---|
-| `page` | Integer | 1 | 頁碼 |
-| `page_size` | Integer | 20 | 每頁筆數（最大 100） |
-
-### 錯誤代碼
-
-| HTTP 狀態碼 | 代碼 | 說明 |
+| HTTP | Code | Meaning |
 |---|---|---|
-| 400 | `BAD_REQUEST` | 請求格式錯誤或缺少必要參數 |
-| 401 | `UNAUTHORIZED` | 未提供 Token 或 Token 已過期 |
-| 403 | `FORBIDDEN` | 無權限存取該資源 |
-| 404 | `NOT_FOUND` | 資源不存在 |
-| 422 | `VALIDATION_ERROR` | 欄位驗證失敗 |
-| 500 | `INTERNAL_ERROR` | 伺服器內部錯誤 |
+| `400` | `validation_error`, custom endpoint codes | Invalid request body or query. |
+| `401` | `authentication_error` | Missing, expired, or invalid JWT. |
+| `403` | `permission_denied` | Authenticated but not allowed. |
+| `404` | `not_found` | Resource not found in current scope. |
+| `405` | `method_not_allowed` | Route exists but HTTP method is not accepted. |
+| `429` | `throttled` | DRF throttling, if configured later. |
 
-### 日期格式
+Some view code returns custom uppercase codes such as `INVALID_INVITE` and `INVALID_ROLE`.
 
-所有日期時間欄位採用 ISO 8601 格式：
+### Pagination
 
-- 日期時間：`2026-04-12T08:30:00Z`
-- 日期：`2026-04-12`
+Default pagination is page-number pagination:
 
-### 角色定義
+| Query | Type | Default | Notes |
+|---|---:|---:|---|
+| `page` | integer | `1` | Page number. |
+| `page_size` | integer | `20` | Max `100`. |
 
-| 角色代碼 | 說明 |
+List response metadata is not perfectly consistent across viewsets. Depending on endpoint, `meta` may contain `count`, `next`, `previous`, `page`, and/or `page_size`.
+
+### Date and Decimal Formats
+
+| Type | Format |
 |---|---|
-| `caregiver` | 看護（照護者） |
-| `family_member` | 家屬 |
-| `elder` | 長者 |
+| UUID | String UUID, for example `b5c9b9f4-2a14-4df8-88a5-8fa53fbb4c8a`. |
+| Date | ISO date, for example `2026-05-07`. |
+| DateTime | ISO 8601 datetime, timezone-aware. |
+| Decimal | DRF may serialize decimals as strings. Health values are explicitly returned as numbers. |
+| JSON | Arbitrary JSON object or array as accepted by the model field. |
 
----
+## Authentication
 
-## 1. Auth 認證
+### User Object
 
-### POST /auth/register/
+```json
+{
+  "id": "uuid",
+  "email": "caregiver@example.com",
+  "name": "王小明",
+  "role": "caregiver",
+  "language": "zh-TW",
+  "phone": "0912345678",
+  "avatar_url": "https://example.com/avatar.png",
+  "family_id": "uuid",
+  "family_name": "王家",
+  "family_invite_code": "123456",
+  "is_primary": false,
+  "created_at": "2026-05-07T10:00:00+08:00"
+}
+```
 
-註冊新使用者帳號。
+### POST `/auth/register/`
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 否 |
-| 權限 | 所有人 |
+Creates a user account. The current serializer does not accept `role`; role is later assigned by creating or joining a family.
 
-**Request Body：**
+Authentication: none
+
+Request:
 
 ```json
 {
   "email": "caregiver@example.com",
   "password": "secureP@ss123",
-  "name": "王小美",
-  "role": "caregiver",
-  "language": "id",
+  "name": "王小明",
+  "language": "zh-TW",
   "phone": "0912345678"
 }
 ```
 
-**Response（201 Created）：**
+Fields:
+
+| Field | Type | Required | Notes |
+|---|---|---:|---|
+| `email` | email | yes | Stored lowercase; unique case-insensitively. |
+| `password` | string | yes | Minimum length `8`. |
+| `name` | string | yes | Max `150`. |
+| `language` | enum | no | Default `zh-TW`. |
+| `phone` | string | no | Max `20`, blank allowed. |
+
+Response `201`:
 
 ```json
 {
   "success": true,
   "data": {
-    "user": {
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "email": "caregiver@example.com",
-      "name": "王小美",
-      "role": "caregiver",
-      "language": "id",
-      "phone": "0912345678",
-      "avatar_url": null,
-      "family": null,
-      "is_primary": false,
-      "created_at": "2026-04-12T08:00:00Z"
-    },
+    "user": { "id": "uuid", "email": "caregiver@example.com" },
     "tokens": {
-      "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6...",
-      "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+      "access": "jwt-access-token",
+      "refresh": "jwt-refresh-token"
     }
   }
 }
 ```
 
----
+### POST `/auth/login/`
 
-### POST /auth/login/
+Authentication: none
 
-使用者登入（自訂 SimpleJWT TokenObtainPairView）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 否 |
-| 權限 | 所有人 |
-
-**Request Body：**
+Request:
 
 ```json
 {
@@ -183,43 +220,28 @@ Authorization: Bearer <access_token>
 }
 ```
 
-**Response（200 OK）：**
+Response:
 
 ```json
 {
   "success": true,
   "data": {
-    "user": {
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "email": "caregiver@example.com",
-      "name": "王小美",
-      "role": "caregiver",
-      "language": "id",
-      "family": {
-        "id": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-        "name": "王家"
-      }
-    },
+    "user": { "id": "uuid", "email": "caregiver@example.com" },
     "tokens": {
-      "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6...",
-      "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+      "access": "jwt-access-token",
+      "refresh": "jwt-refresh-token"
     }
   }
 }
 ```
 
----
+### POST `/auth/token/`
 
-### POST /auth/token/
+SimpleJWT raw endpoint. Uses the custom user model where `email` is the username field.
 
-取得 JWT Token Pair（SimpleJWT 標準端點）。
+Authentication: none
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 否 |
-| 權限 | 所有人 |
-
-**Request Body：**
+Request:
 
 ```json
 {
@@ -228,3399 +250,2064 @@ Authorization: Bearer <access_token>
 }
 ```
 
-**Response（200 OK）：**
+Response:
 
 ```json
 {
-  "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6...",
-  "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+  "refresh": "jwt-refresh-token",
+  "access": "jwt-access-token"
 }
 ```
 
----
+### POST `/auth/token/refresh/`
 
-### POST /auth/token/refresh/
+Authentication: none
 
-刷新 Access Token（舊 Refresh Token 自動加入黑名單）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 否 |
-| 權限 | 所有人 |
-
-**Request Body：**
+Request:
 
 ```json
 {
-  "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+  "refresh": "jwt-refresh-token"
 }
 ```
 
-**Response（200 OK）：**
+Response:
 
 ```json
 {
-  "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6...",
-  "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6..."
+  "access": "new-jwt-access-token",
+  "refresh": "rotated-refresh-token"
 }
 ```
 
----
+Refresh tokens are configured for 30 days, access tokens for 1 hour, and refresh rotation is enabled.
 
-### GET /auth/me/
+### GET `/auth/me/`
 
-取得目前登入使用者的個人資訊。
+Returns the authenticated user.
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder |
+Authentication: required
 
-**Response（200 OK）：**
+Response:
 
 ```json
 {
   "success": true,
   "data": {
-    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "id": "uuid",
     "email": "caregiver@example.com",
-    "name": "王小美",
-    "role": "caregiver",
-    "language": "id",
-    "phone": "0912345678",
-    "avatar_url": "https://carebridge-storage.s3.amazonaws.com/avatars/a1b2c3d4.jpg",
-    "family": {
-      "id": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "name": "王家",
-      "elder_name": "王爺爺"
-    },
-    "is_primary": false,
-    "created_at": "2026-04-12T08:00:00Z",
-    "updated_at": "2026-04-12T10:30:00Z"
+    "name": "王小明"
   }
 }
 ```
 
----
+### PUT/PATCH `/auth/me/`
 
-### PUT /auth/me/
+Updates the authenticated user profile.
 
-更新個人資訊（含頭像上傳至 S3）。
+Authentication: required
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder |
+Request fields:
 
-**Request Body（multipart/form-data 或 JSON）：**
+| Field | Type | Required | Notes |
+|---|---|---:|---|
+| `name` | string | no | |
+| `language` | enum | no | `zh-TW`, `id`, `vi`, `tl`. |
+| `phone` | string/null | no | Blank allowed. |
+| `avatar_url` | URL/null | no | Blank allowed. |
+
+Response: user object.
+
+### POST `/auth/logout/`
+
+Best-effort refresh token blacklist. Returns success even when blacklist is unavailable or token is invalid.
+
+Authentication: required
+
+Request:
 
 ```json
 {
-  "name": "王小美",
-  "language": "zh-TW",
-  "phone": "0987654321",
-  "avatar_url": "https://carebridge-storage.s3.amazonaws.com/avatars/a1b2c3d4.jpg"
+  "refresh": "jwt-refresh-token"
 }
 ```
 
-**Response（200 OK）：**
+Response:
 
 ```json
 {
   "success": true,
   "data": {
-    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "email": "caregiver@example.com",
-    "name": "王小美",
-    "role": "caregiver",
-    "language": "zh-TW",
-    "phone": "0987654321",
-    "avatar_url": "https://carebridge-storage.s3.amazonaws.com/avatars/a1b2c3d4.jpg",
-    "family": {
-      "id": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "name": "王家"
-    },
-    "is_primary": false,
-    "created_at": "2026-04-12T08:00:00Z",
-    "updated_at": "2026-04-12T14:00:00Z"
+    "detail": "Successfully logged out."
   }
 }
 ```
 
----
+### DELETE `/auth/account/`
 
-### POST /auth/forgot-password/
+Deletes the authenticated user account.
 
-寄送密碼重設信（產生 15 分鐘有效期的重設 Token）。
+Authentication: required
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 否 |
-| 權限 | 所有人 |
-
-**Request Body：**
-
-```json
-{
-  "email": "caregiver@example.com"
-}
-```
-
-**Response（200 OK）：**
+Response:
 
 ```json
 {
   "success": true,
   "data": {
-    "message": "密碼重設信已寄出"
+    "detail": "Account deleted."
   }
 }
 ```
 
----
+### POST `/auth/join-family/`
 
-### POST /auth/reset-password/
+Joins a family by invite code and sets the user's role.
 
-使用重設 Token 重設密碼。
+Authentication: required
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 否 |
-| 權限 | 所有人 |
-
-**Request Body：**
+Request:
 
 ```json
 {
-  "token": "reset-token-string",
-  "password": "newSecureP@ss456"
+  "invite_code": "123456",
+  "role": "caregiver"
 }
 ```
 
-**Response（200 OK）：**
+Fields:
+
+| Field | Type | Required | Notes |
+|---|---|---:|---|
+| `invite_code` | string | yes | Must be 6 digits. |
+| `role` | enum | yes | `caregiver` or `family_member`. |
+
+Response: `{ user, tokens }` in the success envelope.
+
+Side effect: user is added to every existing chat in the joined family.
+
+## Users and Families
+
+Family-scoped endpoints only expose the authenticated user's current family.
+
+### Family Object
+
+```json
+{
+  "id": "uuid",
+  "name": "王家",
+  "elder_name": "王奶奶",
+  "elder_birth_date": "1940-01-01",
+  "invite_code": "123456",
+  "created_by": "uuid",
+  "created_at": "2026-05-07T10:00:00+08:00",
+  "members": []
+}
+```
+
+### GET `/families/`
+
+Returns the current user's family as a paginated array. If the user has no family, returns an empty array.
+
+Authentication: required
+
+Query: `page`, `page_size`
+
+Response:
 
 ```json
 {
   "success": true,
-  "data": {
-    "message": "密碼已重設成功"
+  "data": [{ "id": "uuid", "name": "王家" }],
+  "meta": {
+    "count": 1,
+    "next": null,
+    "previous": null
   }
 }
 ```
 
----
+### POST `/families/`
 
-### DELETE /auth/account/
+Creates a family and assigns the creator as the primary family member.
 
-刪除帳號（級聯刪除所有關聯資料）。
+Authentication: required
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder |
-
-**Response（204 No Content）：**
-
-無回應內容。
-
----
-
-## 2. Family 家庭管理
-
-### POST /families/
-
-建立家庭群組（自動產生 8 位邀請碼，建立者自動加入為 primary family_member）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | family_member |
-
-**Request Body：**
+Request:
 
 ```json
 {
   "name": "王家",
-  "elder_name": "王大明",
-  "elder_birth_date": "1945-03-15"
+  "elder_name": "王奶奶",
+  "elder_birth_date": "1940-01-01"
 }
 ```
 
-**Response（201 Created）：**
+Side effects:
+
+| Field | Result |
+|---|---|
+| `request.user.family` | New family. |
+| `request.user.is_primary` | `true`. |
+| `request.user.role` | `family_member`. |
+
+Response `201`: family object.
+
+### GET `/families/{family_id}/`
+
+Returns a family object if it is the authenticated user's family.
+
+### PUT/PATCH `/families/{family_id}/`
+
+Updates writable family fields:
+
+| Field | Type |
+|---|---|
+| `name` | string |
+| `elder_name` | string |
+| `elder_birth_date` | date/null |
+
+Response: family object.
+
+### DELETE `/families/{family_id}/`
+
+Deletes the family.
+
+Response:
 
 ```json
 {
   "success": true,
   "data": {
-    "id": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "name": "王家",
-    "elder_name": "王大明",
-    "elder_birth_date": "1945-03-15",
-    "invite_code": "A3F8B2D1",
-    "created_by": {
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "name": "王小明"
-    },
-    "members": [
-      {
-        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-        "name": "王小明",
-        "role": "family_member",
-        "is_primary": true
-      }
-    ],
-    "created_at": "2026-04-12T08:00:00Z"
+    "detail": "Family deleted."
   }
 }
 ```
 
----
+### GET `/families/members/`
 
-### GET /families/:id/
+Returns all users in the current family.
 
-取得家庭資訊與成員列表。
+Response:
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder（需為該家庭成員） |
+```json
+{
+  "success": true,
+  "data": [{ "id": "uuid", "name": "王小明" }]
+}
+```
 
-**Response（200 OK）：**
+### POST `/families/{family_id}/join/`
+
+Joins the family identified by path parameter, after validating its invite code.
+
+Request:
+
+```json
+{
+  "invite_code": "123456"
+}
+```
+
+Response: family object.
+
+Side effect: user is enrolled into existing family chats.
+
+Implementation note: unlike `/auth/join-family/`, this route does not set `role`.
+
+### DELETE `/families/{family_id}/members/{user_id}/`
+
+Removes a member from the family by clearing `member.family` and `member.is_primary`.
+
+Response:
 
 ```json
 {
   "success": true,
   "data": {
-    "id": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "name": "王家",
-    "elder_name": "王大明",
-    "elder_birth_date": "1945-03-15",
-    "invite_code": "A3F8B2D1",
-    "created_by": {
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "name": "王小明"
-    },
-    "members": [
-      {
-        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-        "name": "王小明",
-        "role": "family_member",
-        "is_primary": true,
-        "language": "zh-TW",
-        "avatar_url": null
-      },
-      {
-        "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-        "name": "Siti",
-        "role": "caregiver",
-        "is_primary": false,
-        "language": "id",
-        "avatar_url": "https://carebridge-storage.s3.amazonaws.com/avatars/b2c3d4e5.jpg"
-      }
-    ],
-    "created_at": "2026-04-12T08:00:00Z",
-    "updated_at": "2026-04-12T09:00:00Z"
+    "detail": "Member removed."
   }
 }
 ```
 
----
+## Chats and WebSocket
 
-### POST /families/:id/members/
-
-透過邀請碼加入家庭。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder |
-
-**Request Body：**
+### Chat Object
 
 ```json
 {
-  "invite_code": "A3F8B2D1"
-}
-```
-
-**Response（200 OK）：**
-
-```json
-{
-  "success": true,
-  "data": {
-    "message": "已成功加入家庭",
-    "family": {
-      "id": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "name": "王家"
-    }
-  }
-}
-```
-
----
-
-### DELETE /families/:id/members/:userId/
-
-移除家庭成員。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | family_member（需為 primary） |
-
-**Response（204 No Content）：**
-
-無回應內容。
-
----
-
-## 3. Chat 即時聊天
-
-### GET /chats/
-
-取得聊天室列表（含未讀計數）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder |
-
-**Query 參數：**
-
-| 參數 | 型別 | 說明 |
-|---|---|---|
-| `page` | Integer | 頁碼 |
-| `page_size` | Integer | 每頁筆數 |
-
-**Response（200 OK）：**
-
-```json
-{
-  "success": true,
-  "data": [
+  "id": "uuid",
+  "type": "group",
+  "name": "家庭群組",
+  "family": "uuid",
+  "created_at": "2026-05-07T10:00:00+08:00",
+  "members": [
     {
-      "id": "c1d2e3f4-a5b6-7890-cdef-123456789012",
-      "type": "group",
-      "name": "王家群組",
-      "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "members": [
-        {
-          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-          "name": "王小明",
-          "avatar_url": null
-        },
-        {
-          "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-          "name": "Siti",
-          "avatar_url": "https://carebridge-storage.s3.amazonaws.com/avatars/b2c3d4e5.jpg"
-        }
-      ],
-      "last_message": {
-        "content": "爺爺今天吃得不錯",
-        "sender": "Siti",
-        "sent_at": "2026-04-12T12:30:00Z"
-      },
-      "unread_count": 3,
-      "created_at": "2026-04-10T08:00:00Z"
+      "id": "uuid",
+      "name": "王小明",
+      "role": "family_member",
+      "avatar_url": null
     }
   ],
-  "meta": {
-    "page": 1,
-    "page_size": 20,
-    "total": 2
-  }
+  "last_message": {
+    "id": "uuid",
+    "content": "好的",
+    "type": "text",
+    "sent_at": "2026-05-07T10:01:00+08:00",
+    "sender_id": "uuid"
+  },
+  "unread_count": 0
 }
 ```
 
----
+### Message Object
 
-### POST /chats/
+```json
+{
+  "id": "uuid",
+  "chat": "uuid",
+  "sender": {
+    "id": "uuid",
+    "name": "王小明",
+    "role": "family_member",
+    "avatar_url": null
+  },
+  "is_me": true,
+  "type": "text",
+  "message_type": "text",
+  "reference_id": null,
+  "content": "今天已吃藥",
+  "translations": {
+    "zh-TW": "今天已吃藥",
+    "id": "Obat sudah diminum hari ini"
+  },
+  "image_url": null,
+  "sent_at": "2026-05-07T10:01:00+08:00"
+}
+```
 
-建立聊天室（group 或 direct）。
+### GET `/chats/`
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder |
+Returns chats where the authenticated user is a chat member.
 
-**Request Body：**
+Query: `page`, `page_size`
+
+Response metadata: `count`, `page`, `page_size`.
+
+### POST `/chats/`
+
+Creates a group or direct chat.
+
+Request:
 
 ```json
 {
   "type": "group",
-  "name": "王家群組",
-  "member_ids": [
-    "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "b2c3d4e5-f6a7-8901-bcde-f12345678901"
-  ]
+  "name": "家庭群組",
+  "family_id": "uuid",
+  "member_ids": ["uuid"]
 }
 ```
 
-**Response（201 Created）：**
+Rules:
 
-```json
-{
-  "success": true,
-  "data": {
-    "id": "c1d2e3f4-a5b6-7890-cdef-123456789012",
-    "type": "group",
-    "name": "王家群組",
-    "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "members": [
-      {
-        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-        "name": "王小明"
-      },
-      {
-        "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-        "name": "Siti"
-      }
-    ],
-    "created_at": "2026-04-12T08:00:00Z"
-  }
-}
-```
-
----
-
-### GET /chats/:id/messages/
-
-取得聊天訊息歷史（cursor-based 分頁）。
-
-| 項目 | 說明 |
+| Rule | Behavior |
 |---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder（需為聊天室成員） |
+| `family_id` must equal `request.user.family_id` | Otherwise `403 permission_denied`. |
+| Every `member_id` must belong to the user's family | Otherwise `400 invalid_members`. |
+| Creator | Automatically added even if not in `member_ids`. |
 
-**Query 參數：**
+Response `201`: chat object.
 
-| 參數 | 型別 | 說明 |
-|---|---|---|
-| `cursor` | String | 分頁游標（上次回應的 `next_cursor`） |
-| `page_size` | Integer | 每頁筆數（預設 20） |
+### GET `/chats/{chat_id}/`
 
-**Response（200 OK）：**
+Returns one chat where the user is a member.
 
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "m1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "chat": "c1d2e3f4-a5b6-7890-cdef-123456789012",
-      "sender": {
-        "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-        "name": "Siti",
-        "avatar_url": "https://carebridge-storage.s3.amazonaws.com/avatars/b2c3d4e5.jpg"
-      },
-      "type": "text",
-      "content": "Kakek hari ini makan dengan baik",
-      "translations": {
-        "zh-TW": "爺爺今天吃得不錯",
-        "id": "Kakek hari ini makan dengan baik"
-      },
-      "image_url": null,
-      "sent_at": "2026-04-12T12:30:00Z"
-    },
-    {
-      "id": "m2b3c4d5-e6f7-8901-bcde-f12345678902",
-      "chat": "c1d2e3f4-a5b6-7890-cdef-123456789012",
-      "sender": {
-        "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-        "name": "Siti",
-        "avatar_url": "https://carebridge-storage.s3.amazonaws.com/avatars/b2c3d4e5.jpg"
-      },
-      "type": "image",
-      "content": null,
-      "translations": null,
-      "image_url": "https://carebridge-storage.s3.amazonaws.com/chat/m2b3c4d5.jpg",
-      "sent_at": "2026-04-12T12:31:00Z"
-    }
-  ],
-  "meta": {
-    "next_cursor": "cD0yMDI2LTA0LTEyVDEyOjMwOjAwWg==",
-    "has_next": true
-  }
-}
-```
+### PUT/PATCH `/chats/{chat_id}/`
 
----
+Updates chat fields through `ChatSerializer`.
 
-### POST /chats/:id/messages/
+Writable fields in current serializer: `type`, `name`, `family`.
 
-發送訊息（HTTP fallback，文字訊息自動觸發翻譯）。
+### DELETE `/chats/{chat_id}/`
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder（需為聊天室成員） |
+Deletes the chat.
 
-**Request Body（文字訊息）：**
+Response: empty success envelope.
+
+### GET `/chats/{chat_id}/messages/`
+
+Returns paginated messages. The backend fetches the newest page and returns that page in chronological order.
+
+Query: `page`, `page_size`
+
+Response metadata: `count`, `page`, `page_size`.
+
+### POST `/chats/{chat_id}/messages/`
+
+Sends a message.
+
+Text request:
 
 ```json
 {
   "type": "text",
-  "content": "爺爺今天吃得不錯"
+  "content": "今天已吃藥"
 }
 ```
 
-**Request Body（圖片訊息，multipart/form-data）：**
+Image request:
 
 ```json
 {
   "type": "image",
-  "image": "<binary file>"
+  "image_url": "https://example.com/photo.jpg"
 }
 ```
 
-**Response（201 Created）：**
+Request-card message:
 
 ```json
 {
-  "success": true,
-  "data": {
-    "id": "m3c4d5e6-f7a8-9012-cdef-123456789012",
-    "chat": "c1d2e3f4-a5b6-7890-cdef-123456789012",
-    "sender": {
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "name": "王小明"
-    },
-    "type": "text",
-    "content": "爺爺今天吃得不錯",
-    "translations": {
-      "zh-TW": "爺爺今天吃得不錯",
-      "id": "Kakek hari ini makan dengan baik"
-    },
-    "image_url": null,
-    "sent_at": "2026-04-12T13:00:00Z"
-  }
+  "type": "purchase_request",
+  "reference_id": "uuid",
+  "content": "採買需求：尿布"
 }
 ```
 
----
+Field rules:
 
-### WebSocket: ws://host/ws/chat/:chatId/
-
-即時聊天 WebSocket 連線（Django Channels）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是（Token 透過 query string `?token=<access_token>`） |
-| 權限 | caregiver / family_member / elder（需為聊天室成員） |
-
-**連線 URL：**
-
-```
-ws://127.0.0.1:8000/ws/chat/c1d2e3f4-a5b6-7890-cdef-123456789012/?token=eyJhbGci...
-```
-
-**發送訊息格式：**
-
-```json
-{
-  "action": "message",
-  "data": {
-    "type": "text",
-    "content": "你好"
-  }
-}
-```
-
-**接收訊息格式：**
-
-```json
-{
-  "action": "message",
-  "data": {
-    "id": "m4d5e6f7-a8b9-0123-cdef-123456789012",
-    "sender": {
-      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-      "name": "Siti"
-    },
-    "type": "text",
-    "content": "Halo",
-    "translations": {
-      "zh-TW": "你好",
-      "id": "Halo"
-    },
-    "sent_at": "2026-04-12T13:05:00Z"
-  }
-}
-```
-
-**「正在輸入」狀態：**
-
-```json
-{
-  "action": "typing",
-  "data": {
-    "user_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-    "is_typing": true
-  }
-}
-```
-
----
-
-## 4. Board 留言板
-
-### GET /board/
-
-取得採購需求列表。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Query 參數：**
-
-| 參數 | 型別 | 說明 |
+| `type` | Required fields | Stored fields |
 |---|---|---|
-| `status` | String | 篩選狀態：`pending` / `approved` / `rejected` / `completed` |
-| `category` | String | 篩選分類：`food` / `daily` / `medical` / `other` |
-| `page` | Integer | 頁碼 |
-| `page_size` | Integer | 每頁筆數 |
+| `text` | `content` | `Message.type=text`, `message_type=text`. |
+| `image` | `image_url` | `Message.type=image`, `message_type=text`. |
+| `purchase_request` | `reference_id`, `content` | `Message.type=text`, `message_type=purchase_request`. |
+| `leave_request` | `reference_id`, `content` | `Message.type=text`, `message_type=leave_request`. |
 
-**Response（200 OK）：**
+Plain text messages are translated into supported languages when translation is configured.
+
+Response `201`: message object.
+
+### WebSocket `wss://api.carebridge-lab.com/ws/chat/{chat_id}/?token=<access_token>`
+
+Authentication is handled by `JWTAuthMiddleware` from the query string token.
+
+Local development equivalent:
+
+```text
+ws://127.0.0.1:8000/ws/chat/{chat_id}/?token=<access_token>
+```
+
+Client sends chat message:
 
 ```json
 {
-  "success": true,
-  "data": [
-    {
-      "id": "b1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "requester": {
-        "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-        "name": "Siti"
-      },
-      "category": "food",
-      "items": [
-        {
-          "name": "Susu",
-          "name_translated": "牛奶",
-          "quantity": "2 盒"
-        },
-        {
-          "name": "Roti",
-          "name_translated": "麵包",
-          "quantity": "1 條"
-        }
-      ],
-      "note": "Untuk sarapan kakek",
-      "note_translated": "給爺爺當早餐",
-      "status": "pending",
-      "reply": null,
-      "reviewed_by": null,
-      "created_at": "2026-04-12T07:00:00Z",
-      "updated_at": "2026-04-12T07:00:00Z"
-    }
-  ],
-  "meta": {
-    "page": 1,
-    "page_size": 20,
-    "total": 5
-  }
+  "type": "chat.message",
+  "message_type": "text",
+  "content": "Hello"
 }
 ```
 
----
-
-### POST /board/
-
-建立採購需求（品項自動翻譯，推播通知家屬）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver |
-
-**Request Body：**
+Client sends typing state:
 
 ```json
 {
-  "category": "food",
-  "items": [
-    {
-      "name": "Susu",
-      "quantity": "2 盒"
-    },
-    {
-      "name": "Roti",
-      "quantity": "1 條"
-    }
-  ],
-  "note": "Untuk sarapan kakek"
+  "type": "chat.typing",
+  "user_id": "uuid",
+  "is_typing": true
 }
 ```
 
-**Response（201 Created）：**
+Server message event payload is the serialized Message object, without the HTTP `success/data` wrapper.
+
+Server typing event:
 
 ```json
 {
-  "success": true,
-  "data": {
-    "id": "b1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "requester": {
-      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-      "name": "Siti"
-    },
-    "category": "food",
-    "items": [
-      {
-        "name": "Susu",
-        "name_translated": "牛奶",
-        "quantity": "2 盒"
-      },
-      {
-        "name": "Roti",
-        "name_translated": "麵包",
-        "quantity": "1 條"
-      }
-    ],
-    "note": "Untuk sarapan kakek",
-    "note_translated": "給爺爺當早餐",
-    "status": "pending",
-    "created_at": "2026-04-12T07:00:00Z"
-  }
+  "type": "typing",
+  "user_id": "uuid",
+  "is_typing": true
 }
 ```
 
----
+Implementation note: the consumer currently accepts the socket after joining the room group. It does not explicitly reject anonymous users or verify chat membership before `accept()`.
 
-### GET /board/:id/
+## Board Requests
 
-取得單筆採購需求。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Response（200 OK）：**
+### BoardRequest Object
 
 ```json
 {
-  "success": true,
-  "data": {
-    "id": "b1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "requester": {
-      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-      "name": "Siti"
-    },
-    "category": "food",
-    "items": [
-      {
-        "name": "Susu",
-        "name_translated": "牛奶",
-        "quantity": "2 盒"
-      }
-    ],
-    "note": "Untuk sarapan kakek",
-    "note_translated": "給爺爺當早餐",
-    "status": "pending",
-    "reply": null,
-    "reviewed_by": null,
-    "created_at": "2026-04-12T07:00:00Z",
-    "updated_at": "2026-04-12T07:00:00Z"
-  }
+  "id": "uuid",
+  "family": "uuid",
+  "requester": { "id": "uuid", "email": "caregiver@example.com" },
+  "category": "daily",
+  "items": [{ "name": "尿布", "quantity": 1 }],
+  "note": "需要補貨",
+  "note_translated": null,
+  "status": "pending",
+  "reply": null,
+  "reviewed_by": null,
+  "created_at": "2026-05-07T10:00:00+08:00",
+  "updated_at": "2026-05-07T10:00:00+08:00"
 }
 ```
 
----
+### GET `/board/`
 
-### PUT /board/:id/
+Family-scoped list.
 
-更新採購需求。
+Query:
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver（限建立者本人） |
+| Query | Type | Notes |
+|---|---|---|
+| `status` | enum | `pending`, `approved`, `rejected`, `completed`. |
+| `page`, `page_size` | integer | Pagination. |
 
-**Request Body：**
+Response metadata: `count`.
+
+### POST `/board/`
+
+Request:
 
 ```json
 {
-  "category": "food",
-  "items": [
-    {
-      "name": "Susu",
-      "quantity": "3 盒"
-    }
-  ],
-  "note": "Tambah satu lagi"
+  "category": "daily",
+  "items": [{ "name": "尿布", "quantity": 1 }],
+  "note": "需要補貨"
 }
 ```
 
-**Response（200 OK）：**
+Response `201`: board request object.
 
-```json
-{
-  "success": true,
-  "data": {
-    "id": "b1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "category": "food",
-    "items": [
-      {
-        "name": "Susu",
-        "name_translated": "牛奶",
-        "quantity": "3 盒"
-      }
-    ],
-    "note": "Tambah satu lagi",
-    "note_translated": "再多加一個",
-    "status": "pending",
-    "updated_at": "2026-04-12T08:00:00Z"
-  }
-}
-```
+### GET `/board/{request_id}/`
 
----
+Returns one board request.
 
-### PATCH /board/:id/status/
+### PUT/PATCH `/board/{request_id}/`
 
-核准或駁回採購需求（推播通知看護）。
+Updates `category`, `items`, and/or `note`. The current implementation treats PUT as partial.
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | family_member |
+### PATCH `/board/{request_id}/status/`
 
-**Request Body：**
+Updates review status.
+
+Request:
 
 ```json
 {
   "status": "approved",
-  "reply": "好的，我下班會買回來"
+  "reply": "今晚會買"
 }
 ```
 
-**Response（200 OK）：**
+Allowed statuses: `approved`, `rejected`, `completed`.
+
+Response: board request object.
+
+### DELETE `/board/{request_id}/`
+
+Deletes the request.
+
+## Care Logs
+
+### CareLog Object
 
 ```json
 {
-  "success": true,
-  "data": {
-    "id": "b1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "status": "approved",
-    "reply": "好的，我下班會買回來",
-    "reviewed_by": {
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "name": "王小明"
-    },
-    "updated_at": "2026-04-12T09:00:00Z"
-  }
-}
-```
-
----
-
-## 5. Care Log 照護日誌
-
-### GET /care-logs/
-
-取得照護日誌時間軸列表（支援類型篩選、日期區間）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Query 參數：**
-
-| 參數 | 型別 | 說明 |
-|---|---|---|
-| `type` | String | 篩選類型：`medication` / `vital` / `meal` / `activity` / `note` |
-| `start_date` | Date | 起始日期（ISO 8601） |
-| `end_date` | Date | 結束日期（ISO 8601） |
-| `page` | Integer | 頁碼 |
-| `page_size` | Integer | 每頁筆數 |
-
-**Response（200 OK）：**
-
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "cl1a2b3c-d4e5-6789-abcd-ef1234567890",
-      "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "recorder": {
-        "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-        "name": "Siti"
-      },
-      "type": "medication",
-      "content": {
-        "medication_name": "Amlodipine 5mg",
-        "dosage": "1 顆",
-        "status": "taken",
-        "confirmed_by": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-        "confirmed_at": "2026-04-12T08:15:00Z"
-      },
-      "photo_url": "https://carebridge-storage.s3.amazonaws.com/care-logs/cl1a2b3c.jpg",
-      "timestamp": "2026-04-12T08:15:00Z",
-      "created_at": "2026-04-12T08:15:00Z"
-    },
-    {
-      "id": "cl2b3c4d-e5f6-7890-bcde-f12345678901",
-      "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "recorder": {
-        "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-        "name": "Siti"
-      },
-      "type": "meal",
-      "content": {
-        "meal_type": "breakfast",
-        "description": "雞肉粥",
-        "description_translated": "Bubur ayam",
-        "appetite": "good"
-      },
-      "photo_url": null,
-      "timestamp": "2026-04-12T07:30:00Z",
-      "created_at": "2026-04-12T07:35:00Z"
-    }
-  ],
-  "meta": {
-    "page": 1,
-    "page_size": 20,
-    "total": 45
-  }
-}
-```
-
----
-
-### POST /care-logs/
-
-新增照護日誌（支援 5 種類型，照片上傳至 S3，文字自動翻譯）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver |
-
-**Request Body（type = vital）：**
-
-```json
-{
-  "type": "vital",
-  "content": {
-    "blood_pressure_systolic": 128,
-    "blood_pressure_diastolic": 82,
-    "blood_sugar": 5.8,
-    "temperature": 36.5,
-    "note": "狀況穩定"
+  "id": "uuid",
+  "family": "uuid",
+  "recorder": {
+    "id": "uuid",
+    "name": "王小明"
   },
-  "timestamp": "2026-04-12T09:00:00Z",
-  "photo_url": null
+  "type": "meal",
+  "content": {
+    "meal": "lunch",
+    "amount": "normal"
+  },
+  "photo_url": null,
+  "timestamp": "2026-05-07T12:00:00+08:00",
+  "created_at": "2026-05-07T12:01:00+08:00"
 }
 ```
 
-**Request Body（type = meal）：**
+### GET `/care-logs/`
+
+Family-scoped list.
+
+Query:
+
+| Query | Type | Notes |
+|---|---|---|
+| `type` | enum | `medication`, `vital`, `meal`, `activity`, `note`. |
+| `date` | date or datetime | Filters `timestamp__date`. |
+| `date_from` | date | Inclusive. |
+| `date_to` | date | Inclusive. |
+| `page`, `page_size` | integer | Pagination. |
+
+Response metadata: `count`, `next`, `previous`.
+
+### POST `/care-logs/`
+
+Request:
 
 ```json
 {
   "type": "meal",
   "content": {
-    "meal_type": "lunch",
-    "description": "Nasi goreng",
-    "appetite": "good"
+    "meal": "lunch",
+    "amount": "normal"
   },
-  "timestamp": "2026-04-12T12:00:00Z"
+  "photo_url": "https://example.com/photo.jpg",
+  "timestamp": "2026-05-07T12:00:00+08:00"
 }
 ```
 
-**Request Body（type = note）：**
+Response `201`: care log object.
 
-```json
-{
-  "type": "note",
-  "content": {
-    "text": "Hari ini semangatnya baik"
-  },
-  "timestamp": "2026-04-12T14:00:00Z"
-}
-```
+### GET `/care-logs/{log_id}/`
 
-**Response（201 Created）：**
+Returns one care log.
 
-```json
-{
-  "success": true,
-  "data": {
-    "id": "cl3c4d5e-f6a7-8901-cdef-123456789012",
-    "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "recorder": {
-      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-      "name": "Siti"
-    },
-    "type": "vital",
-    "content": {
-      "blood_pressure_systolic": 128,
-      "blood_pressure_diastolic": 82,
-      "blood_sugar": 5.8,
-      "temperature": 36.5,
-      "note": "狀況穩定"
-    },
-    "photo_url": null,
-    "timestamp": "2026-04-12T09:00:00Z",
-    "created_at": "2026-04-12T09:00:00Z"
-  }
-}
-```
+### PUT/PATCH `/care-logs/{log_id}/`
 
----
+Updates `type`, `content`, `photo_url`, and/or `timestamp`.
 
-### PUT /care-logs/:id/
+### DELETE `/care-logs/{log_id}/`
 
-更新照護日誌紀錄。
+Deletes the care log.
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver（限紀錄者本人） |
+### GET `/care-logs/summary/`
 
-**Request Body：**
+Returns a 7-day summary.
 
-```json
-{
-  "content": {
-    "blood_pressure_systolic": 130,
-    "blood_pressure_diastolic": 85,
-    "blood_sugar": 6.0,
-    "temperature": 36.5,
-    "note": "血壓微高，持續觀察"
-  }
-}
-```
-
-**Response（200 OK）：**
-
-```json
-{
-  "success": true,
-  "data": {
-    "id": "cl3c4d5e-f6a7-8901-cdef-123456789012",
-    "type": "vital",
-    "content": {
-      "blood_pressure_systolic": 130,
-      "blood_pressure_diastolic": 85,
-      "blood_sugar": 6.0,
-      "temperature": 36.5,
-      "note": "血壓微高，持續觀察"
-    },
-    "timestamp": "2026-04-12T09:00:00Z",
-    "created_at": "2026-04-12T09:00:00Z"
-  }
-}
-```
-
----
-
-### GET /care-logs/summary/
-
-照護摘要（聚合統計：用藥順從度、生理平均值、飲食統計、活動統計）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Query 參數：**
-
-| 參數 | 型別 | 說明 |
-|---|---|---|
-| `start_date` | Date | 起始日期 |
-| `end_date` | Date | 結束日期 |
-
-**Response（200 OK）：**
+Response:
 
 ```json
 {
   "success": true,
   "data": {
     "period": {
-      "start_date": "2026-04-06",
-      "end_date": "2026-04-12"
+      "from": "2026-04-30T10:00:00+08:00",
+      "to": "2026-05-07T10:00:00+08:00"
+    },
+    "total_logs_by_type": {
+      "meal": 8,
+      "medication": 12
     },
     "medication_compliance": {
-      "confirmed": 12,
-      "total": 14,
-      "rate": 0.857
-    },
-    "vitals_average": {
-      "blood_pressure_systolic": 126.5,
-      "blood_pressure_diastolic": 80.3,
-      "blood_sugar": 5.9,
-      "temperature": 36.4
-    },
-    "meals": {
-      "total": 18,
-      "appetite": {
-        "good": 12,
-        "fair": 5,
-        "poor": 1
-      }
-    },
-    "activities": {
-      "total": 5,
-      "total_duration_minutes": 150
+      "confirmed": 10,
+      "total": 12,
+      "rate": 0.83
     }
   }
 }
 ```
 
----
+## Medications
 
-## 6. Medication 用藥管理
+### Medication Object
 
-### GET /medications/
+```json
+{
+  "id": "uuid",
+  "family": "uuid",
+  "name": "降血壓藥",
+  "name_translated": null,
+  "dosage": "5mg",
+  "frequency": "daily",
+  "times": ["08:00"],
+  "instructions": "飯後服用",
+  "instructions_translated": null,
+  "start_date": "2026-05-01",
+  "end_date": null,
+  "is_active": true,
+  "reminder_enabled": true,
+  "created_by": "uuid",
+  "created_at": "2026-05-07T10:00:00+08:00",
+  "updated_at": "2026-05-07T10:00:00+08:00"
+}
+```
 
-取得藥物清單。
+### GET `/medications/`
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
+Family-scoped list.
 
-**Query 參數：**
+Query:
 
-| 參數 | 型別 | 說明 |
+| Query | Type | Notes |
 |---|---|---|
-| `is_active` | Boolean | 篩選啟用/停用藥物 |
-| `page` | Integer | 頁碼 |
-| `page_size` | Integer | 每頁筆數 |
+| `is_active` | boolean | `true` or `false`. |
+| `include_expired` | boolean | Default excludes records where `end_date` is before today. Pass `true` to include. |
+| `page`, `page_size` | integer | Pagination. |
 
-**Response（200 OK）：**
+Response metadata: `count`, `next`, `previous`.
 
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "med1a2b3-c4d5-6789-abcd-ef1234567890",
-      "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "name": "Amlodipine 5mg",
-      "name_translated": {
-        "zh-TW": "脈優 5mg",
-        "id": "Amlodipine 5mg"
-      },
-      "dosage": "1 顆",
-      "frequency": "daily",
-      "times": ["08:00", "20:00"],
-      "instructions": "飯後服用",
-      "instructions_translated": {
-        "zh-TW": "飯後服用",
-        "id": "Diminum setelah makan"
-      },
-      "start_date": "2026-01-01",
-      "end_date": null,
-      "is_active": true,
-      "reminder_enabled": true,
-      "created_by": {
-        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-        "name": "王小明"
-      },
-      "created_at": "2026-01-01T08:00:00Z",
-      "updated_at": "2026-04-01T10:00:00Z"
-    }
-  ],
-  "meta": {
-    "page": 1,
-    "page_size": 20,
-    "total": 3
-  }
-}
-```
+### POST `/medications/`
 
----
-
-### POST /medications/
-
-新增藥物（自動翻譯藥物名稱與說明，自動建立 calendar_event 用藥提醒）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | family_member |
-
-**Request Body：**
+Request:
 
 ```json
 {
-  "name": "Metformin 500mg",
-  "dosage": "1 顆",
-  "frequency": "twice_daily",
-  "times": ["08:00", "20:00"],
-  "instructions": "飯後服用，不可空腹",
-  "start_date": "2026-04-12",
+  "name": "降血壓藥",
+  "dosage": "5mg",
+  "frequency": "daily",
+  "times": ["08:00"],
+  "instructions": "飯後服用",
+  "start_date": "2026-05-01",
   "end_date": null,
   "reminder_enabled": true
 }
 ```
 
-**Response（201 Created）：**
+Response `201`: medication object.
+
+Side effect: attempts automatic translation for `name` and `instructions`.
+
+### GET `/medications/{medication_id}/`
+
+Returns one medication.
+
+### PUT/PATCH `/medications/{medication_id}/`
+
+Updates create fields: `name`, `dosage`, `frequency`, `times`, `instructions`, `start_date`, `end_date`, `reminder_enabled`.
+
+### DELETE `/medications/{medication_id}/`
+
+Deletes the medication.
+
+### POST `/medications/{medication_id}/confirm/`
+
+Creates a medication confirmation and a linked care log.
+
+Request:
+
+```json
+{
+  "photo_url": "https://example.com/photo.jpg",
+  "scheduled_time": "08:00",
+  "note": "已服用"
+}
+```
+
+Response `201`:
 
 ```json
 {
   "success": true,
   "data": {
-    "id": "med2b3c4-d5e6-7890-bcde-f12345678901",
-    "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "name": "Metformin 500mg",
-    "name_translated": {
-      "zh-TW": "二甲雙胍 500mg",
-      "id": "Metformin 500mg"
-    },
-    "dosage": "1 顆",
-    "frequency": "twice_daily",
-    "times": ["08:00", "20:00"],
-    "instructions": "飯後服用，不可空腹",
-    "instructions_translated": {
-      "zh-TW": "飯後服用，不可空腹",
-      "id": "Diminum setelah makan, jangan saat perut kosong"
-    },
-    "start_date": "2026-04-12",
-    "end_date": null,
-    "is_active": true,
-    "reminder_enabled": true,
-    "created_by": {
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "id": "uuid",
+    "medication": "uuid",
+    "confirmed_by": {
+      "id": "uuid",
       "name": "王小明"
     },
-    "created_at": "2026-04-12T10:00:00Z",
-    "updated_at": "2026-04-12T10:00:00Z"
-  }
-}
-```
-
----
-
-### PUT /medications/:id/
-
-更新藥物資訊。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | family_member |
-
-**Request Body：**
-
-```json
-{
-  "dosage": "2 顆",
-  "times": ["08:00", "14:00", "20:00"],
-  "frequency": "daily",
-  "instructions": "飯後服用，一天三次"
-}
-```
-
-**Response（200 OK）：**
-
-```json
-{
-  "success": true,
-  "data": {
-    "id": "med2b3c4-d5e6-7890-bcde-f12345678901",
-    "name": "Metformin 500mg",
-    "dosage": "2 顆",
-    "frequency": "daily",
-    "times": ["08:00", "14:00", "20:00"],
-    "instructions": "飯後服用，一天三次",
-    "is_active": true,
-    "updated_at": "2026-04-12T11:00:00Z"
-  }
-}
-```
-
----
-
----
-
-### GET /medications/today_confirmations/
-
-取得當天家族內所有的用藥確認紀錄（服藥打勾狀態同步）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder |
-
-**Response（200 OK）：**
-
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "mc1a2b3c-d4e5-6789-abcd-ef1234567890",
-      "medication": "med1a2b3-c4d5-6789-abcd-ef1234567890",
-      "confirmed_by": {
-        "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-        "name": "Siti"
-      },
-      "photo_url": null,
-      "scheduled_time": "08:00",
-      "note": "順利服藥",
-      "confirmed_at": "2026-04-12T08:15:00Z"
-    }
-  ]
-}
-```
-
----
-
-### POST /medications/:id/confirm/
-
-餵藥確認（照片已設為選填參數，自動建立 care_log 用藥紀錄，推播通知家屬）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Request Body（JSON）：**
-
-```json
-{
-  "photo_url": null,
-  "scheduled_time": "08:00",
-  "note": "順利服藥"
-}
-```
-
-**Response（201 Created）：**
-
-```json
-{
-  "success": true,
-  "data": {
-    "id": "mc1a2b3c-d4e5-6789-abcd-ef1234567890",
-    "medication": {
-      "id": "med1a2b3-c4d5-6789-abcd-ef1234567890",
-      "name": "Amlodipine 5mg"
-    },
-    "confirmed_by": {
-      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-      "name": "Siti"
-    },
-    "photo_url": "https://carebridge-storage.s3.amazonaws.com/medications/mc1a2b3c.jpg",
+    "photo_url": "https://example.com/photo.jpg",
     "scheduled_time": "08:00",
-    "note": "順利服藥",
-    "care_log": {
-      "id": "cl4d5e6f-a7b8-9012-cdef-123456789012"
-    },
-    "confirmed_at": "2026-04-12T08:15:00Z"
+    "note": "已服用",
+    "confirmed_at": "2026-05-07T08:01:00+08:00"
   }
 }
 ```
 
----
+### GET `/medications/today_confirmations/`
 
-## 7. Expense 消費記帳
+Returns medication confirmations whose `confirmed_at` date is today in server timezone.
 
-### GET /expenses/
+## Expenses
 
-取得消費紀錄列表。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Query 參數：**
-
-| 參數 | 型別 | 說明 |
-|---|---|---|
-| `start_date` | Date | 起始日期 |
-| `end_date` | Date | 結束日期 |
-| `category` | String | 品項分類篩選（`food` / `daily` / `medical` / `other`） |
-| `status` | String | 狀態：`processing` / `completed` / `failed` |
-| `page` | Integer | 頁碼 |
-| `page_size` | Integer | 每頁筆數 |
-
-**Response（200 OK）：**
+### Expense Object
 
 ```json
 {
-  "success": true,
-  "data": [
-    {
-      "id": "exp1a2b3-c4d5-6789-abcd-ef1234567890",
-      "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "recorder": {
-        "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-        "name": "Siti"
-      },
-      "scan_id": null,
-      "store_name": "全聯福利中心",
-      "date": "2026-04-12",
-      "items": [
-        {
-          "name": "鮮乳",
-          "quantity": 2,
-          "unit_price": 75,
-          "total": 150,
-          "category": "food"
-        },
-        {
-          "name": "衛生紙",
-          "quantity": 1,
-          "unit_price": 189,
-          "total": 189,
-          "category": "daily"
-        }
-      ],
-      "total_amount": "339.00",
-      "image_url": null,
-      "ocr_confidence": null,
-      "status": "completed",
-      "created_at": "2026-04-12T15:00:00Z",
-      "updated_at": "2026-04-12T15:00:00Z"
-    }
-  ],
-  "meta": {
-    "page": 1,
-    "page_size": 20,
-    "total": 12
-  }
-}
-```
-
----
-
-### POST /expenses/scan/
-
-收據 OCR 掃描（非同步處理：上傳照片 → Celery 背景任務 GPT-4o Vision 辨識 → 推播通知）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver |
-
-**Request Body（multipart/form-data）：**
-
-```json
-{
-  "image": "<binary receipt image>"
-}
-```
-
-**Response（202 Accepted）：**
-
-```json
-{
-  "success": true,
-  "data": {
-    "scan_id": "scan_20260412_001",
-    "status": "processing",
-    "message": "收據已上傳，正在辨識中"
-  }
-}
-```
-
----
-
-### GET /expenses/:id/
-
-取得單筆消費紀錄。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Response（200 OK）：**
-
-```json
-{
-  "success": true,
-  "data": {
-    "id": "exp1a2b3-c4d5-6789-abcd-ef1234567890",
-    "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "recorder": {
-      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-      "name": "Siti"
-    },
-    "scan_id": "scan_20260412_001",
-    "store_name": "全聯福利中心",
-    "date": "2026-04-12",
-    "items": [
-      {
-        "name": "鮮乳",
-        "quantity": 2,
-        "unit_price": 75,
-        "total": 150,
-        "category": "food"
-      }
-    ],
-    "total_amount": "150.00",
-    "image_url": "https://carebridge-storage.s3.amazonaws.com/receipts/scan_20260412_001.jpg",
-    "ocr_confidence": 0.95,
-    "status": "completed",
-    "created_at": "2026-04-12T15:00:00Z",
-    "updated_at": "2026-04-12T15:01:00Z"
-  }
-}
-```
-
----
-
-### PUT /expenses/:id/
-
-修正消費紀錄（例如修正 OCR 辨識結果）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Request Body：**
-
-```json
-{
-  "store_name": "全聯福利中心 信義店",
-  "date": "2026-04-12",
+  "id": "uuid",
+  "family": "uuid",
+  "recorder": "uuid",
+  "scan_id": null,
+  "store_name": "藥局",
+  "date": "2026-05-07",
   "items": [
     {
-      "name": "鮮乳",
-      "quantity": 2,
-      "unit_price": 75,
-      "total": 150,
-      "category": "food"
+      "name": "尿布",
+      "category": "daily",
+      "quantity": 1,
+      "total": 399
     }
   ],
-  "total_amount": 150.00
+  "total_amount": "399.00",
+  "image_url": "https://presigned-download-url",
+  "ocr_confidence": null,
+  "status": "completed",
+  "created_at": "2026-05-07T10:00:00+08:00",
+  "updated_at": "2026-05-07T10:00:00+08:00"
 }
 ```
 
-**Response（200 OK）：**
+`image_url` is converted to a short-lived presigned GET URL when possible.
+
+### GET `/expenses/`
+
+Family-scoped list.
+
+Query:
+
+| Query | Type | Notes |
+|---|---|---|
+| `status` | enum | `processing`, `completed`, `failed`. |
+| `date_from` | date | Inclusive. |
+| `date_to` | date | Inclusive. |
+| `page`, `page_size` | integer | Pagination. |
+
+Response metadata: `count`, `next`, `previous`.
+
+### POST `/expenses/`
+
+Creates a completed expense record.
+
+Request:
+
+```json
+{
+  "store_name": "藥局",
+  "date": "2026-05-07",
+  "items": [
+    {
+      "name": "尿布",
+      "category": "daily",
+      "quantity": 1,
+      "total": 399
+    }
+  ],
+  "total_amount": "399.00",
+  "image_url": "https://example.com/receipt.jpg"
+}
+```
+
+Response `201`: expense object.
+
+### POST `/expenses/upload-url/`
+
+Creates a presigned S3 PUT URL for receipt upload.
+
+Request:
+
+```json
+{
+  "content_type": "image/jpeg"
+}
+```
+
+Supported extension mapping: `image/jpeg`, `image/jpg`, `image/png`, `image/heic`. Unknown types default to `.jpg`.
+
+Response:
 
 ```json
 {
   "success": true,
   "data": {
-    "id": "exp1a2b3-c4d5-6789-abcd-ef1234567890",
-    "store_name": "全聯福利中心 信義店",
-    "date": "2026-04-12",
-    "items": [
-      {
-        "name": "鮮乳",
-        "quantity": 2,
-        "unit_price": 75,
-        "total": 150,
-        "category": "food"
-      }
-    ],
-    "total_amount": "150.00",
-    "updated_at": "2026-04-12T16:00:00Z"
+    "upload_url": "https://presigned-put-url",
+    "image_url": "https://bucket-url/receipts/family-id/file.jpg",
+    "key": "receipts/family-id/file.jpg"
   }
 }
 ```
 
----
+### POST `/expenses/scan/`
 
-### GET /expenses/monthly/
+Creates a processing expense record from an already uploaded receipt image. The current view does not run OCR directly.
 
-月結帳單（按分類/日期聚合統計）。
+Request:
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
+```json
+{
+  "image_url": "https://bucket-url/receipts/family-id/file.jpg",
+  "date": "2026-05-07"
+}
+```
 
-**Query 參數：**
+Response `202`: expense object with `status=processing`, `items=[]`, `total_amount=0`, and generated `scan_id`.
 
-| 參數 | 型別 | 說明 |
-|---|---|---|
-| `year` | Integer | 年份（例：2026） |
-| `month` | Integer | 月份（例：4） |
+### GET `/expenses/monthly/`
 
-**Response（200 OK）：**
+Returns current-month completed expense total and category breakdown.
+
+Response:
 
 ```json
 {
   "success": true,
   "data": {
-    "year": 2026,
-    "month": 4,
-    "total_amount": "12580.00",
-    "total_count": 25,
-    "by_category": [
-      {
-        "category": "food",
-        "amount": "6800.00",
-        "count": 15
-      },
+    "monthly_total": 1200.5,
+    "category_breakdown": [
       {
         "category": "daily",
-        "amount": "2300.00",
-        "count": 5
-      },
-      {
-        "category": "medical",
-        "amount": "3480.00",
-        "count": 5
-      }
-    ],
-    "by_date": [
-      {
-        "date": "2026-04-01",
-        "amount": "450.00",
-        "count": 2
-      },
-      {
-        "date": "2026-04-02",
-        "amount": "680.00",
-        "count": 3
+        "percentage": 66.5
       }
     ]
   }
 }
 ```
 
----
+### GET `/expenses/{expense_id}/`
 
-## 8. Leave 請假管理
+Returns one expense.
 
-### GET /leaves/
+### PUT/PATCH `/expenses/{expense_id}/`
 
-取得請假紀錄列表。
+Updates `store_name`, `date`, `items`, `total_amount`, and/or `image_url`.
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
+### DELETE `/expenses/{expense_id}/`
 
-**Query 參數：**
+Deletes the expense.
 
-| 參數 | 型別 | 說明 |
-|---|---|---|
-| `status` | String | 篩選狀態：`pending` / `approved` / `rejected` |
-| `type` | String | 假別：`personal` / `sick` / `emergency` |
-| `page` | Integer | 頁碼 |
-| `page_size` | Integer | 每頁筆數 |
+## Leaves
 
-**Response（200 OK）：**
+### Leave Object
 
 ```json
 {
-  "success": true,
-  "data": [
-    {
-      "id": "lv1a2b3c-d4e5-6789-abcd-ef1234567890",
-      "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "applicant": {
-        "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-        "name": "Siti"
-      },
-      "type": "personal",
-      "start_date": "2026-04-15",
-      "end_date": "2026-04-16",
-      "days": 2,
-      "reason": "Pulang kampung",
-      "reason_translated": "回鄉探親",
-      "status": "pending",
-      "reply": null,
-      "reviewed_by": null,
-      "reviewed_at": null,
-      "calendar_event": null,
-      "created_at": "2026-04-12T08:00:00Z"
-    }
-  ],
-  "meta": {
-    "page": 1,
-    "page_size": 20,
-    "total": 3
-  }
+  "id": "uuid",
+  "family": "uuid",
+  "applicant": { "id": "uuid", "email": "caregiver@example.com" },
+  "applicant_name": "王小明",
+  "type": "personal",
+  "start_date": "2026-06-01",
+  "end_date": "2026-06-02",
+  "days": 2,
+  "reason": "家中有事",
+  "reason_translated": null,
+  "status": "pending",
+  "reply": null,
+  "reviewed_by": null,
+  "reviewed_at": null,
+  "calendar_event": null,
+  "votes": [],
+  "created_at": "2026-05-07T10:00:00+08:00"
 }
 ```
 
----
+### GET `/leaves/`
 
-### POST /leaves/
+Family-scoped list.
 
-申請請假（原因自動翻譯，推播通知家屬）。
+Query:
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver |
+| Query | Type | Notes |
+|---|---|---|
+| `status` | enum | `pending`, `approved`, `rejected`. |
+| `page`, `page_size` | integer | Pagination. |
 
-**Request Body：**
+Response metadata: `count`.
+
+### POST `/leaves/`
+
+Request:
 
 ```json
 {
   "type": "personal",
-  "start_date": "2026-04-15",
-  "end_date": "2026-04-16",
-  "days": 2,
-  "reason": "Pulang kampung untuk acara keluarga"
+  "start_date": "2026-06-01",
+  "end_date": "2026-06-02",
+  "reason": "家中有事"
 }
 ```
 
-**Response（201 Created）：**
+Response `201`: leave object.
 
-```json
-{
-  "success": true,
-  "data": {
-    "id": "lv1a2b3c-d4e5-6789-abcd-ef1234567890",
-    "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "applicant": {
-      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-      "name": "Siti"
-    },
-    "type": "personal",
-    "start_date": "2026-04-15",
-    "end_date": "2026-04-16",
-    "days": 2,
-    "reason": "Pulang kampung untuk acara keluarga",
-    "reason_translated": "回鄉參加家庭活動",
-    "status": "pending",
-    "created_at": "2026-04-12T08:00:00Z"
-  }
-}
-```
+Side effect: `days` is calculated inclusively as `(end_date - start_date) + 1`.
 
----
+### GET `/leaves/{leave_id}/`
 
-### PATCH /leaves/:id/status/
+Returns one leave request.
 
-核准或駁回請假（核准時自動建立 calendar_event，推播通知看護）。
+### PATCH `/leaves/{leave_id}/status/`
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | family_member |
+Approves or rejects a leave.
 
-**Request Body：**
+Request:
 
 ```json
 {
   "status": "approved",
-  "reply": "已核准，請提前安排交接"
+  "reply": "可以"
 }
 ```
 
-**Response（200 OK）：**
+Rules:
+
+| Status | Side effect |
+|---|---|
+| `approved` | Creates a linked calendar event if one does not already exist. |
+| `rejected` | No calendar event is created. |
+
+Response: leave object.
+
+### POST `/leaves/{leave_id}/vote/`
+
+Upserts the current user's vote.
+
+Request:
+
+```json
+{
+  "is_available": true
+}
+```
+
+Auto-resolution rules:
+
+| Votes | Result |
+|---|---|
+| Any family member votes `is_available=true` | Leave becomes `approved`. |
+| All eligible `family_member` users vote `false` | Leave becomes `rejected`. |
+| Otherwise | Leave remains `pending`. |
+
+Response: leave object.
+
+### PUT/PATCH/DELETE `/leaves/{leave_id}/`
+
+The router exposes detail update/delete routes from `ModelViewSet`.
+
+Practical contract:
+
+| Method | Current behavior |
+|---|---|
+| `PUT`/`PATCH` | Uses `LeaveSerializer`, whose fields are read-only. Prefer `/status/` and `/vote/`. |
+| `DELETE` | Default DRF destroy deletes the leave. |
+
+## Health Data
+
+### HealthData Object
+
+```json
+{
+  "id": "uuid",
+  "family": "uuid",
+  "device_id": "watch-001",
+  "type": "heart_rate",
+  "value": 78.0,
+  "unit": "bpm",
+  "recorded_at": "2026-05-07T08:00:00+08:00",
+  "created_at": "2026-05-07T08:01:00+08:00"
+}
+```
+
+### GET `/health-data/`
+
+Family-scoped health data list or aggregation.
+
+Query:
+
+| Query | Type | Notes |
+|---|---|---|
+| `type` | enum | See health data types. |
+| `date_from` | date | Inclusive on `recorded_at__date`. |
+| `date_to` | date | Inclusive on `recorded_at__date`. |
+| `aggregation` | enum | `raw`, `hourly`, `daily`. Omit for raw. |
+
+Raw response returns up to 200 newest rows in model ordering.
+
+Aggregation response:
 
 ```json
 {
   "success": true,
-  "data": {
-    "id": "lv1a2b3c-d4e5-6789-abcd-ef1234567890",
-    "status": "approved",
-    "reply": "已核准，請提前安排交接",
-    "reviewed_by": {
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "name": "王小明"
-    },
-    "reviewed_at": "2026-04-12T10:00:00Z",
-    "calendar_event": {
-      "id": "evt1a2b3-c4d5-6789-abcd-ef1234567890",
-      "title": "看護請假：Siti",
-      "start_time": "2026-04-15T00:00:00Z",
-      "end_time": "2026-04-16T23:59:59Z"
-    }
-  }
-}
-```
-
----
-
-## 9. Health 健康監測
-
-### POST /health-data/sync/
-
-批次同步 Apple Watch 健康數據（去重處理，即時異常檢測，超過閾值觸發警示）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / elder |
-
-**Request Body：**
-
-```json
-{
-  "device_id": "apple-watch-001",
-  "records": [
+  "data": [
     {
       "type": "heart_rate",
-      "value": 72,
-      "unit": "bpm",
-      "recorded_at": "2026-04-12T10:00:00Z"
-    },
-    {
-      "type": "heart_rate",
-      "value": 75,
-      "unit": "bpm",
-      "recorded_at": "2026-04-12T10:05:00Z"
-    },
-    {
-      "type": "blood_oxygen",
-      "value": 98.5,
-      "unit": "%",
-      "recorded_at": "2026-04-12T10:00:00Z"
-    },
-    {
-      "type": "step_count",
-      "value": 320,
-      "unit": "steps",
-      "recorded_at": "2026-04-12T10:00:00Z"
-    },
-    {
-      "type": "active_energy",
-      "value": 45.2,
-      "unit": "kcal",
-      "recorded_at": "2026-04-12T10:00:00Z"
+      "period": "2026-05-07T08:00:00+08:00",
+      "avg_value": 78.5
     }
   ]
 }
 ```
 
-**Response（200 OK）：**
+### POST `/health-data/sync/`
+
+Batch syncs health data. Duplicate key is `(family, type, recorded_at)`.
+
+Request:
 
 ```json
 {
-  "success": true,
-  "data": {
-    "synced": 5,
-    "duplicates_skipped": 0,
-    "alerts_triggered": 0
-  }
-}
-```
-
----
-
-### GET /health-data/
-
-查詢健康數據（支援 raw / hourly / daily 聚合）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder |
-
-**Query 參數：**
-
-| 參數 | 型別 | 說明 |
-|---|---|---|
-| `type` | String | 資料類型：`heart_rate` / `blood_oxygen` / `step_count` / `active_energy` |
-| `start_date` | DateTime | 起始時間（ISO 8601） |
-| `end_date` | DateTime | 結束時間（ISO 8601） |
-| `aggregation` | String | 聚合方式：`raw`（預設）/ `hourly` / `daily` |
-| `page` | Integer | 頁碼 |
-| `page_size` | Integer | 每頁筆數 |
-
-**Response（200 OK，aggregation=raw）：**
-
-```json
-{
-  "success": true,
   "data": [
     {
-      "id": "hd1a2b3c-d4e5-6789-abcd-ef1234567890",
       "type": "heart_rate",
-      "value": "72.00",
+      "value": "78.00",
       "unit": "bpm",
-      "device_id": "apple-watch-001",
-      "recorded_at": "2026-04-12T10:00:00Z"
-    },
-    {
-      "id": "hd2b3c4d-e5f6-7890-bcde-f12345678901",
-      "type": "heart_rate",
-      "value": "75.00",
-      "unit": "bpm",
-      "device_id": "apple-watch-001",
-      "recorded_at": "2026-04-12T10:05:00Z"
-    }
-  ],
-  "meta": {
-    "page": 1,
-    "page_size": 20,
-    "total": 288
-  }
-}
-```
-
-**Response（200 OK，aggregation=hourly）：**
-
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "hour": "2026-04-12T10:00:00Z",
-      "type": "heart_rate",
-      "avg": 73.5,
-      "min": 68.0,
-      "max": 82.0,
-      "count": 12
-    },
-    {
-      "hour": "2026-04-12T11:00:00Z",
-      "type": "heart_rate",
-      "avg": 76.2,
-      "min": 70.0,
-      "max": 85.0,
-      "count": 12
+      "recorded_at": "2026-05-07T08:00:00+08:00",
+      "device_id": "watch-001"
     }
   ]
 }
 ```
 
----
-
-### GET /health-data/dashboard/
-
-健康儀表板彙總（最新數值 + 今日統計）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder |
-
-**Response（200 OK）：**
+Response `201`:
 
 ```json
 {
   "success": true,
   "data": {
-    "latest": {
-      "heart_rate": {
-        "value": 75.0,
-        "unit": "bpm",
-        "recorded_at": "2026-04-12T14:30:00Z"
-      },
-      "blood_oxygen": {
-        "value": 98.5,
-        "unit": "%",
-        "recorded_at": "2026-04-12T14:30:00Z"
-      },
-      "step_count": {
-        "value": 3250,
-        "unit": "steps",
-        "recorded_at": "2026-04-12T14:30:00Z"
-      },
-      "active_energy": {
-        "value": 185.5,
-        "unit": "kcal",
-        "recorded_at": "2026-04-12T14:30:00Z"
-      }
-    },
-    "today_summary": {
-      "heart_rate_avg": 74.2,
-      "heart_rate_min": 58.0,
-      "heart_rate_max": 92.0,
-      "blood_oxygen_avg": 97.8,
-      "total_steps": 3250,
-      "total_active_energy": 185.5
-    },
-    "alerts_today": 0
+    "synced": 1,
+    "duplicates": 0,
+    "alerts": []
   }
 }
 ```
 
----
+Side effect: new heart-rate and blood-oxygen points are checked against alert thresholds.
 
-### GET /health-data/alerts/
+### GET `/health-data/dashboard/`
 
-健康異常警示紀錄。
+Returns the latest data point for each health type.
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Query 參數：**
-
-| 參數 | 型別 | 說明 |
-|---|---|---|
-| `acknowledged` | Boolean | 篩選已確認/未確認 |
-| `severity` | String | 嚴重度：`warning` / `critical` |
-| `page` | Integer | 頁碼 |
-| `page_size` | Integer | 每頁筆數 |
-
-**Response（200 OK）：**
-
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "ha1a2b3c-d4e5-6789-abcd-ef1234567890",
-      "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "type": "heart_rate",
-      "value": "112.00",
-      "threshold": "100.00",
-      "severity": "warning",
-      "acknowledged_by": null,
-      "acknowledged_at": null,
-      "recorded_at": "2026-04-12T11:30:00Z",
-      "created_at": "2026-04-12T11:30:00Z"
-    }
-  ],
-  "meta": {
-    "page": 1,
-    "page_size": 20,
-    "total": 2
-  }
-}
-```
-
----
-
-### PUT /health-data/alerts/:id/acknowledge/
-
-確認（acknowledge）健康警示。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Response（200 OK）：**
+Response:
 
 ```json
 {
   "success": true,
   "data": {
-    "id": "ha1a2b3c-d4e5-6789-abcd-ef1234567890",
-    "acknowledged_by": {
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "name": "王小明"
-    },
-    "acknowledged_at": "2026-04-12T12:00:00Z"
+    "heart_rate": { "value": 78.0, "unit": "bpm" },
+    "blood_oxygen": { "value": 97.0, "unit": "%" }
   }
 }
 ```
 
----
+### GET `/health-data/alerts/`
 
-### PUT /health-data/thresholds/
+Returns the latest 100 family alerts.
 
-更新健康異常閾值設定。
+### PUT `/health-data/alerts/{alert_id}/acknowledge/`
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | family_member |
+Marks one alert as acknowledged by the current user.
 
-**Request Body：**
+Response: health alert object.
+
+### GET `/health-data/thresholds/`
+
+Returns the family thresholds, creating default thresholds if missing.
+
+Default values:
 
 ```json
 {
-  "heart_rate_high": 110,
-  "heart_rate_low": 45,
-  "blood_oxygen_low": 92.0
+  "heart_rate_high": 100,
+  "heart_rate_low": 50,
+  "blood_oxygen_low": "93.0"
 }
 ```
 
-**Response（200 OK）：**
+### PUT `/health-data/thresholds/`
+
+Updates thresholds.
+
+Request:
+
+```json
+{
+  "heart_rate_high": 105,
+  "heart_rate_low": 48,
+  "blood_oxygen_low": "92.5"
+}
+```
+
+Response: threshold object.
+
+### GET `/health-data/weekly-steps/`
+
+Returns a 7-element integer array, oldest day to newest day.
 
 ```json
 {
   "success": true,
-  "data": {
-    "id": "ht1a2b3c-d4e5-6789-abcd-ef1234567890",
-    "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "heart_rate_high": 110,
-    "heart_rate_low": 45,
-    "blood_oxygen_low": 92.0,
-    "updated_by": {
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "name": "王小明"
-    },
-    "updated_at": "2026-04-12T10:00:00Z"
-  }
+  "data": [3000, 4200, 0, 5100, 6200, 7000, 4500]
 }
 ```
 
----
+## Calendar Events
 
-### GET /health-data/weekly-steps/
-
-每週步數統計。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder |
-
-**Query 參數：**
-
-| 參數 | 型別 | 說明 |
-|---|---|---|
-| `date` | Date | 指定週的任意日期（預設：本週） |
-
-**Response（200 OK）：**
+### Event Object
 
 ```json
 {
-  "success": true,
-  "data": {
-    "week_start": "2026-04-06",
-    "week_end": "2026-04-12",
-    "total_steps": 28500,
-    "daily": [
-      { "date": "2026-04-06", "steps": 4200 },
-      { "date": "2026-04-07", "steps": 3800 },
-      { "date": "2026-04-08", "steps": 4500 },
-      { "date": "2026-04-09", "steps": 3600 },
-      { "date": "2026-04-10", "steps": 4100 },
-      { "date": "2026-04-11", "steps": 5050 },
-      { "date": "2026-04-12", "steps": 3250 }
-    ]
-  }
-}
-```
-
----
-
-## 10. Calendar Event 行事曆
-
-### GET /events/
-
-取得行事曆事件列表。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder |
-
-**Query 參數：**
-
-| 參數 | 型別 | 說明 |
-|---|---|---|
-| `start_time` | DateTime | 起始時間 |
-| `end_time` | DateTime | 結束時間 |
-| `type` | String | 事件類型：`medical` / `medication` / `rehab` / `leave` / `personal` / `other` |
-| `source` | String | 來源：`manual` / `medication` / `leave` |
-| `page` | Integer | 頁碼 |
-| `page_size` | Integer | 每頁筆數 |
-
-**Response（200 OK）：**
-
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "evt1a2b3-c4d5-6789-abcd-ef1234567890",
-      "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "title": "回診 - 台大心臟內科",
-      "title_translated": {
-        "zh-TW": "回診 - 台大心臟內科",
-        "id": "Kontrol - Kardiologi NTU"
-      },
-      "start_time": "2026-04-15T09:00:00Z",
-      "end_time": "2026-04-15T11:00:00Z",
-      "location": "台大醫院",
-      "type": "medical",
-      "reminder_minutes": 60,
-      "note": "記得帶健保卡和上次檢查報告",
-      "source": "manual",
-      "source_id": null,
-      "created_by": {
-        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-        "name": "王小明"
-      },
-      "created_at": "2026-04-10T08:00:00Z"
-    },
-    {
-      "id": "evt2b3c4-d5e6-7890-bcde-f12345678901",
-      "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "title": "用藥提醒：Amlodipine 5mg",
-      "title_translated": {
-        "zh-TW": "用藥提醒：脈優 5mg",
-        "id": "Pengingat obat: Amlodipine 5mg"
-      },
-      "start_time": "2026-04-12T08:00:00Z",
-      "end_time": null,
-      "location": null,
-      "type": "medication",
-      "reminder_minutes": 15,
-      "note": null,
-      "source": "medication",
-      "source_id": "med1a2b3-c4d5-6789-abcd-ef1234567890",
-      "created_by": {
-        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-        "name": "王小明"
-      },
-      "created_at": "2026-01-01T08:00:00Z"
-    }
-  ],
-  "meta": {
-    "page": 1,
-    "page_size": 20,
-    "total": 15
-  }
-}
-```
-
----
-
-### POST /events/
-
-建立行事曆事件（標題自動翻譯）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Request Body：**
-
-```json
-{
-  "title": "復健治療",
-  "start_time": "2026-04-16T14:00:00Z",
-  "end_time": "2026-04-16T15:00:00Z",
-  "location": "陽明復健診所",
-  "type": "rehab",
+  "id": "uuid",
+  "family": "uuid",
+  "title": "回診",
+  "title_translated": null,
+  "start_time": "2026-05-10T09:00:00+08:00",
+  "end_time": "2026-05-10T10:00:00+08:00",
+  "location": "台大醫院",
+  "type": "medical",
   "reminder_minutes": 60,
-  "note": "帶護膝"
+  "note": "帶健保卡",
+  "source": "manual",
+  "source_id": null,
+  "created_by": { "id": "uuid", "email": "caregiver@example.com" },
+  "created_at": "2026-05-07T10:00:00+08:00"
 }
 ```
 
-**Response（201 Created）：**
+### GET `/events/`
+
+Family-scoped list. This endpoint disables pagination.
+
+Query:
+
+| Query | Type | Notes |
+|---|---|---|
+| `type` | enum | `medical`, `medication`, `rehab`, `leave`, `personal`, `other`. |
+| `start_after` | datetime | Inclusive. |
+| `start_before` | datetime | Inclusive. |
+
+### POST `/events/`
+
+Request:
 
 ```json
 {
-  "success": true,
-  "data": {
-    "id": "evt3c4d5-e6f7-8901-cdef-123456789012",
-    "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "title": "復健治療",
-    "title_translated": {
-      "zh-TW": "復健治療",
-      "id": "Terapi rehabilitasi"
-    },
-    "start_time": "2026-04-16T14:00:00Z",
-    "end_time": "2026-04-16T15:00:00Z",
-    "location": "陽明復健診所",
-    "type": "rehab",
-    "reminder_minutes": 60,
-    "note": "帶護膝",
-    "source": "manual",
-    "source_id": null,
-    "created_by": {
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "name": "王小明"
-    },
-    "created_at": "2026-04-12T10:00:00Z"
+  "title": "回診",
+  "start_time": "2026-05-10T09:00:00+08:00",
+  "end_time": "2026-05-10T10:00:00+08:00",
+  "location": "台大醫院",
+  "type": "medical",
+  "reminder_minutes": 60,
+  "note": "帶健保卡"
+}
+```
+
+Response `201`: event object.
+
+### POST `/events/batch/`
+
+Creates multiple events.
+
+Request can be either a raw array:
+
+```json
+[
+  {
+    "title": "回診",
+    "start_time": "2026-05-10T09:00:00+08:00",
+    "type": "medical"
   }
-}
+]
 ```
 
----
-
-### PUT /events/:id/
-
-更新行事曆事件。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Request Body：**
-
-```json
-{
-  "title": "復健治療（改時間）",
-  "start_time": "2026-04-16T15:00:00Z",
-  "end_time": "2026-04-16T16:00:00Z",
-  "reminder_minutes": 30
-}
-```
-
-**Response（200 OK）：**
-
-```json
-{
-  "success": true,
-  "data": {
-    "id": "evt3c4d5-e6f7-8901-cdef-123456789012",
-    "title": "復健治療（改時間）",
-    "start_time": "2026-04-16T15:00:00Z",
-    "end_time": "2026-04-16T16:00:00Z",
-    "reminder_minutes": 30,
-    "created_at": "2026-04-12T10:00:00Z"
-  }
-}
-```
-
----
-
-### DELETE /events/:id/
-
-刪除行事曆事件。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Response（204 No Content）：**
-
-無回應內容。
-
----
-
-### POST /events/batch/
-
-批次建立行事曆事件。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Request Body：**
+Or wrapped:
 
 ```json
 {
   "events": [
     {
-      "title": "復健治療",
-      "start_time": "2026-04-16T14:00:00Z",
-      "end_time": "2026-04-16T15:00:00Z",
-      "location": "陽明復健診所",
-      "type": "rehab",
-      "reminder_minutes": 60
-    },
-    {
-      "title": "回診 - 台大心臟內科",
-      "start_time": "2026-04-20T09:00:00Z",
-      "end_time": "2026-04-20T11:00:00Z",
-      "location": "台大醫院",
-      "type": "medical",
-      "reminder_minutes": 60
+      "title": "回診",
+      "start_time": "2026-05-10T09:00:00+08:00",
+      "type": "medical"
     }
   ]
 }
 ```
 
-**Response（201 Created）：**
+Response `201`: event object array.
+
+### GET `/events/{event_id}/`
+
+Returns one event.
+
+### PUT/PATCH `/events/{event_id}/`
+
+Updates create fields. Current implementation treats update as partial.
+
+### DELETE `/events/{event_id}/`
+
+Deletes the event.
+
+## Todos
+
+### Todo Object
 
 ```json
 {
-  "success": true,
-  "data": {
-    "created": 2,
-    "events": [
-      {
-        "id": "evt4d5e6-f7a8-9012-cdef-123456789012",
-        "title": "復健治療"
-      },
-      {
-        "id": "evt5e6f7-a8b9-0123-cdef-123456789012",
-        "title": "回診 - 台大心臟內科"
-      }
-    ]
-  }
+  "id": "uuid",
+  "family": "uuid",
+  "title": "量血壓",
+  "title_translated": null,
+  "assignee": { "id": "uuid", "email": "caregiver@example.com" },
+  "priority": "medium",
+  "status": "pending",
+  "due_date": "2026-05-08",
+  "completed_at": null,
+  "care_log": null,
+  "created_by": { "id": "uuid", "email": "creator@example.com" },
+  "created_at": "2026-05-07T10:00:00+08:00"
 }
 ```
 
----
+### GET `/todos/`
 
-## 11. Todo 代辦事項
+Family-scoped list.
 
-### GET /todos/
+Query:
 
-取得代辦事項列表。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Query 參數：**
-
-| 參數 | 型別 | 說明 |
+| Query | Type | Notes |
 |---|---|---|
-| `status` | String | 篩選狀態：`pending` / `completed` |
-| `priority` | String | 篩選優先度：`high` / `medium` / `low` |
-| `assignee` | UUID | 指派對象 ID |
-| `page` | Integer | 頁碼 |
-| `page_size` | Integer | 每頁筆數 |
+| `status` | enum | `pending`, `completed`. |
+| `assignee` | UUID | Filters by assigned user id. |
+| `priority` | enum | `high`, `medium`, `low`. |
+| `page`, `page_size` | integer | Pagination. |
 
-**Response（200 OK）：**
+Response metadata: `count`.
 
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "td1a2b3c-d4e5-6789-abcd-ef1234567890",
-      "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "title": "帶爺爺去公園散步",
-      "title_translated": {
-        "zh-TW": "帶爺爺去公園散步",
-        "id": "Ajak kakek jalan-jalan di taman"
-      },
-      "assignee": {
-        "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-        "name": "Siti"
-      },
-      "priority": "medium",
-      "status": "pending",
-      "due_date": "2026-04-12",
-      "completed_at": null,
-      "care_log": null,
-      "created_by": {
-        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-        "name": "王小明"
-      },
-      "created_at": "2026-04-12T07:00:00Z"
-    }
-  ],
-  "meta": {
-    "page": 1,
-    "page_size": 20,
-    "total": 8
-  }
-}
-```
+### POST `/todos/`
 
----
-
-### POST /todos/
-
-建立代辦事項（推播通知被指派者）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Request Body：**
+Request:
 
 ```json
 {
   "title": "量血壓",
-  "assignee_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-  "priority": "high",
-  "due_date": "2026-04-12"
+  "assignee_id": "uuid",
+  "priority": "medium",
+  "due_date": "2026-05-08"
 }
 ```
 
-**Response（201 Created）：**
+Response `201`: todo object.
 
-```json
-{
-  "success": true,
-  "data": {
-    "id": "td2b3c4d-e5f6-7890-bcde-f12345678901",
-    "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "title": "量血壓",
-    "title_translated": {
-      "zh-TW": "量血壓",
-      "id": "Ukur tekanan darah"
-    },
-    "assignee": {
-      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-      "name": "Siti"
-    },
-    "priority": "high",
-    "status": "pending",
-    "due_date": "2026-04-12",
-    "created_by": {
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "name": "王小明"
-    },
-    "created_at": "2026-04-12T07:00:00Z"
-  }
-}
-```
+### GET `/todos/{todo_id}/`
 
----
+Returns one todo.
 
-### PUT /todos/:id/
+### PUT/PATCH `/todos/{todo_id}/`
 
-更新代辦事項（完成時自動建立 care_log 活動紀錄）。
+Updates simple fields:
 
-| 項目 | 說明 |
+| Field | Type |
 |---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
+| `title` | string |
+| `priority` | enum |
+| `due_date` | date/null |
+| `status` | enum |
 
-**Request Body（標記完成）：**
+Side effect: if status changes from not completed to `completed`, the backend creates an `activity` care log and links it to `todo.care_log`.
 
-```json
-{
-  "status": "completed"
-}
-```
+### DELETE `/todos/{todo_id}/`
 
-**Request Body（更新內容）：**
+Deletes the todo.
 
-```json
-{
-  "title": "量血壓並記錄",
-  "priority": "high",
-  "due_date": "2026-04-13"
-}
-```
+## Documents
 
-**Response（200 OK）：**
+### Document Object
 
 ```json
 {
-  "success": true,
-  "data": {
-    "id": "td2b3c4d-e5f6-7890-bcde-f12345678901",
-    "title": "量血壓",
-    "status": "completed",
-    "completed_at": "2026-04-12T10:30:00Z",
-    "care_log": {
-      "id": "cl5e6f7a-b8c9-0123-cdef-123456789012"
-    }
-  }
+  "id": "uuid",
+  "family": "uuid",
+  "title": "保險文件",
+  "category": "insurance",
+  "file_url": "https://example.com/file.pdf",
+  "file_size": 102400,
+  "mime_type": "application/pdf",
+  "uploaded_by": { "id": "uuid", "email": "user@example.com" },
+  "created_at": "2026-05-07T10:00:00+08:00"
 }
 ```
 
----
+### GET `/documents/`
 
-### DELETE /todos/:id/
+Family-scoped list.
 
-刪除代辦事項。
+Query:
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Response（204 No Content）：**
-
-無回應內容。
-
----
-
-## 12. Document 文件管理
-
-### GET /documents/
-
-取得文件列表。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Query 參數：**
-
-| 參數 | 型別 | 說明 |
+| Query | Type | Notes |
 |---|---|---|
-| `category` | String | 篩選分類：`insurance` / `medical` / `id_document` / `contract` / `other` |
-| `page` | Integer | 頁碼 |
-| `page_size` | Integer | 每頁筆數 |
+| `category` | enum | `insurance`, `medical`, `id_document`, `contract`, `other`. |
+| `page`, `page_size` | integer | Pagination. |
 
-**Response（200 OK）：**
+Response metadata: `count`.
+
+### POST `/documents/`
+
+Registers a document record. There is currently no document upload-url endpoint.
+
+Request:
 
 ```json
 {
-  "success": true,
-  "data": [
-    {
-      "id": "doc1a2b3-c4d5-6789-abcd-ef1234567890",
-      "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "title": "健保卡正面",
-      "category": "id_document",
-      "file_size": 524288,
-      "mime_type": "image/jpeg",
-      "uploaded_by": {
-        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-        "name": "王小明"
-      },
-      "created_at": "2026-04-01T08:00:00Z"
-    },
-    {
-      "id": "doc2b3c4-d5e6-7890-bcde-f12345678901",
-      "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "title": "長照保險單",
-      "category": "insurance",
-      "file_size": 1048576,
-      "mime_type": "application/pdf",
-      "uploaded_by": {
-        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-        "name": "王小明"
-      },
-      "created_at": "2026-03-15T10:00:00Z"
-    }
-  ],
-  "meta": {
-    "page": 1,
-    "page_size": 20,
-    "total": 6
-  }
+  "title": "保險文件",
+  "category": "insurance",
+  "file_url": "https://example.com/file.pdf",
+  "file_size": 102400,
+  "mime_type": "application/pdf"
 }
 ```
 
----
+Response `201`: document object.
 
-### POST /documents/
+### GET `/documents/{document_id}/`
 
-上傳文件（multipart/form-data，上傳至 S3，檔案大小限制 10MB）。
+Returns one document.
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
+### DELETE `/documents/{document_id}/`
 
-**Request Body（multipart/form-data）：**
+Deletes the document record.
 
+### PUT/PATCH `/documents/{document_id}/`
+
+The router exposes update routes, but the default update uses `DocumentSerializer`, whose fields are read-only. Do not rely on document update until a writable update serializer is added.
+
+## AI Assistant
+
+All AI endpoints require `OPENAI_API_KEY` and use `OPENAI_MODEL` from Django settings.
+
+### POST `/ai/chat/`
+
+Conversational AI with tool calling. Supports non-streaming JSON and SSE streaming.
+
+Query:
+
+| Query | Type | Notes |
+|---|---|---|
+| `stream` | boolean | `true`, `1`, `yes`, `false`, `0`, `no`. If omitted, `Accept: text/event-stream` also enables streaming. |
+
+Request:
+
+```json
+{
+  "message": "請分析最近一週的健康狀況",
+  "conversation_id": "uuid"
+}
 ```
-title: 診斷證明書
-category: medical
-file: <binary file>
-```
 
-**Response（201 Created）：**
+`conversation_id` is optional. If omitted, a new conversation is created.
+
+Non-streaming response:
 
 ```json
 {
   "success": true,
   "data": {
-    "id": "doc3c4d5-e6f7-8901-cdef-123456789012",
-    "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "title": "診斷證明書",
-    "category": "medical",
-    "file_url": "https://carebridge-storage.s3.amazonaws.com/documents/doc3c4d5.pdf",
-    "file_size": 256000,
-    "mime_type": "application/pdf",
-    "uploaded_by": {
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "name": "王小明"
-    },
-    "created_at": "2026-04-12T10:00:00Z"
+    "conversation_id": "uuid",
+    "reply": "分析內容...",
+    "tokens_used": 1234
   }
 }
 ```
 
----
+SSE events:
 
-### GET /documents/:id/
+```text
+data: {"type":"tool_call","tool":"query_health_data"}
 
-取得文件詳情（包含 Presigned URL，有效期 1 小時）。
+data: {"type":"content","text":"分析"}
 
-| 項目 | 說明 |
+data: {"type":"done","conversation_id":"uuid"}
+```
+
+Available AI tools:
+
+| Tool | Purpose |
 |---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
+| `query_health_data` | Recent vitals by type and days. |
+| `query_care_logs` | Recent care logs by type and days. |
+| `query_medications` | Current medications. |
+| `query_expenses` | Expenses and totals. |
+| `query_events` | Upcoming events. |
 
-**Response（200 OK）：**
+### POST `/ai/care-analysis/`
+
+Generates a care analysis report.
+
+Request:
+
+```json
+{
+  "days": 7
+}
+```
+
+Fields:
+
+| Field | Type | Required | Notes |
+|---|---|---:|---|
+| `days` | integer | no | Default `7`, min `1`, max `90`. |
+
+Response:
 
 ```json
 {
   "success": true,
   "data": {
-    "id": "doc3c4d5-e6f7-8901-cdef-123456789012",
-    "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "title": "診斷證明書",
-    "category": "medical",
-    "file_url": "https://carebridge-storage.s3.ap-northeast-1.amazonaws.com/documents/doc3c4d5.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=3600&...",
-    "file_size": 256000,
-    "mime_type": "application/pdf",
-    "uploaded_by": {
-      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "name": "王小明"
-    },
-    "created_at": "2026-04-12T10:00:00Z"
+    "analysis": "report text",
+    "period_days": 7,
+    "tokens_used": 1234
   }
 }
 ```
 
----
+### POST `/ai/handover-report/`
 
-### DELETE /documents/:id/
+Generates a bilingual handover report.
 
-刪除文件（同時刪除 DB 紀錄與 S3 檔案）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | family_member |
-
-**Response（204 No Content）：**
-
-無回應內容。
-
----
-
-## 13. AI 智慧助理
-
-### POST /ai/chat/
-
-AI 對話式查詢（SSE 串流回應，支援 Function Calling 查詢照護、健康、用藥、消費、行事曆數據）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-| 回應類型 | `text/event-stream`（SSE） |
-
-**Request Body：**
+Request:
 
 ```json
 {
-  "message": "爺爺最近一週的血壓如何？",
-  "conversation_id": "ai1a2b3c-d4e5-6789-abcd-ef1234567890"
+  "date": "2026-05-07"
 }
 ```
 
-**Response（SSE 串流）：**
+`date` is optional and defaults to today.
 
-```
-data: {"type": "token", "content": "根據"}
-data: {"type": "token", "content": "最近"}
-data: {"type": "token", "content": "一週"}
-data: {"type": "token", "content": "的"}
-data: {"type": "token", "content": "紀錄"}
-data: {"type": "token", "content": "，"}
-data: {"type": "token", "content": "爺爺"}
-data: {"type": "token", "content": "的"}
-data: {"type": "token", "content": "收縮壓"}
-data: {"type": "token", "content": "平均"}
-data: {"type": "token", "content": "為"}
-data: {"type": "token", "content": " 126.5 mmHg"}
-data: {"type": "token", "content": "..."}
-data: {"type": "done", "conversation_id": "ai1a2b3c-d4e5-6789-abcd-ef1234567890", "tokens_used": 350}
-```
-
----
-
-### POST /ai/care-analysis/
-
-照護記錄分析（取得照護摘要 → GPT-4o 產生分析報告）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Request Body：**
-
-```json
-{
-  "start_date": "2026-04-06",
-  "end_date": "2026-04-12"
-}
-```
-
-**Response（200 OK）：**
+Response:
 
 ```json
 {
   "success": true,
   "data": {
-    "period": {
-      "start_date": "2026-04-06",
-      "end_date": "2026-04-12"
-    },
-    "analysis": "本週照護概況：\n\n1. 用藥順從度 85.7%（12/14 次），建議持續關注漏服情形...\n2. 生理數值穩定，收縮壓平均 126.5 mmHg，舒張壓平均 80.3 mmHg...\n3. 飲食狀況良好，18 餐中有 12 餐食慾良好...\n4. 活動量適中，每日平均步行 30 分鐘...",
-    "recommendations": [
-      "建議加強 20:00 時段的用藥提醒",
-      "血壓偏高，建議下次回診時與醫師討論",
-      "可適當增加戶外活動時間"
-    ]
+    "report": "handover report text",
+    "date": "2026-05-07",
+    "tokens_used": 1234
   }
 }
 ```
 
----
+### POST `/ai/subsidy-form/`
 
-### POST /ai/handover-report/
+Generates suggested fields for a Taiwan subsidy form.
 
-看護交接報告生成（彙整照護資料 → GPT-4o 產生雙語報告）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
-
-**Request Body：**
+Request:
 
 ```json
 {
-  "start_date": "2026-04-06",
-  "end_date": "2026-04-12",
-  "format": "json"
+  "form_type": "long_term_care"
 }
 ```
 
-**Response（200 OK）：**
+Allowed `form_type`: `long_term_care`, `disability`, `respite_care`.
 
-```json
-{
-  "success": true,
-  "data": {
-    "report": {
-      "title": "照護交接報告 2026/04/06 - 2026/04/12",
-      "elder_name": "王大明",
-      "sections": {
-        "medication": "本週用藥順從度 85.7%，漏服 2 次（4/8 晚間、4/10 晚間）...",
-        "vitals": "生理數值穩定，血壓平均 126/80 mmHg...",
-        "meals": "飲食正常，食慾良好...",
-        "activities": "每日散步 30 分鐘，復健治療 2 次...",
-        "notes": "4/10 精神狀況較差，已加強觀察..."
-      },
-      "sections_translated": {
-        "medication": "Kepatuhan obat minggu ini 85.7%, terlewat 2 kali...",
-        "vitals": "Data fisiologis stabil, tekanan darah rata-rata 126/80 mmHg...",
-        "meals": "Makan normal, nafsu makan baik...",
-        "activities": "Jalan kaki harian 30 menit, terapi rehabilitasi 2 kali...",
-        "notes": "Tanggal 10/4 semangat kurang baik, sudah diperhatikan lebih..."
-      }
-    },
-    "pdf_url": "https://carebridge-storage.s3.amazonaws.com/reports/rpt_20260412.pdf"
-  }
-}
-```
-
----
-
-### POST /ai/subsidy-form/
-
-政府補助表單自動填寫（GPT-4o 根據長者資料填寫 → 標記缺漏欄位 → 產生 PDF）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | family_member |
-
-**Request Body：**
-
-```json
-{
-  "form_type": "long_term_care",
-  "additional_info": {
-    "disability_level": "moderate",
-    "care_needs": "daily_living_assistance"
-  }
-}
-```
-
-**Response（200 OK）：**
+Response:
 
 ```json
 {
   "success": true,
   "data": {
     "form_type": "long_term_care",
-    "filled_fields": {
-      "applicant_name": "王大明",
-      "birth_date": "1945-03-15",
-      "id_number": null,
-      "address": null,
-      "disability_level": "moderate",
-      "care_needs": "daily_living_assistance"
-    },
-    "missing_fields": ["id_number", "address", "phone", "emergency_contact"],
-    "pdf_url": "https://carebridge-storage.s3.amazonaws.com/forms/form_20260412.pdf"
+    "form_fields": {},
+    "tokens_used": 1234
   }
 }
 ```
 
----
+### POST `/ai/first-aid/`
 
-### POST /ai/first-aid/
+First-aid RAG query. Uses embedded `FirstAidDocument` records when available, otherwise falls back to direct model guidance.
 
-急救指引 RAG 查詢（使用者問題 → Embedding → pgvector 相似度搜尋 → GPT-4o 產生急救指引）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder |
-
-**Request Body：**
+Request:
 
 ```json
 {
-  "query": "長者跌倒後頭部有外傷，意識清楚，該怎麼處理？"
+  "query": "老人跌倒後該怎麼處理？"
 }
 ```
 
-**Response（200 OK）：**
+Response:
 
 ```json
 {
   "success": true,
   "data": {
-    "answer": "根據衛福部急救手冊建議：\n\n1. 保持冷靜，不要移動傷者\n2. 檢查意識狀態和呼吸\n3. 如有出血，以乾淨紗布輕壓止血\n4. 冰敷腫脹部位（隔布冰敷，每次不超過 15 分鐘）\n5. 即使意識清楚，仍建議就醫檢查是否有腦震盪\n6. 觀察 24-48 小時內是否出現嘔吐、頭痛加劇、嗜睡等症狀\n\n**緊急狀況**：若出現意識模糊、持續嘔吐、瞳孔大小不一，請立即撥打 119。",
+    "answer": "急救步驟...",
     "sources": [
       {
-        "title": "老人跌倒急救處理指南",
-        "source": "衛生福利部",
-        "section": "頭部外傷處理"
-      },
-      {
-        "title": "居家照護急救手冊",
-        "source": "衛生福利部",
-        "section": "跌倒處理流程"
+        "title": "Fall response",
+        "source": "manual"
       }
+    ],
+    "tokens_used": 1234
+  }
+}
+```
+
+Implementation caveat: several AI report views currently reference fields that do not exist in models (`Medication.time_slots`, `Expense.amount`) or aggregate inappropriate fields. These endpoints should be smoke-tested and fixed before being exposed in a back-office production UI.
+
+## SOS
+
+### SOSRecord Object
+
+```json
+{
+  "id": "uuid",
+  "family": "uuid",
+  "triggered_by": { "id": "uuid", "email": "user@example.com" },
+  "location": {
+    "lat": 25.033,
+    "lng": 121.565
+  },
+  "situation": "跌倒",
+  "auto_call_119": true,
+  "notified_members": ["uuid"],
+  "status": "triggered",
+  "triggered_at": "2026-05-07T10:00:00+08:00",
+  "resolved_at": null
+}
+```
+
+### POST `/sos/trigger/`
+
+Creates an SOS record and broadcasts notifications to family members except the triggering user.
+
+Request:
+
+```json
+{
+  "location": {
+    "lat": 25.033,
+    "lng": 121.565
+  },
+  "situation": "跌倒"
+}
+```
+
+Response `201`:
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "status": "triggered",
+    "notified_count": 3
+  }
+}
+```
+
+### GET `/sos/history/`
+
+Returns all SOS records for the current family.
+
+### PATCH `/sos/{sos_id}/resolve/`
+
+Marks an SOS as resolved and broadcasts a resolved notification.
+
+Request body: none required.
+
+Response: SOS record object.
+
+Errors:
+
+| Code | HTTP | Notes |
+|---|---:|---|
+| `not_found` | `404` | SOS record is not in current family. |
+| `sos_already_resolved` | `400` | Already resolved. |
+
+## Notifications and Devices
+
+### Notification Object
+
+```json
+{
+  "id": "uuid",
+  "user": "uuid",
+  "type": "chat_message",
+  "title": "New message",
+  "title_translated": null,
+  "body": "Preview",
+  "body_translated": null,
+  "data": {
+    "chat_id": "uuid"
+  },
+  "is_read": false,
+  "read_at": null,
+  "created_at": "2026-05-07T10:00:00+08:00"
+}
+```
+
+### Device Object
+
+```json
+{
+  "id": "uuid",
+  "user": "uuid",
+  "device_token": "apns-device-token",
+  "platform": "ios",
+  "device_name": "iPhone",
+  "is_active": true,
+  "created_at": "2026-05-07T10:00:00+08:00",
+  "updated_at": "2026-05-07T10:00:00+08:00"
+}
+```
+
+### GET `/notifications/`
+
+Returns notifications for the authenticated user.
+
+Query:
+
+| Query | Type | Notes |
+|---|---|---|
+| `is_read` | boolean | `true` or `false`. |
+| `page`, `page_size` | integer | Pagination. |
+
+Response metadata: `count`.
+
+### GET `/notifications/{notification_id}/`
+
+Returns one notification owned by the authenticated user.
+
+### PUT `/notifications/{notification_id}/read/`
+
+Marks one notification as read.
+
+Response: notification object.
+
+### PUT `/notifications/read-all/`
+
+Marks all unread notifications for the current user as read.
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "updated_count": 5
+  }
+}
+```
+
+### POST `/notifications/device/`
+
+Registers or updates a device token.
+
+Request:
+
+```json
+{
+  "device_token": "apns-device-token",
+  "platform": "ios",
+  "device_name": "iPhone"
+}
+```
+
+Allowed `platform`: `ios`, `watchos`.
+
+Response:
+
+| Case | HTTP |
+|---|---:|
+| New device | `201` |
+| Existing `(user, device_token)` updated | `200` |
+
+Response data: device object.
+
+### Router-exposed Notification CRUD
+
+The router exposes `POST`, `PUT`, `PATCH`, and `DELETE` on `/notifications/` and `/notifications/{id}/` because `NotificationViewSet` inherits `ModelViewSet`.
+
+Practical contract:
+
+| Method | Current behavior |
+|---|---|
+| `POST /notifications/` | Not suitable for clients; serializer fields are read-only and model required fields are not supplied. |
+| `PUT/PATCH /notifications/{id}/` | Read-only serializer means updates are not a useful public contract. |
+| `DELETE /notifications/{id}/` | Default DRF delete is exposed and can delete a user's notification. |
+
+## Enums
+
+### User
+
+| Enum | Values |
+|---|---|
+| `role` | `caregiver`, `family_member`, `elder` |
+| `language` | `zh-TW`, `id`, `vi`, `tl` |
+
+### Chat
+
+| Enum | Values |
+|---|---|
+| `Chat.type` | `group`, `direct` |
+| `Message.type` | `text`, `image` |
+| `Message.message_type` | `text`, `purchase_request`, `leave_request` |
+
+### Care and Operations
+
+| Enum | Values |
+|---|---|
+| `BoardRequest.category` | `food`, `daily`, `medical`, `other` |
+| `BoardRequest.status` | `pending`, `approved`, `rejected`, `completed` |
+| `CareLog.type` | `medication`, `vital`, `meal`, `activity`, `note` |
+| `Medication.frequency` | `daily`, `twice_daily`, `thrice_daily`, `weekly`, `as_needed` |
+| `Expense.status` | `processing`, `completed`, `failed` |
+| `Leave.type` | `personal`, `sick`, `emergency` |
+| `Leave.status` | `pending`, `approved`, `rejected` |
+| `Event.type` | `medical`, `medication`, `rehab`, `leave`, `personal`, `other` |
+| `Event.source` | `manual`, `medication`, `leave` |
+| `Todo.priority` | `high`, `medium`, `low` |
+| `Todo.status` | `pending`, `completed` |
+| `Document.category` | `insurance`, `medical`, `id_document`, `contract`, `other` |
+
+### Health
+
+| Enum | Values |
+|---|---|
+| `HealthData.type` | `heart_rate`, `blood_oxygen`, `step_count`, `active_energy`, `blood_pressure_systolic`, `blood_pressure_diastolic` |
+| `HealthData.unit` | `bpm`, `%`, `steps`, `kcal`, `mmHg` |
+| `HealthAlert.severity` | `warning`, `critical` |
+
+### SOS and Notifications
+
+| Enum | Values |
+|---|---|
+| `SOSRecord.status` | `triggered`, `resolved` |
+| `Device.platform` | `ios`, `watchos` |
+| `Notification.type` | `health_alert`, `medication_reminder`, `medication_confirmed`, `leave_request`, `leave_status`, `board_request`, `board_approved`, `expense_scanned`, `sos`, `sos_resolved`, `event_reminder`, `todo_assigned`, `chat_message` |
+
+## Back-office Integration Notes
+
+### Current API Scope
+
+Most app resource endpoints remain family-scoped through `request.user.family`. The dedicated admin API below is the staff-only exception and is intended for the personal back-office dashboard.
+
+Production admin clients should use:
+
+```http
+https://api.carebridge-lab.com/api/v1/admin/
+```
+
+The production dashboard origin `https://shao-zhen.com` is allowed by CORS. Local dashboard development origins `http://127.0.0.1:4173` and `http://localhost:4321` are also allowed.
+
+### Existing Admin Surface
+
+Django admin is mounted at:
+
+```http
+https://api.carebridge-lab.com/admin/
+```
+
+It uses Django session authentication, not the API JWT envelope.
+
+### Staff Admin API
+
+All `/api/v1/admin/*` endpoints require:
+
+```http
+Authorization: Bearer <staff_access_token>
+```
+
+The authenticated user must be active and staff (`is_authenticated`, `is_active`, `is_staff`). Anonymous requests return `401`; authenticated non-staff users return `403`. Admin endpoints accept `GET` and CORS `OPTIONS` only.
+
+Allow-listed table names:
+
+`users`, `families`, `care_logs`, `board_requests`, `todos`, `events`, `health_data`, `health_alerts`, `health_thresholds`, `expenses`, `documents`
+
+Sensitive fields such as `password` are excluded from list/detail serialization.
+
+#### GET `/admin/overview/`
+
+Returns global KPIs, table counts, records created/updated in the last 24 hours, and operational alerts.
+
+Response shape:
+
+```json
+{
+  "success": true,
+  "data": {
+    "kpis": [{ "label": "Users", "value": 10, "delta_24h": 1 }],
+    "tables": [
+      {
+        "table": "users",
+        "count": 10,
+        "created_24h": 1,
+        "updated_24h": 1
+      }
+    ],
+    "alerts": [
+      { "severity": "critical", "title": "Unacknowledged critical health alerts", "count": 2 }
     ]
   }
 }
 ```
 
----
+Current alerts include unacknowledged critical health alerts, missing storage bucket configuration, missing storage credentials, and storage listing failure when storage credentials are configured.
 
-## 14. SOS 緊急呼叫
+#### GET `/admin/activity/`
 
-### POST /sos/trigger/
+Derives recent global activity from allow-listed model timestamps. It does not use a dedicated audit table, so `actor` is `null` when the model has no actor field.
 
-觸發 SOS 緊急呼叫（儲存紀錄 → 推播通知所有家庭成員，高優先級 APNs）。
+Query params:
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / elder |
+| Query | Type | Default | Max | Notes |
+|---|---:|---:|---:|---|
+| `limit` | integer | `12` | `100` | Number of activity items. |
+| `since` | datetime | none | n/a | Include activity at or after this timestamp. |
+| `cursor` | datetime | none | n/a | Include activity before this timestamp. |
 
-**Request Body：**
-
-```json
-{
-  "location": {
-    "latitude": 25.0330,
-    "longitude": 121.5654,
-    "address": "台北市信義區信義路五段7號"
-  },
-  "situation": "爺爺在浴室跌倒",
-  "auto_call_119": true
-}
-```
-
-**Response（201 Created）：**
+Response shape:
 
 ```json
 {
   "success": true,
   "data": {
-    "id": "sos1a2b3-c4d5-6789-abcd-ef1234567890",
-    "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-    "triggered_by": {
-      "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-      "name": "Siti"
-    },
-    "location": {
-      "latitude": 25.0330,
-      "longitude": 121.5654,
-      "address": "台北市信義區信義路五段7號"
-    },
-    "situation": "爺爺在浴室跌倒",
-    "auto_call_119": true,
-    "notified_members": [
+    "results": [
       {
-        "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-        "name": "王小明",
-        "notified": true
+        "id": "users:uuid:created:2026-05-08T10:00:00+08:00",
+        "table": "users",
+        "record_id": "uuid",
+        "action": "created",
+        "actor": null,
+        "created_at": "2026-05-08T10:00:00+08:00"
       }
     ],
-    "status": "triggered",
-    "triggered_at": "2026-04-12T14:00:00Z"
+    "next_cursor": null
   }
 }
 ```
 
----
+#### GET `/admin/tables/{table}/`
 
-### GET /sos/history/
+Returns a read-only global table view for allow-listed tables. Unknown tables return `404`.
 
-SOS 歷史紀錄列表。
+Query params:
 
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member |
+| Query | Type | Default | Max | Notes |
+|---|---:|---:|---:|---|
+| `page` | integer | `1` | n/a | Page number. |
+| `page_size` | integer | `20` | `100` | Values above `100` are capped. |
+| `search` | string | none | n/a | Searches only per-table allow-listed fields. |
+| `date_from` | date/datetime | none | n/a | Lower timestamp/date bound. |
+| `date_to` | date/datetime | none | n/a | Upper timestamp/date bound. |
 
-**Query 參數：**
-
-| 參數 | 型別 | 說明 |
-|---|---|---|
-| `status` | String | 篩選狀態：`triggered` / `resolved` |
-| `page` | Integer | 頁碼 |
-| `page_size` | Integer | 每頁筆數 |
-
-**Response（200 OK）：**
+Response shape:
 
 ```json
 {
   "success": true,
-  "data": [
-    {
-      "id": "sos1a2b3-c4d5-6789-abcd-ef1234567890",
-      "family": "f1a2b3c4-d5e6-7890-abcd-ef1234567890",
-      "triggered_by": {
-        "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-        "name": "Siti"
-      },
-      "location": {
-        "latitude": 25.0330,
-        "longitude": 121.5654,
-        "address": "台北市信義區信義路五段7號"
-      },
-      "situation": "爺爺在浴室跌倒",
-      "auto_call_119": true,
-      "notified_members": [
-        {
-          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-          "name": "王小明",
-          "notified": true
-        }
-      ],
-      "status": "resolved",
-      "triggered_at": "2026-04-12T14:00:00Z",
-      "resolved_at": "2026-04-12T14:30:00Z"
-    }
-  ],
-  "meta": {
+  "data": {
+    "results": [],
+    "count": 0,
+    "next": null,
+    "previous": null,
     "page": 1,
-    "page_size": 20,
-    "total": 1
+    "page_size": 20
   }
 }
 ```
 
----
+#### GET `/admin/records/{table}/{id}/`
 
-## 15. Notification 通知系統
+Returns one allow-listed record, its related storage object references, and a raw copy of the serialized record. Unknown tables or IDs return `404`.
 
-### GET /notifications/
-
-取得通知列表。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder |
-
-**Query 參數：**
-
-| 參數 | 型別 | 說明 |
-|---|---|---|
-| `is_read` | Boolean | 篩選已讀/未讀 |
-| `type` | String | 通知類型篩選 |
-| `page` | Integer | 頁碼 |
-| `page_size` | Integer | 每頁筆數 |
-
-**Response（200 OK）：**
+Response shape:
 
 ```json
 {
   "success": true,
-  "data": [
-    {
-      "id": "nf1a2b3c-d4e5-6789-abcd-ef1234567890",
-      "user": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "type": "health_alert",
-      "title": "健康警示：心率異常",
-      "title_translated": {
-        "zh-TW": "健康警示：心率異常",
-        "id": "Peringatan kesehatan: detak jantung tidak normal"
-      },
-      "body": "長者心率達到 112 bpm，超過上限 100 bpm",
-      "body_translated": {
-        "zh-TW": "長者心率達到 112 bpm，超過上限 100 bpm",
-        "id": "Detak jantung lansia mencapai 112 bpm, melebihi batas 100 bpm"
-      },
-      "data": {
-        "alert_id": "ha1a2b3c-d4e5-6789-abcd-ef1234567890",
-        "route": "/health/alerts"
-      },
-      "is_read": false,
-      "read_at": null,
-      "created_at": "2026-04-12T11:30:00Z"
-    },
-    {
-      "id": "nf2b3c4d-e5f6-7890-bcde-f12345678901",
-      "user": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-      "type": "medication_confirmed",
-      "title": "用藥確認：Amlodipine 5mg",
-      "title_translated": {
-        "zh-TW": "用藥確認：Amlodipine 5mg",
-        "id": "Konfirmasi obat: Amlodipine 5mg"
-      },
-      "body": "Siti 已確認完成 08:00 用藥",
-      "body_translated": {
-        "zh-TW": "Siti 已確認完成 08:00 用藥",
-        "id": "Siti telah mengkonfirmasi pemberian obat pukul 08:00"
-      },
-      "data": {
-        "medication_id": "med1a2b3-c4d5-6789-abcd-ef1234567890",
-        "route": "/medications"
-      },
-      "is_read": true,
-      "read_at": "2026-04-12T09:00:00Z",
-      "created_at": "2026-04-12T08:15:00Z"
-    }
-  ],
-  "meta": {
+  "data": {
+    "record": { "id": "uuid" },
+    "related_files": [
+      {
+        "bucket": "carebridge-storage",
+        "object_key": "receipts/family/receipt.jpg",
+        "linked_table": "expenses",
+        "linked_record_id": "uuid",
+        "orphan": false
+      }
+    ],
+    "raw": { "id": "uuid" }
+  }
+}
+```
+
+Related files are parsed from allow-listed URL fields such as `file_url`, `image_url`, `photo_url`, and `avatar_url`.
+
+#### GET `/admin/storage/objects/`
+
+Lists objects from the configured `AWS_STORAGE_BUCKET_NAME` using backend credentials. Clients cannot provide arbitrary credentials. The optional `bucket` query must be omitted or exactly match the configured bucket.
+
+Query params:
+
+| Query | Type | Default | Max | Notes |
+|---|---:|---:|---:|---|
+| `bucket` | string | configured bucket | n/a | Must equal `AWS_STORAGE_BUCKET_NAME` if present. |
+| `prefix` | string | empty | n/a | Rejects `..` and backslashes. |
+| `page` | integer | `1` | n/a | Page number over returned object list. |
+| `page_size` | integer | `20` | `100` | Values above `100` are capped. |
+| `orphan` | boolean | none | n/a | Filter to orphan or linked objects. |
+
+Response shape:
+
+```json
+{
+  "success": true,
+  "data": {
+    "results": [
+      {
+        "bucket": "carebridge-storage",
+        "object_key": "docs/report.pdf",
+        "size": 100,
+        "last_modified": "2026-05-08T10:00:00+08:00",
+        "content_type": null,
+        "linked_table": "documents",
+        "linked_record_id": "uuid",
+        "orphan": false
+      }
+    ],
+    "count": 1,
     "page": 1,
-    "page_size": 20,
-    "total": 15
+    "page_size": 20
   }
 }
 ```
 
----
+This endpoint does not return signed preview/download URLs in v3.1.
 
-### PUT /notifications/:id/read/
+#### GET `/admin/logs/`
 
-標記單則通知為已讀。
+Reads only allow-listed log streams. It does not accept filesystem paths.
 
-| 項目 | 說明 |
+Streams:
+
+| Stream | File |
 |---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder |
+| `runtime` | `backend/logs/runtime.log` |
+| `api-errors` | `backend/logs/api-errors.log` |
 
-**Response（200 OK）：**
+Query params:
+
+| Query | Type | Default | Max | Notes |
+|---|---:|---:|---:|---|
+| `stream` | string | `runtime` | n/a | Must be `runtime` or `api-errors`. |
+| `lines` | integer | `100` | `500` | Values above `500` are capped. |
+
+Response shape:
 
 ```json
 {
   "success": true,
   "data": {
-    "id": "nf1a2b3c-d4e5-6789-abcd-ef1234567890",
-    "is_read": true,
-    "read_at": "2026-04-12T12:00:00Z"
+    "stream": "runtime",
+    "lines": [
+      {
+        "timestamp": "2026-05-08 10:00:00.000",
+        "level": "INFO",
+        "message": "Runtime started",
+        "request_id": null
+      }
+    ],
+    "next_cursor": null
   }
 }
 ```
 
----
+### Known Implementation Caveats
 
-### PUT /notifications/read-all/
+These are not documentation guesses; they come from the current code:
 
-標記所有通知為已讀。
-
-| 項目 | 說明 |
+| Area | Caveat |
 |---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder |
-
-**Response（200 OK）：**
-
-```json
-{
-  "success": true,
-  "data": {
-    "updated_count": 8
-  }
-}
-```
-
----
-
-### POST /notifications/device/
-
-註冊裝置推播 Token（APNs）。
-
-| 項目 | 說明 |
-|---|---|
-| 認證 | 是 |
-| 權限 | caregiver / family_member / elder |
-
-**Request Body：**
-
-```json
-{
-  "device_token": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
-  "platform": "ios",
-  "device_name": "iPhone 16 Pro"
-}
-```
-
-**Response（201 Created）：**
-
-```json
-{
-  "success": true,
-  "data": {
-    "id": "dev1a2b3-c4d5-6789-abcd-ef1234567890",
-    "user": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-    "device_token": "a1b2c3d4e5f6...f0a1b2",
-    "platform": "ios",
-    "device_name": "iPhone 16 Pro",
-    "is_active": true,
-    "created_at": "2026-04-12T08:00:00Z"
-  }
-}
-```
-
----
-
-## 附錄
-
-### A. 跨模組自動觸發規則
-
-| 觸發動作 | 來源模組 | 目標模組 | 說明 |
-|---|---|---|---|
-| 餵藥拍照確認 | Medication | Care Log | 自動建立 `type=medication` 的照護日誌 |
-| 完成代辦事項 | Todo | Care Log | 自動建立 `type=activity` 的照護日誌 |
-| 新增藥物 | Medication | Calendar Event | 自動建立用藥提醒行事曆（`source=medication`） |
-| 核准請假 | Leave | Calendar Event | 自動建立請假行事曆（`source=leave`） |
-| 健康數據同步 | Health | Health Alert | 數值超過閾值時自動建立異常警示 |
-| 健康數據異常 | Health Alert | Notification | 推播通知所有家庭成員 |
-| 用藥到時 | Medication（Celery Beat） | Notification | 推播提醒看護 + Watch |
-| 看護確認餵藥 | Medication Confirm | Notification | 推播通知家屬 |
-| 看護申請請假 | Leave | Notification | 推播通知家屬 |
-| 請假核准/駁回 | Leave | Notification | 推播通知看護 |
-| 看護發送採購需求 | Board | Notification | 推播通知家屬 |
-| 家屬確認採購 | Board | Notification | 推播通知看護 |
-| 收據 OCR 完成 | Expense（Celery） | Notification | 推播通知看護 |
-| SOS 觸發 | SOS | Notification | 推播通知所有家庭成員（高優先級） |
-| 行程前提醒 | Calendar Event（Celery Beat） | Notification | 提前 N 分鐘推播 |
-| 代辦被指派 | Todo | Notification | 推播通知被指派者 |
-| 聊天訊息（離線） | Chat | Notification | 推播通知離線接收者 |
-
----
-
-### B. 角色權限矩陣
-
-| 端點 | caregiver | family_member | elder |
-|---|---|---|---|
-| **Auth** | | | |
-| POST /auth/register/ | O | O | O |
-| POST /auth/login/ | O | O | O |
-| GET /auth/me/ | O | O | O |
-| PUT /auth/me/ | O | O | O |
-| DELETE /auth/account/ | O | O | O |
-| **Family** | | | |
-| POST /families/ | - | O | - |
-| GET /families/:id/ | O | O | O |
-| POST /families/:id/members/ | O | O | O |
-| DELETE /families/:id/members/:userId/ | - | O (primary) | - |
-| **Chat** | | | |
-| GET /chats/ | O | O | O |
-| POST /chats/ | O | O | O |
-| GET /chats/:id/messages/ | O | O | O |
-| POST /chats/:id/messages/ | O | O | O |
-| **Board** | | | |
-| GET /board/ | O | O | - |
-| POST /board/ | O | - | - |
-| PUT /board/:id/ | O | - | - |
-| PATCH /board/:id/status/ | - | O | - |
-| **Care Log** | | | |
-| GET /care-logs/ | O | O | - |
-| POST /care-logs/ | O | - | - |
-| PUT /care-logs/:id/ | O | - | - |
-| GET /care-logs/summary/ | O | O | - |
-| **Medication** | | | |
-| GET /medications/ | O | O | - |
-| POST /medications/ | - | O | - |
-| PUT /medications/:id/ | - | O | - |
-| GET /medications/today_confirmations/ | O | O | O |
-| POST /medications/:id/confirm/ | O | O | - |
-| **Expense** | | | |
-| GET /expenses/ | O | O | - |
-| POST /expenses/scan/ | O | - | - |
-| GET /expenses/:id/ | O | O | - |
-| PUT /expenses/:id/ | O | O | - |
-| GET /expenses/monthly/ | O | O | - |
-| **Leave** | | | |
-| GET /leaves/ | O | O | - |
-| POST /leaves/ | O | - | - |
-| PATCH /leaves/:id/status/ | - | O | - |
-| **Health** | | | |
-| POST /health-data/sync/ | O | - | O |
-| GET /health-data/ | O | O | O |
-| GET /health-data/dashboard/ | O | O | O |
-| GET /health-data/alerts/ | O | O | - |
-| PUT /health-data/alerts/:id/acknowledge/ | O | O | - |
-| PUT /health-data/thresholds/ | - | O | - |
-| GET /health-data/weekly-steps/ | O | O | O |
-| **Calendar Event** | | | |
-| GET /events/ | O | O | O |
-| POST /events/ | O | O | - |
-| PUT /events/:id/ | O | O | - |
-| DELETE /events/:id/ | O | O | - |
-| POST /events/batch/ | O | O | - |
-| **Todo** | | | |
-| GET /todos/ | O | O | - |
-| POST /todos/ | O | O | - |
-| PUT /todos/:id/ | O | O | - |
-| DELETE /todos/:id/ | O | O | - |
-| **Document** | | | |
-| GET /documents/ | O | O | - |
-| POST /documents/ | O | O | - |
-| GET /documents/:id/ | O | O | - |
-| DELETE /documents/:id/ | - | O | - |
-| **AI** | | | |
-| POST /ai/chat/ | O | O | - |
-| POST /ai/care-analysis/ | O | O | - |
-| POST /ai/handover-report/ | O | O | - |
-| POST /ai/subsidy-form/ | - | O | - |
-| POST /ai/first-aid/ | O | O | O |
-| **SOS** | | | |
-| POST /sos/trigger/ | O | - | O |
-| GET /sos/history/ | O | O | - |
-| **Notification** | | | |
-| GET /notifications/ | O | O | O |
-| PUT /notifications/:id/read/ | O | O | O |
-| PUT /notifications/read-all/ | O | O | O |
-| POST /notifications/device/ | O | O | O |
-
-> **O** = 可存取 / **-** = 無權限
-
----
-
-### C. WebSocket 訊息格式（Chat）
-
-#### 連線方式
-
-```
-ws://127.0.0.1:8000/ws/chat/<chat_id>/?token=<access_token>
-```
-
-#### 客戶端 → 伺服器
-
-| action | 說明 | 資料格式 |
-|---|---|---|
-| `message` | 發送訊息 | `{"action": "message", "data": {"type": "text", "content": "..."}}` |
-| `message` | 發送圖片 | `{"action": "message", "data": {"type": "image", "image_url": "..."}}` |
-| `typing` | 正在輸入 | `{"action": "typing", "data": {"is_typing": true}}` |
-
-#### 伺服器 → 客戶端
-
-| action | 說明 | 資料格式 |
-|---|---|---|
-| `message` | 接收訊息 | `{"action": "message", "data": {"id": "...", "sender": {...}, "type": "text", "content": "...", "translations": {...}, "sent_at": "..."}}` |
-| `typing` | 對方正在輸入 | `{"action": "typing", "data": {"user_id": "...", "is_typing": true}}` |
-| `error` | 錯誤訊息 | `{"action": "error", "data": {"code": "...", "message": "..."}}` |
-
-#### 事件類型
-
-| 事件 | Channel Layer 事件名稱 | 說明 |
-|---|---|---|
-| 訊息廣播 | `chat.message` | 新訊息廣播至所有聊天室成員 |
-| 輸入狀態 | `chat.typing` | 「正在輸入」狀態轉發 |
-
----
-
-### D. 通知類型一覽
-
-| 通知類型 | 說明 | 接收者 |
-|---|---|---|
-| `health_alert` | 健康數據異常警示 | 全部家庭成員 |
-| `medication_reminder` | 用藥時間提醒 | 看護 + Watch |
-| `medication_confirmed` | 看護已確認餵藥 | 家屬 |
-| `leave_request` | 看護申請請假 | 家屬 |
-| `leave_approved` | 請假已核准 | 看護 |
-| `leave_rejected` | 請假已駁回 | 看護 |
-| `board_request` | 新採購需求 | 家屬 |
-| `board_approved` | 採購需求已確認 | 看護 |
-| `expense_scanned` | 收據 OCR 辨識完成 | 看護 |
-| `sos_triggered` | SOS 緊急呼叫 | 全部家庭成員 |
-| `event_reminder` | 行程前提醒 | 對應成員 |
-| `todo_assigned` | 被指派新代辦 | 被指派者 |
-| `chat_message` | 聊天訊息（離線推播） | 接收者 |
+| AI reports | Some queries reference model fields that do not exist, such as `time_slots` and `amount`. |
+| Notification CRUD | Router exposes create/update/delete because of `ModelViewSet`, but only list/retrieve/read/read-all/device registration are intentional public contracts. |
+| Document update | Router exposes update, but serializer is read-only outside create. |
+| Leave update | Router exposes detail update, but the main mutation paths are `/status/` and `/vote/`. |
+| Permissions | Many review/delete actions only require authentication and family scope; no `is_primary` or role checks are enforced in code. |
+| WebSocket | Chat socket accepts before explicit membership validation. |
