@@ -1,7 +1,7 @@
 # CareBridge API Documentation
 
-> Version: v3.1
-> Last updated: 2026-05-08
+> Version: v3.2
+> Last updated: 2026-05-09
 > Source of truth: `backend/carebridge_api/urls.py`, `backend/apps/*/urls.py`, `views.py`, `serializers.py`, `models.py`
 > Production Base URL: `https://api.carebridge-lab.com/api/v1`
 > Local Development Base URL: `http://127.0.0.1:8000/api/v1`
@@ -30,7 +30,7 @@ This document reflects the current backend code and the current public Cloudflar
 15. [SOS](#sos)
 16. [Notifications and Devices](#notifications-and-devices)
 17. [Enums](#enums)
-18. [Back-office Integration Notes](#back-office-integration-notes)
+18. [Admin Dashboard API](#admin-dashboard-api)
 
 ## Global Contract
 
@@ -51,6 +51,17 @@ Public endpoints:
 | `POST` | `/auth/login/` | App login, returns app auth envelope. |
 | `POST` | `/auth/token/` | SimpleJWT raw token endpoint. |
 | `POST` | `/auth/token/refresh/` | SimpleJWT raw refresh endpoint. |
+
+### API Audience Map
+
+The backend exposes two different API surfaces under the same production base URL:
+
+| Audience | Namespace | Authorization | Data scope |
+|---|---|---|---|
+| CareBridge app and normal user clients | `/api/v1/auth/*`, `/api/v1/families/*`, `/api/v1/chats/*`, `/api/v1/board/*`, `/api/v1/care-logs/*`, `/api/v1/medications/*`, `/api/v1/expenses/*`, `/api/v1/leaves/*`, `/api/v1/health-data/*`, `/api/v1/events/*`, `/api/v1/todos/*`, `/api/v1/documents/*`, `/api/v1/ai/*`, `/api/v1/sos/*`, `/api/v1/notifications/*` | Normal JWT user | Usually limited to `request.user.family` or `request.user`. |
+| Personal web admin dashboard | `/api/v1/admin/*` | Staff JWT user only | Global staff view over allow-listed tables, storage, and logs. |
+
+Important: `/api/v1/health-data/dashboard/` is an app health summary endpoint, not the web admin dashboard API. The web dashboard should use only `/api/v1/admin/*` after login.
 
 ### Success Envelope
 
@@ -2062,11 +2073,11 @@ Practical contract:
 | `Device.platform` | `ios`, `watchos` |
 | `Notification.type` | `health_alert`, `medication_reminder`, `medication_confirmed`, `leave_request`, `leave_status`, `board_request`, `board_approved`, `expense_scanned`, `sos`, `sos_resolved`, `event_reminder`, `todo_assigned`, `chat_message` |
 
-## Back-office Integration Notes
+## Admin Dashboard API
 
 ### Current API Scope
 
-Most app resource endpoints remain family-scoped through `request.user.family`. The dedicated admin API below is the staff-only exception and is intended for the personal back-office dashboard.
+Most app resource endpoints remain family-scoped through `request.user.family`. The dedicated admin API below is the staff-only exception and is intended for the personal web dashboard.
 
 Production admin clients should use:
 
@@ -2074,9 +2085,9 @@ Production admin clients should use:
 https://api.carebridge-lab.com/api/v1/admin/
 ```
 
-The production dashboard origin `https://shao-zhen.com` is allowed by CORS. Local dashboard development origins `http://127.0.0.1:4173` and `http://localhost:4321` are also allowed.
+The production dashboard origin `https://shao-zhen.com` is allowed by CORS. Local dashboard development origins `http://127.0.0.1:4173` and `http://localhost:4321` are also allowed. Bearer tokens are used in the `Authorization` header; `CORS_ALLOW_CREDENTIALS` is intentionally `false`.
 
-### Existing Admin Surface
+### Existing Django Admin Surface
 
 Django admin is mounted at:
 
@@ -2084,9 +2095,9 @@ Django admin is mounted at:
 https://api.carebridge-lab.com/admin/
 ```
 
-It uses Django session authentication, not the API JWT envelope.
+It uses Django session authentication, not the API JWT envelope. The web dashboard should use `/api/v1/admin/*` instead of scraping or depending on `/admin/`.
 
-### Staff Admin API
+### Staff Admin API Rules
 
 All `/api/v1/admin/*` endpoints require:
 
@@ -2094,15 +2105,55 @@ All `/api/v1/admin/*` endpoints require:
 Authorization: Bearer <staff_access_token>
 ```
 
-The authenticated user must be active and staff (`is_authenticated`, `is_active`, `is_staff`). Anonymous requests return `401`; authenticated non-staff users return `403`. Admin endpoints accept `GET` and CORS `OPTIONS` only.
+The authenticated user must be active and staff: `is_authenticated`, `is_active`, and `is_staff`. Anonymous requests return `401`; authenticated non-staff users return `403`.
+
+Current staff API methods:
+
+| Method | Supported endpoints |
+|---|---|
+| `GET` | Overview, activity, schema, table list, lookup, record detail, storage list, presign, request logs, raw logs. |
+| `POST` | Table create, file upload. |
+| `DELETE` | Record soft delete. |
+| `OPTIONS` | CORS preflight. |
 
 Allow-listed table names:
 
 `users`, `families`, `care_logs`, `board_requests`, `todos`, `events`, `health_data`, `health_alerts`, `health_thresholds`, `expenses`, `documents`
 
-Sensitive fields such as `password` are excluded from list/detail serialization.
+Writable table names:
 
-#### GET `/admin/overview/`
+`care_logs`, `board_requests`, `todos`, `events`, `health_data`, `health_alerts`, `health_thresholds`, `expenses`, `documents`
+
+Read-only table names:
+
+`users`, `families`
+
+File upload table names:
+
+`care_logs`, `expenses`, `documents`
+
+Sensitive fields such as `password`, token fields, secret fields, credentials, private keys, and APNs secrets are excluded from list/detail/lookup serialization.
+
+### Admin Endpoint Index
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/admin/overview/` | Global KPIs, per-table counts, and operational alerts. |
+| `GET` | `/admin/activity/` | Recent global activity derived from model timestamps. |
+| `GET` | `/admin/tables/{table}/schema/` | Form schema for creating records and showing table capabilities. |
+| `GET` | `/admin/tables/{table}/` | Global list view for one allow-listed table. |
+| `POST` | `/admin/tables/{table}/` | Create one record in a writable table. |
+| `GET` | `/admin/lookups/users/` | Search users for relation fields. |
+| `GET` | `/admin/lookups/families/` | Search families for relation fields. |
+| `GET` | `/admin/records/{table}/{id}/` | Read one record plus related file references. |
+| `DELETE` | `/admin/records/{table}/{id}/` | Soft-delete one writable record through audit tombstone filtering. |
+| `GET` | `/admin/storage/objects/` | List configured bucket objects and identify orphaned files. |
+| `GET` | `/admin/files/presign/` | Return a short-lived preview or download URL for one object. |
+| `POST` | `/admin/files/upload/` | Upload a file to the configured bucket using backend credentials. |
+| `GET` | `/admin/request-logs/` | Structured request monitor for all `/api/v1/*` requests. |
+| `GET` | `/admin/logs/` | Tail allow-listed raw log files. |
+
+### GET `/admin/overview/`
 
 Returns global KPIs, table counts, records created/updated in the last 24 hours, and operational alerts.
 
@@ -2130,7 +2181,7 @@ Response shape:
 
 Current alerts include unacknowledged critical health alerts, missing storage bucket configuration, missing storage credentials, and storage listing failure when storage credentials are configured.
 
-#### GET `/admin/activity/`
+### GET `/admin/activity/`
 
 Derives recent global activity from allow-listed model timestamps. It does not use a dedicated audit table, so `actor` is `null` when the model has no actor field.
 
@@ -2150,12 +2201,12 @@ Response shape:
   "data": {
     "results": [
       {
-        "id": "users:uuid:created:2026-05-08T10:00:00+08:00",
+        "id": "users:uuid:created:2026-05-09T10:00:00+08:00",
         "table": "users",
         "record_id": "uuid",
         "action": "created",
         "actor": null,
-        "created_at": "2026-05-08T10:00:00+08:00"
+        "created_at": "2026-05-09T10:00:00+08:00"
       }
     ],
     "next_cursor": null
@@ -2163,9 +2214,108 @@ Response shape:
 }
 ```
 
-#### GET `/admin/tables/{table}/`
+### GET `/admin/tables/{table}/schema/`
 
-Returns a read-only global table view for allow-listed tables. Unknown tables return `404`.
+Returns backend-driven form metadata for one table. The dashboard should call this endpoint before rendering a create form.
+
+Unknown table names return `404`.
+
+Response shape:
+
+```json
+{
+  "success": true,
+  "data": {
+    "table": "todos",
+    "create_allowed": true,
+    "delete_allowed": true,
+    "fields": [
+      {
+        "name": "family_id",
+        "label": "Family",
+        "type": "relation",
+        "control": "relation",
+        "required": true,
+        "readonly": false,
+        "default": null,
+        "choices": [],
+        "relation": {
+          "resource": "families",
+          "lookup_url": "/api/v1/admin/lookups/families/"
+        }
+      },
+      {
+        "name": "title",
+        "label": "Title",
+        "type": "string",
+        "control": "text",
+        "required": true,
+        "readonly": false,
+        "default": null,
+        "choices": []
+      }
+    ]
+  }
+}
+```
+
+Field schema:
+
+| Field | Type | Notes |
+|---|---|---|
+| `name` | string | Body key to submit. Foreign keys use `{field}_id`, for example `family_id`. |
+| `label` | string | Human label derived from the model field verbose name. |
+| `type` | string | `string`, `integer`, `decimal`, `boolean`, `date`, `datetime`, `json`, `choice`, or `relation`. |
+| `control` | string | Suggested control: `text`, `textarea`, `email`, `url`, `number`, `checkbox`, `date`, `datetime`, `json`, `select`, `relation`, or `uuid`. |
+| `required` | boolean | True when model field has no default and is not blank/null. |
+| `readonly` | boolean | True for read-only table schemas. |
+| `default` | any | Static model default when available. Callable defaults return `null`. |
+| `choices` | array | Enum choices as `{ value, label }`. |
+| `relation` | object | Present for user/family foreign keys that can use lookup APIs. |
+
+For `users` and `families`, `create_allowed=false`, `delete_allowed=false`, and fields are returned as read-only.
+
+### GET `/admin/lookups/{resource}/`
+
+Searches relation options for admin forms. Supported resources are `users` and `families`.
+
+Query params:
+
+| Query | Type | Default | Max | Notes |
+|---|---:|---:|---:|---|
+| `search` | string | none | n/a | Searches allow-listed fields. |
+| `page` | integer | `1` | n/a | Page number. |
+| `page_size` | integer | `20` | `100` | Values above `100` are capped. |
+
+Response shape:
+
+```json
+{
+  "success": true,
+  "data": {
+    "results": [
+      {
+        "id": "uuid",
+        "label": "Jane Caregiver (jane@example.com)",
+        "raw": {
+          "id": "uuid",
+          "email": "jane@example.com",
+          "name": "Jane Caregiver"
+        }
+      }
+    ],
+    "count": 1,
+    "next": null,
+    "previous": null,
+    "page": 1,
+    "page_size": 20
+  }
+}
+```
+
+### GET `/admin/tables/{table}/`
+
+Returns a global table view for allow-listed tables. Unknown tables return `404`.
 
 Query params:
 
@@ -2193,7 +2343,65 @@ Response shape:
 }
 ```
 
-#### GET `/admin/records/{table}/{id}/`
+### POST `/admin/tables/{table}/`
+
+Creates one record in a writable table. Unknown tables return `404`. Read-only tables return `403 mutation_not_allowed`.
+
+Request body must be JSON object. The accepted keys are the model's editable fields; foreign keys may be submitted as either `{field}_id` or `{field}`. Unknown keys produce field-level validation errors.
+
+Example request:
+
+```json
+{
+  "family_id": "uuid",
+  "title": "Follow up medication refill",
+  "priority": "medium",
+  "status": "pending",
+  "due_date": "2026-05-12",
+  "assignee_id": "uuid",
+  "created_by_id": "uuid"
+}
+```
+
+Response `201`:
+
+```json
+{
+  "success": true,
+  "data": {
+    "record": {
+      "id": "uuid",
+      "family_id": "uuid",
+      "title": "Follow up medication refill"
+    },
+    "raw": {
+      "id": "uuid",
+      "family_id": "uuid",
+      "title": "Follow up medication refill"
+    }
+  }
+}
+```
+
+Validation error shape:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "validation_error",
+    "message": "Invalid request body.",
+    "fields": {
+      "family_id": ["This field is required."],
+      "unexpected": ["Unknown field."]
+    }
+  }
+}
+```
+
+Successful creates are recorded in `admin_mutation_audit_log`.
+
+### GET `/admin/records/{table}/{id}/`
 
 Returns one allow-listed record, its related storage object references, and a raw copy of the serialized record. Unknown tables or IDs return `404`.
 
@@ -2220,7 +2428,28 @@ Response shape:
 
 Related files are parsed from allow-listed URL fields such as `file_url`, `image_url`, `photo_url`, and `avatar_url`.
 
-#### GET `/admin/storage/objects/`
+### DELETE `/admin/records/{table}/{id}/`
+
+Soft-deletes one record from a writable admin table. The underlying domain row is not physically deleted. Instead, the delete is written to `admin_mutation_audit_log`, and admin list/detail/activity/storage helpers filter those tombstoned records out.
+
+Read-only tables return `403 mutation_not_allowed`. Unknown tables or IDs return `404`.
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "table": "todos",
+    "id": "uuid",
+    "deleted": true,
+    "delete_mode": "soft",
+    "deleted_at": "2026-05-09T10:00:00+08:00"
+  }
+}
+```
+
+### GET `/admin/storage/objects/`
 
 Lists objects from the configured `AWS_STORAGE_BUCKET_NAME` using backend credentials. Clients cannot provide arbitrary credentials. The optional `bucket` query must be omitted or exactly match the configured bucket.
 
@@ -2245,7 +2474,7 @@ Response shape:
         "bucket": "carebridge-storage",
         "object_key": "docs/report.pdf",
         "size": 100,
-        "last_modified": "2026-05-08T10:00:00+08:00",
+        "last_modified": "2026-05-09T10:00:00+08:00",
         "content_type": null,
         "linked_table": "documents",
         "linked_record_id": "uuid",
@@ -2259,11 +2488,153 @@ Response shape:
 }
 ```
 
-This endpoint does not return signed preview/download URLs in v3.1.
+### GET `/admin/files/presign/`
 
-#### GET `/admin/logs/`
+Returns a short-lived signed URL for previewing or downloading an object from the configured bucket. The backend first verifies the object with `head_object`.
 
-Reads only allow-listed log streams. It does not accept filesystem paths.
+Query params:
+
+| Query | Type | Required | Notes |
+|---|---|---:|---|
+| `bucket` | string | no | Must be omitted or equal `AWS_STORAGE_BUCKET_NAME`. |
+| `object_key` | string | yes | Rejects empty values, backslashes, and path traversal. |
+| `mode` | enum | yes | `preview` or `download`. |
+
+Response:
+
+```json
+{
+  "success": true,
+  "data": {
+    "url": "https://signed-url.example",
+    "expires_in": 300,
+    "content_type": "application/pdf",
+    "filename": "report.pdf",
+    "size": 12345,
+    "disposition": "inline"
+  }
+}
+```
+
+Errors:
+
+| Code | HTTP | Notes |
+|---|---:|---|
+| `invalid_bucket` | `400` | Bucket omitted when settings are missing, or bucket does not match. |
+| `invalid_object_key` | `400` | Unsafe object key. |
+| `invalid_mode` | `400` | Mode is not `preview` or `download`. |
+| `not_found` | `404` | Object is not found by storage backend. |
+| `presign_error` | `502` | Storage client failed to generate signed URL. |
+
+Successful presigns are recorded in `admin_mutation_audit_log` with action `presign_preview` or `presign_download`.
+
+### POST `/admin/files/upload/`
+
+Uploads a file to the configured bucket using backend storage credentials. This endpoint accepts `multipart/form-data`, not JSON.
+
+Allowed content types:
+
+`application/pdf`, `image/jpeg`, `image/png`, `image/webp`, `text/plain`
+
+Maximum file size: `10485760` bytes.
+
+Form fields:
+
+| Field | Type | Required | Notes |
+|---|---|---:|---|
+| `bucket` | string | no | Must be omitted or equal `AWS_STORAGE_BUCKET_NAME`. |
+| `table` | string | yes | Must be `care_logs`, `expenses`, or `documents`. |
+| `file` | file | yes | Uploaded file. |
+| `family_id` | string | no | Used in object key path; defaults to `unscoped`. Unsafe path segments are rejected. |
+| `purpose` | string | no | Used in object key path; defaults to `upload`. Unsafe path segments are rejected. |
+
+Generated object key:
+
+```text
+admin/{table}/{family_id}/{purpose}/{uuid}/{filename}
+```
+
+Response `201`:
+
+```json
+{
+  "success": true,
+  "data": {
+    "bucket": "carebridge-storage",
+    "object_key": "admin/documents/family-uuid/upload/uuid/report.pdf",
+    "filename": "report.pdf",
+    "content_type": "application/pdf",
+    "size": 12345,
+    "url": "https://storage.carebridge-lab.com/admin/documents/family-uuid/upload/uuid/report.pdf"
+  }
+}
+```
+
+Successful uploads are recorded in `admin_mutation_audit_log` with action `upload`.
+
+### GET `/admin/request-logs/`
+
+Returns structured request logs for all `/api/v1/*` requests. This is the primary dashboard API monitor. It records request metadata only, not request bodies, response bodies, passwords, JWTs, MinIO secrets, or raw Authorization headers.
+
+Query params:
+
+| Query | Type | Default | Max | Notes |
+|---|---:|---:|---:|---|
+| `page` | integer | `1` | n/a | Page number. |
+| `page_size` | integer | `20` | `100` | Values above `100` are capped. |
+| `search` | string | none | n/a | Searches path, query, user email, request id, error code, and error message. |
+| `method` | string | none | n/a | `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, etc. |
+| `status_class` | string | none | n/a | Must match `1xx`, `2xx`, `3xx`, `4xx`, or `5xx`. |
+| `status_code` | integer | none | n/a | Exact HTTP status. |
+| `date_from` | date/datetime | none | n/a | Lower created_at bound. |
+| `date_to` | date/datetime | none | n/a | Upper created_at bound. |
+| `path` | string | none | n/a | Case-insensitive path contains filter. |
+
+Response shape:
+
+```json
+{
+  "success": true,
+  "data": {
+    "results": [
+      {
+        "id": "uuid",
+        "request_id": "req-123",
+        "method": "POST",
+        "path": "/api/v1/auth/login/",
+        "query": "",
+        "status_code": 200,
+        "status_class": "2xx",
+        "success": true,
+        "duration_ms": 42,
+        "user_id": "uuid",
+        "user_email": "staff@example.com",
+        "is_staff": true,
+        "ip": "203.0.113.10",
+        "user_agent": "Mozilla/5.0",
+        "error_code": null,
+        "error_message": null,
+        "created_at": "2026-05-09T10:00:00+08:00"
+      }
+    ],
+    "count": 1,
+    "next": null,
+    "previous": null,
+    "page": 1,
+    "page_size": 20
+  }
+}
+```
+
+Retention: request logs are intended to be cleaned after 14 days with:
+
+```bash
+python manage.py cleanup_admin_request_logs --days 14
+```
+
+### GET `/admin/logs/`
+
+Reads only allow-listed raw log streams. It does not accept filesystem paths. This endpoint is a supporting raw file tail; the dashboard request monitor should prefer `/admin/request-logs/`.
 
 Streams:
 
@@ -2288,7 +2659,7 @@ Response shape:
     "stream": "runtime",
     "lines": [
       {
-        "timestamp": "2026-05-08 10:00:00.000",
+        "timestamp": "2026-05-09 10:00:00.000",
         "level": "INFO",
         "message": "Runtime started",
         "request_id": null
@@ -2296,6 +2667,48 @@ Response shape:
     ],
     "next_cursor": null
   }
+}
+```
+
+### Dashboard Frontend Flow
+
+Recommended login and data flow:
+
+1. `POST /auth/login/` with staff email/password.
+2. Store `data.tokens.access` in memory or secure client storage according to the frontend security policy.
+3. Verify staff authorization by calling `GET /admin/overview/`.
+4. Render table list with `GET /admin/tables/{table}/`.
+5. Render create forms from `GET /admin/tables/{table}/schema/`.
+6. For relation fields, query `/admin/lookups/users/` or `/admin/lookups/families/`.
+7. Submit form JSON to `POST /admin/tables/{table}/`.
+8. Delete records through `DELETE /admin/records/{table}/{id}/`.
+9. Monitor API traffic through `GET /admin/request-logs/`.
+
+TypeScript fetch helper:
+
+```ts
+const API_BASE = "https://api.carebridge-lab.com/api/v1";
+
+async function apiFetch<T>(
+  path: string,
+  token: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${token}`);
+  if (!(init.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers,
+  });
+  const payload = await response.json();
+  if (!response.ok || payload.success === false) {
+    throw payload.error ?? new Error(`HTTP ${response.status}`);
+  }
+  return payload.data as T;
 }
 ```
 
