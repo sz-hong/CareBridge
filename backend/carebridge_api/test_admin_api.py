@@ -1,6 +1,8 @@
 from datetime import timedelta
 from unittest.mock import patch
 
+from django.apps import apps
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -9,6 +11,7 @@ from apps.auth_account.models import User
 from apps.document.models import Document
 from apps.expense.models import Expense
 from apps.family.models import Family
+from apps.todo.models import Todo
 
 
 class AdminAPIAuthTests(TestCase):
@@ -278,6 +281,411 @@ class AdminAPIStorageAndLogsTests(TestCase):
         self.assertEqual(response.status_code, 400)
 
 
+class AdminAPIMutationTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.staff = User.objects.create_user(
+            email="staff@example.com",
+            password="password123",
+            name="Staff",
+            is_staff=True,
+        )
+        self.member = User.objects.create_user(
+            email="member@example.com",
+            password="password123",
+            name="Member",
+        )
+        self.family = Family.objects.create(
+            name="Mutation Family",
+            elder_name="Elder",
+            invite_code="888888",
+            created_by=self.staff,
+        )
+        self.staff.family = self.family
+        self.staff.save(update_fields=["family"])
+        self.member.family = self.family
+        self.member.save(update_fields=["family"])
+
+    def audit_model(self):
+        return apps.get_model("admin_api", "AdminMutationAuditLog")
+
+    def test_anonymous_user_cannot_create_admin_record(self):
+        response = self.client.post("/api/v1/admin/tables/todos/", {}, format="json")
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_non_staff_user_cannot_delete_admin_record(self):
+        todo = Todo.objects.create(
+            family=self.family,
+            title="Delete me",
+            assignee=self.member,
+            created_by=self.staff,
+        )
+        self.client.force_authenticate(self.member)
+
+        response = self.client.delete(f"/api/v1/admin/records/todos/{todo.id}/")
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_staff_can_create_allow_listed_record_and_writes_audit_log(self):
+        self.client.force_authenticate(self.staff)
+
+        response = self.client.post(
+            "/api/v1/admin/tables/todos/",
+            {
+                "family_id": str(self.family.id),
+                "title": "Created from dashboard",
+                "assignee_id": str(self.member.id),
+                "created_by_id": str(self.staff.id),
+                "priority": "high",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        data = response.json()["data"]
+        todo = Todo.objects.get(id=data["record"]["id"])
+        self.assertEqual(todo.title, "Created from dashboard")
+        self.assertEqual(data["raw"]["id"], str(todo.id))
+        audit = self.audit_model().objects.get(action="create")
+        self.assertEqual(audit.table, "todos")
+        self.assertEqual(audit.record_id, str(todo.id))
+        self.assertEqual(audit.actor_email, "staff@example.com")
+
+    def test_create_rejects_read_only_tables(self):
+        self.client.force_authenticate(self.staff)
+
+        response = self.client.post(
+            "/api/v1/admin/tables/users/",
+            {"email": "new@example.com", "name": "New User"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_create_returns_field_level_validation_errors(self):
+        self.client.force_authenticate(self.staff)
+
+        response = self.client.post(
+            "/api/v1/admin/tables/todos/",
+            {"family_id": str(self.family.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        self.assertEqual(payload["error"]["code"], "validation_error")
+        self.assertIn("fields", payload["error"])
+        self.assertIn("title", payload["error"]["fields"])
+
+    def test_staff_soft_deletes_record_without_hard_deleting_it(self):
+        self.client.force_authenticate(self.staff)
+        document = Document.objects.create(
+            family=self.family,
+            title="Delete document",
+            category=Document.Category.MEDICAL,
+            file_url="https://storage.carebridge-lab.com/carebridge-storage/docs/delete.pdf",
+            file_size=123,
+            mime_type="application/pdf",
+            uploaded_by=self.staff,
+        )
+
+        response = self.client.delete(f"/api/v1/admin/records/documents/{document.id}/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertTrue(data["deleted"])
+        self.assertEqual(data["delete_mode"], "soft")
+        self.assertTrue(Document.objects.filter(id=document.id).exists())
+        self.assertTrue(
+            self.audit_model().objects.filter(
+                action="delete",
+                table="documents",
+                record_id=str(document.id),
+            ).exists()
+        )
+
+        list_response = self.client.get("/api/v1/admin/tables/documents/")
+        ids = {item["id"] for item in list_response.json()["data"]["results"]}
+        self.assertNotIn(str(document.id), ids)
+
+        detail_response = self.client.get(
+            f"/api/v1/admin/records/documents/{document.id}/"
+        )
+        self.assertEqual(detail_response.status_code, 404)
+
+    def test_delete_rejects_read_only_tables(self):
+        self.client.force_authenticate(self.staff)
+
+        response = self.client.delete(f"/api/v1/admin/records/users/{self.member.id}/")
+
+        self.assertEqual(response.status_code, 403)
+
+
+class AdminAPIFormSchemaTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.staff = User.objects.create_user(
+            email="staff@example.com",
+            password="password123",
+            name="Staff",
+            is_staff=True,
+        )
+        self.member = User.objects.create_user(
+            email="member@example.com",
+            password="password123",
+            name="Member",
+        )
+        self.family = Family.objects.create(
+            name="Schema Family",
+            elder_name="Elder",
+            invite_code="121212",
+            created_by=self.staff,
+        )
+        self.client.force_authenticate(self.staff)
+
+    def test_staff_can_read_writable_table_schema(self):
+        response = self.client.get("/api/v1/admin/tables/todos/schema/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(data["table"], "todos")
+        self.assertTrue(data["create_allowed"])
+        self.assertTrue(data["delete_allowed"])
+
+        fields = {field["name"]: field for field in data["fields"]}
+        self.assertEqual(fields["title"]["type"], "string")
+        self.assertEqual(fields["title"]["control"], "text")
+        self.assertTrue(fields["title"]["required"])
+        self.assertEqual(fields["priority"]["control"], "select")
+        self.assertIn(
+            {"value": "high", "label": "High"},
+            fields["priority"]["choices"],
+        )
+        self.assertEqual(fields["family_id"]["type"], "relation")
+        self.assertEqual(fields["family_id"]["relation"]["resource"], "families")
+        self.assertEqual(
+            fields["family_id"]["relation"]["lookup_url"],
+            "/api/v1/admin/lookups/families/",
+        )
+        self.assertEqual(fields["assignee_id"]["relation"]["resource"], "users")
+
+    def test_read_only_table_schema_is_not_creatable(self):
+        response = self.client.get("/api/v1/admin/tables/users/schema/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(data["table"], "users")
+        self.assertFalse(data["create_allowed"])
+        self.assertFalse(data["delete_allowed"])
+        fields = {field["name"]: field for field in data["fields"]}
+        self.assertNotIn("password", fields)
+        self.assertTrue(all(field["readonly"] for field in fields.values()))
+
+    def test_schema_rejects_unknown_table(self):
+        response = self.client.get("/api/v1/admin/tables/not_allowed/schema/")
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_non_staff_user_cannot_read_schema(self):
+        self.client.force_authenticate(self.member)
+
+        response = self.client.get("/api/v1/admin/tables/todos/schema/")
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_lookup_users_supports_search_and_safe_pagination(self):
+        response = self.client.get(
+            "/api/v1/admin/lookups/users/",
+            {"search": "mem", "page_size": 200},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(
+            set(data.keys()),
+            {"results", "count", "next", "previous", "page", "page_size"},
+        )
+        self.assertEqual(data["page_size"], 100)
+        self.assertEqual(data["results"][0]["id"], str(self.member.id))
+        self.assertEqual(data["results"][0]["label"], "Member (member@example.com)")
+        self.assertNotIn("password", data["results"][0])
+
+    def test_lookup_families_supports_search(self):
+        response = self.client.get(
+            "/api/v1/admin/lookups/families/",
+            {"search": "Schema"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()["data"]["results"][0]
+        self.assertEqual(result["id"], str(self.family.id))
+        self.assertEqual(result["label"], "Schema Family")
+
+    def test_lookup_rejects_unknown_resource(self):
+        response = self.client.get("/api/v1/admin/lookups/storage/")
+
+        self.assertEqual(response.status_code, 404)
+
+
+class AdminAPIFileMutationTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.staff = User.objects.create_user(
+            email="staff@example.com",
+            password="password123",
+            name="Staff",
+            is_staff=True,
+        )
+        self.client.force_authenticate(self.staff)
+        self.family = Family.objects.create(
+            name="File Family",
+            elder_name="Elder",
+            invite_code="999999",
+            created_by=self.staff,
+        )
+
+    def audit_model(self):
+        return apps.get_model("admin_api", "AdminMutationAuditLog")
+
+    @override_settings(AWS_STORAGE_BUCKET_NAME="carebridge-storage")
+    @patch("apps.admin_api.views.get_s3_client")
+    def test_staff_can_request_preview_presigned_url(self, mock_client):
+        mock_client.return_value.head_object.return_value = {
+            "ContentType": "application/pdf",
+            "ContentLength": 123,
+        }
+        mock_client.return_value.generate_presigned_url.return_value = (
+            "https://storage.example/signed"
+        )
+
+        response = self.client.get(
+            "/api/v1/admin/files/presign/",
+            {
+                "bucket": "carebridge-storage",
+                "object_key": "docs/report.pdf",
+                "mode": "preview",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(data["url"], "https://storage.example/signed")
+        self.assertEqual(data["expires_in"], 300)
+        self.assertEqual(data["disposition"], "inline")
+        mock_client.return_value.generate_presigned_url.assert_called_once()
+        self.assertTrue(
+            self.audit_model().objects.filter(
+                action="presign_preview",
+                object_key="docs/report.pdf",
+            ).exists()
+        )
+
+    @override_settings(AWS_STORAGE_BUCKET_NAME="carebridge-storage")
+    def test_presign_rejects_path_traversal_object_key(self):
+        response = self.client.get(
+            "/api/v1/admin/files/presign/",
+            {
+                "bucket": "carebridge-storage",
+                "object_key": "../secrets.env",
+                "mode": "preview",
+            },
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    @override_settings(AWS_STORAGE_BUCKET_NAME="carebridge-storage")
+    @patch("apps.admin_api.views.get_s3_client")
+    def test_presign_rejects_unverified_storage_objects(self, mock_client):
+        mock_client.return_value.head_object.side_effect = RuntimeError("not found")
+
+        response = self.client.get(
+            "/api/v1/admin/files/presign/",
+            {
+                "bucket": "carebridge-storage",
+                "object_key": "docs/missing.pdf",
+                "mode": "preview",
+            },
+        )
+
+        self.assertEqual(response.status_code, 404)
+        mock_client.return_value.generate_presigned_url.assert_not_called()
+
+    @override_settings(
+        AWS_STORAGE_BUCKET_NAME="carebridge-storage",
+        AWS_S3_ENDPOINT_URL="https://storage.carebridge-lab.com",
+    )
+    @patch("apps.admin_api.views.get_s3_client")
+    def test_staff_can_upload_file_with_backend_credentials(self, mock_client):
+        uploaded = SimpleUploadedFile(
+            "report.pdf",
+            b"%PDF-1.4 test",
+            content_type="application/pdf",
+        )
+
+        response = self.client.post(
+            "/api/v1/admin/files/upload/",
+            {
+                "file": uploaded,
+                "table": "documents",
+                "family_id": str(self.family.id),
+                "purpose": "document",
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        data = response.json()["data"]
+        self.assertEqual(data["bucket"], "carebridge-storage")
+        self.assertEqual(data["filename"], "report.pdf")
+        self.assertEqual(data["content_type"], "application/pdf")
+        self.assertTrue(data["object_key"].endswith("/report.pdf"))
+        mock_client.return_value.put_object.assert_called_once()
+        self.assertTrue(
+            self.audit_model().objects.filter(
+                action="upload",
+                table="documents",
+                object_key=data["object_key"],
+            ).exists()
+        )
+
+    def test_upload_rejects_disallowed_content_type(self):
+        uploaded = SimpleUploadedFile(
+            "malware.exe",
+            b"not really executable",
+            content_type="application/x-msdownload",
+        )
+
+        response = self.client.post(
+            "/api/v1/admin/files/upload/",
+            {"file": uploaded, "table": "documents"},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    @override_settings(AWS_STORAGE_BUCKET_NAME="carebridge-storage")
+    def test_upload_rejects_path_traversal_family_id(self):
+        uploaded = SimpleUploadedFile(
+            "report.pdf",
+            b"%PDF-1.4 test",
+            content_type="application/pdf",
+        )
+
+        response = self.client.post(
+            "/api/v1/admin/files/upload/",
+            {
+                "file": uploaded,
+                "table": "documents",
+                "family_id": "../outside",
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+
 class AdminAPICORSTests(TestCase):
     @override_settings(
         CORS_ALLOWED_ORIGINS=[
@@ -313,3 +721,132 @@ class AdminAPICORSTests(TestCase):
         )
 
         self.assertNotIn("Access-Control-Allow-Origin", response)
+
+    @override_settings(
+        CORS_ALLOWED_ORIGINS=["https://shao-zhen.com"],
+        CORS_ALLOW_ALL_ORIGINS=False,
+    )
+    def test_cors_preflight_allows_admin_mutation_methods(self):
+        post_response = self.client.options(
+            "/api/v1/admin/tables/todos/",
+            HTTP_ORIGIN="https://shao-zhen.com",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="authorization,content-type,accept",
+        )
+        delete_response = self.client.options(
+            "/api/v1/admin/records/todos/00000000-0000-0000-0000-000000000000/",
+            HTTP_ORIGIN="https://shao-zhen.com",
+            HTTP_ACCESS_CONTROL_REQUEST_METHOD="DELETE",
+            HTTP_ACCESS_CONTROL_REQUEST_HEADERS="authorization,content-type,accept",
+        )
+
+        self.assertEqual(post_response.status_code, 200)
+        self.assertEqual(delete_response.status_code, 200)
+        self.assertEqual(
+            post_response["Access-Control-Allow-Origin"],
+            "https://shao-zhen.com",
+        )
+        self.assertEqual(
+            delete_response["Access-Control-Allow-Origin"],
+            "https://shao-zhen.com",
+        )
+
+
+class AdminAPIRequestLogTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.staff = User.objects.create_user(
+            email="staff@example.com",
+            password="password123",
+            name="Staff",
+            is_staff=True,
+        )
+        self.member = User.objects.create_user(
+            email="member@example.com",
+            password="password123",
+            name="Member",
+        )
+
+    def request_log_model(self):
+        return apps.get_model("admin_api", "AdminRequestLog")
+
+    def test_successful_api_request_writes_structured_request_log(self):
+        self.client.force_authenticate(self.staff)
+
+        response = self.client.get(
+            "/api/v1/admin/tables/users/",
+            HTTP_X_REQUEST_ID="req-success-1",
+            HTTP_USER_AGENT="Dashboard Test",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        log = self.request_log_model().objects.get(request_id="req-success-1")
+        self.assertEqual(log.method, "GET")
+        self.assertEqual(log.path, "/api/v1/admin/tables/users/")
+        self.assertEqual(log.status_code, 200)
+        self.assertEqual(log.user_email, "staff@example.com")
+        self.assertTrue(log.is_staff)
+        self.assertGreaterEqual(log.duration_ms, 0)
+        self.assertNotIn("Bearer", log.metadata)
+
+    def test_failed_api_request_writes_status_and_error_metadata(self):
+        self.client.force_authenticate(self.member)
+
+        response = self.client.get(
+            "/api/v1/admin/tables/users/",
+            HTTP_X_REQUEST_ID="req-failed-1",
+        )
+
+        self.assertEqual(response.status_code, 403)
+        log = self.request_log_model().objects.get(request_id="req-failed-1")
+        self.assertEqual(log.status_code, 403)
+        self.assertEqual(log.error_code, "permission_denied")
+        self.assertIn("Staff access", log.error_message)
+
+    def test_staff_can_filter_request_logs(self):
+        model = self.request_log_model()
+        model.objects.create(
+            request_id="req-users-ok",
+            method="GET",
+            path="/api/v1/admin/tables/users/",
+            query="search=staff",
+            status_code=200,
+            duration_ms=12,
+            user_email="staff@example.com",
+            is_staff=True,
+            ip="127.0.0.1",
+            user_agent="Dashboard",
+        )
+        model.objects.create(
+            request_id="req-admin-fail",
+            method="POST",
+            path="/api/v1/admin/tables/todos/",
+            query="",
+            status_code=400,
+            duration_ms=18,
+            user_email="staff@example.com",
+            is_staff=True,
+            ip="127.0.0.1",
+            user_agent="Dashboard",
+            error_code="validation_error",
+            error_message="Invalid request body.",
+        )
+        self.client.force_authenticate(self.staff)
+
+        response = self.client.get(
+            "/api/v1/admin/request-logs/",
+            {"status_class": "4xx", "method": "POST", "search": "todos"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["request_id"], "req-admin-fail")
+        self.assertEqual(data["results"][0]["error_code"], "validation_error")
+
+    def test_request_log_endpoint_rejects_non_staff_user(self):
+        self.client.force_authenticate(self.member)
+
+        response = self.client.get("/api/v1/admin/request-logs/")
+
+        self.assertEqual(response.status_code, 403)
