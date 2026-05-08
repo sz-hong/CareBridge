@@ -71,7 +71,8 @@ class FamilyAPIEndpointTests(TestCase):
             response = self.client.get('/api/v1/families/')
 
         self.assertEqual(response.status_code, 200)
-        self.assertLessEqual(len(queries), 3)
+        # Request monitoring writes one structured AdminRequestLog row per API call.
+        self.assertLessEqual(len(queries), 4)
 
     def test_queryset_selects_creator_and_prefetches_members(self):
         request = APIRequestFactory().get('/api/v1/families/')
