@@ -1142,21 +1142,26 @@ struct Expense: Identifiable, Codable {
     var hasReceipt: Bool
     /// 收據圖片下載 URL（後端回傳時為 presigned GET URL，POST 時帶入上傳後的 bare URL）
     var imageUrl: String?
+    var rawImageKey: String?
+    var deidStatus: String?
     /// 去背後的發票圖片，僅存在記憶體中（不序列化至 JSON/API）
     var receiptImage: UIImage? = nil
 
     enum CodingKeys: String, CodingKey {
-        case id, date, items, imageUrl
+        case id, date, items, imageUrl, rawImageKey, deidStatus
         case title = "storeName"       // API: store_name → convertFromSnakeCase → storeName
         case amount = "totalAmount"    // API: total_amount → totalAmount
         // `category` is UI-only — backend stores category per item inside `items` JSONB.
     }
 
     init(id: String, title: String, amount: Double, category: String, date: Date,
-         hasReceipt: Bool, imageUrl: String? = nil, receiptImage: UIImage? = nil) {
+         hasReceipt: Bool, imageUrl: String? = nil, rawImageKey: String? = nil,
+         deidStatus: String? = nil, receiptImage: UIImage? = nil) {
         self.id = id; self.title = title; self.amount = amount
         self.category = category; self.date = date; self.hasReceipt = hasReceipt
         self.imageUrl = imageUrl
+        self.rawImageKey = rawImageKey
+        self.deidStatus = deidStatus
         self.receiptImage = receiptImage
     }
 
@@ -1201,7 +1206,9 @@ struct Expense: Identifiable, Codable {
         date = df.date(from: dateStr) ?? Date()
         // image_url non-nil means receipt exists
         imageUrl = try c.decodeIfPresent(String.self, forKey: .imageUrl)
-        hasReceipt = (imageUrl != nil)
+        rawImageKey = try c.decodeIfPresent(String.self, forKey: .rawImageKey)
+        deidStatus = try c.decodeIfPresent(String.self, forKey: .deidStatus)
+        hasReceipt = (imageUrl != nil || rawImageKey != nil || deidStatus == "processing")
     }
 
     func encode(to encoder: Encoder) throws {
@@ -1218,7 +1225,11 @@ struct Expense: Identifiable, Codable {
             "category": wireCat,
         ]
         try c.encode([item], forKey: .items)
-        try c.encodeIfPresent(imageUrl, forKey: .imageUrl)
+        if let rawImageKey {
+            try c.encode(rawImageKey, forKey: .rawImageKey)
+        } else {
+            try c.encodeIfPresent(imageUrl, forKey: .imageUrl)
+        }
     }
 
     var categoryIcon: String {
@@ -1576,16 +1587,18 @@ struct AppDocument: Identifiable, Codable {
     var fileSize: String    // derived from API file_size (Int bytes)
     var uploadDate: Date    // API: created_at
     var localURL: URL?      // 本地暫存路徑，供 QuickLook 預覽用（非 API 欄位）
+    var deidStatus: String?
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, category
+        case id, title, category, deidStatus
         case fileSizeBytes = "fileSize"    // API: file_size → convertFromSnakeCase → fileSize
         case uploadDate    = "createdAt"   // API: created_at → createdAt
     }
 
-    init(id: String, title: String, category: String, fileSize: String, uploadDate: Date, localURL: URL? = nil) {
+    init(id: String, title: String, category: String, fileSize: String, uploadDate: Date, localURL: URL? = nil, deidStatus: String? = nil) {
         self.id = id; self.title = title; self.category = category
         self.fileSize = fileSize; self.uploadDate = uploadDate; self.localURL = localURL
+        self.deidStatus = deidStatus
     }
 
     init(from decoder: Decoder) throws {
@@ -1593,6 +1606,7 @@ struct AppDocument: Identifiable, Codable {
         id         = try c.decode(String.self, forKey: .id)
         title      = try c.decode(String.self, forKey: .title)
         category   = try c.decode(String.self, forKey: .category)
+        deidStatus = try c.decodeIfPresent(String.self, forKey: .deidStatus)
         uploadDate = try c.decode(Date.self, forKey: .uploadDate)
         localURL   = nil
         let bytes  = (try? c.decodeIfPresent(Int.self, forKey: .fileSizeBytes)) ?? 0

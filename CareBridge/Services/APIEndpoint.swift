@@ -57,6 +57,7 @@ enum APIEndpoint {
     }
 
     static let documents = "/documents/"
+    static let documentUploadURL = "/documents/upload-url/"
 
     static func document(id: String) -> String {
         "/documents/\(id)/"

@@ -1,9 +1,12 @@
 from django.test import TestCase
 from django.utils import timezone
+from unittest.mock import patch
 from rest_framework.test import APIClient
 
+from core.deidentification import RedactedFile
 from apps.auth_account.models import User
 from apps.expense.models import Expense
+from apps.expense.tasks import redact_receipt_image_task
 from apps.family.models import Family
 
 
@@ -108,6 +111,80 @@ class ExpenseAPIEndpointTests(TestCase):
         self.assertEqual(expense.total_amount, 0)
         self.assertTrue(expense.scan_id)
 
+    @patch('core.storage.generate_upload_url', return_value='https://upload.example')
+    def test_upload_url_returns_quarantine_receipt_key(self, _upload_url):
+        response = self.client.post(
+            '/api/v1/expenses/upload-url/',
+            {'content_type': 'image/jpeg'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()['data']
+        self.assertTrue(data['upload_id'])
+        self.assertEqual(data['upload_url'], 'https://upload.example')
+        self.assertTrue(
+            data['raw_key'].startswith(f'quarantine/{self.family.id}/receipts/')
+        )
+        self.assertTrue(data['raw_key'].endswith('.jpg'))
+        self.assertEqual(data['expires_in'], 3600)
+        self.assertNotIn('image_url', data)
+
+    @patch('apps.expense.views.redact_receipt_image_task.delay')
+    def test_scan_with_raw_key_tracks_deidentification_before_processing(self, delay):
+        raw_key = f'quarantine/{self.family.id}/receipts/upload.jpg'
+
+        response = self.client.post(
+            '/api/v1/expenses/scan/',
+            {'upload_id': 'upload', 'raw_key': raw_key},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 202)
+        expense = Expense.objects.get(id=response.json()['data']['id'])
+        self.assertEqual(expense.raw_image_key, raw_key)
+        self.assertTrue(expense.redacted_image_key)
+        self.assertTrue(expense.redacted_image_key.startswith('processed/'))
+        self.assertEqual(expense.deid_status, Expense.DeidentificationStatus.PROCESSING)
+        self.assertFalse(expense.image_url)
+        delay.assert_called_once_with(expense.id)
+
+    def test_scan_rejects_receipt_key_outside_request_family_quarantine(self):
+        response = self.client.post(
+            '/api/v1/expenses/scan/',
+            {
+                'upload_id': 'upload',
+                'raw_key': f'quarantine/{self.other_family.id}/receipts/upload.jpg',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Expense.objects.filter(raw_image_key__contains='upload.jpg').exists())
+
+    @patch('apps.expense.views.redact_receipt_image_task.delay')
+    def test_create_with_raw_image_key_schedules_receipt_deidentification(self, delay):
+        raw_key = f'quarantine/{self.family.id}/receipts/manual.jpg'
+
+        response = self.client.post(
+            '/api/v1/expenses/',
+            {
+                'store_name': 'Pharmacy',
+                'date': timezone.localdate().isoformat(),
+                'items': [{'name': 'Medicine', 'category': 'medical', 'total': 350}],
+                'total_amount': '350.00',
+                'raw_image_key': raw_key,
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        expense = Expense.objects.get(id=response.json()['data']['id'])
+        self.assertEqual(expense.raw_image_key, raw_key)
+        self.assertEqual(expense.deid_status, Expense.DeidentificationStatus.PROCESSING)
+        self.assertFalse(expense.image_url)
+        delay.assert_called_once_with(expense.id)
+
     def test_monthly_summary_uses_completed_current_month_family_expenses(self):
         today = timezone.localdate()
         self.create_expense(
@@ -143,3 +220,38 @@ class ExpenseAPIEndpointTests(TestCase):
                 {'category': 'food', 'percentage': 33.3},
             ],
         )
+
+    @patch('apps.expense.tasks.put_bytes')
+    @patch('apps.expense.tasks.download_bytes', return_value=b'raw-image')
+    @patch('apps.expense.tasks.build_public_url', return_value='https://storage.example/processed.jpg')
+    @patch('apps.expense.tasks.get_deidentification_client')
+    def test_receipt_redaction_task_publishes_only_processed_image_url(
+        self,
+        get_client,
+        build_url,
+        download_bytes,
+        put_bytes,
+    ):
+        raw_key = f'quarantine/{self.family.id}/receipts/receipt.jpg'
+        redacted_key = f'processed/{self.family.id}/receipts/receipt.jpg'
+        expense = self.create_expense(
+            image_url=None,
+            raw_image_key=raw_key,
+            redacted_image_key=redacted_key,
+            deid_status=Expense.DeidentificationStatus.PROCESSING,
+            status=Expense.Status.PROCESSING,
+        )
+        get_client.return_value.redact_image.return_value = RedactedFile(
+            bytes=b'redacted-image',
+            mime_type='image/jpeg',
+            findings=[],
+        )
+
+        redact_receipt_image_task(expense.id)
+
+        expense.refresh_from_db()
+        self.assertEqual(expense.image_url, 'https://storage.example/processed.jpg')
+        self.assertEqual(expense.deid_status, Expense.DeidentificationStatus.COMPLETED)
+        download_bytes.assert_called_once_with(raw_key)
+        put_bytes.assert_called_once_with(redacted_key, b'redacted-image', 'image/jpeg')
+        build_url.assert_called_once_with(redacted_key)

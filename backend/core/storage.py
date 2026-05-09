@@ -108,6 +108,35 @@ def generate_download_url(key, expires=3600):
     return url
 
 
+def download_bytes(key):
+    """Download an object from S3-compatible storage as bytes."""
+    client = _get_s3_client()
+    bucket = _get_bucket_name()
+    response = client.get_object(Bucket=bucket, Key=key)
+    return response['Body'].read()
+
+
+def put_bytes(key, data, content_type):
+    """Upload bytes to S3-compatible storage."""
+    client = _get_s3_client()
+    bucket = _get_bucket_name()
+    client.put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=data,
+        ContentType=content_type,
+    )
+    logger.info('Uploaded object for key: %s', key)
+
+
+def delete_object(key):
+    """Delete an object from S3-compatible storage."""
+    client = _get_s3_client()
+    bucket = _get_bucket_name()
+    client.delete_object(Bucket=bucket, Key=key)
+    logger.info('Deleted object for key: %s', key)
+
+
 def build_public_url(key):
     """Build a bare (non-presigned) URL for an S3 object key."""
     bucket = _get_bucket_name()

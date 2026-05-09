@@ -61,6 +61,7 @@ struct APIClientTests {
         #expect(APIEndpoint.leaveStatus(id: "leave-1") == "/leaves/leave-1/status/")
         #expect(APIEndpoint.leaveVote(id: "leave-1") == "/leaves/leave-1/vote/")
         #expect(APIEndpoint.documents == "/documents/")
+        #expect(APIEndpoint.documentUploadURL == "/documents/upload-url/")
         #expect(APIEndpoint.notifications == "/notifications/")
         #expect(APIEndpoint.notificationRead(id: "notif-1") == "/notifications/notif-1/read/")
         #expect(APIEndpoint.notificationDevice == "/notifications/device/")

@@ -91,7 +91,9 @@ class MockDataService: DataService {
         ])
     }
     func createExpense(_ expense: Expense) async throws -> Expense { expense }
-    func uploadReceiptImage(_ image: UIImage) async throws -> String { "" }
+    func uploadReceiptImage(_ image: UIImage) async throws -> ReceiptUploadReference {
+        ReceiptUploadReference(uploadId: UUID().uuidString, rawKey: "quarantine/mock/receipts/mock.jpg")
+    }
 
     // MARK: - Todo
     func fetchTodos() async throws -> [TodoItem] { TodoItem.samples }

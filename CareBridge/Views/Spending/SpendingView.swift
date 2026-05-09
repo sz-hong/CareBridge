@@ -941,7 +941,7 @@ struct OCRConfirmationView: View {
         isSaving = true
         Task {
             do {
-                let imageUrl = try await service.uploadReceiptImage(ocrResult.image)
+                let uploadReference = try await service.uploadReceiptImage(ocrResult.image)
                 let draft = Expense(
                     id: UUID().uuidString,
                     title: storeName.isEmpty ? "未命名收據" : storeName,
@@ -949,7 +949,7 @@ struct OCRConfirmationView: View {
                     category: category,
                     date: receiptDate,
                     hasReceipt: true,
-                    imageUrl: imageUrl,
+                    rawImageKey: uploadReference.rawKey,
                     receiptImage: ocrResult.image
                 )
                 let created = try await service.createExpense(draft)

@@ -247,6 +247,22 @@ OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-4o')
 OPENAI_EMBEDDING_MODEL = os.environ.get('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small')
 
 # ==============================================================================
+# De-identification / DLP
+# ==============================================================================
+
+DLP_PROVIDER = os.environ.get('DLP_PROVIDER', 'mock')
+GOOGLE_CLOUD_PROJECT = os.environ.get('GOOGLE_CLOUD_PROJECT', '')
+GOOGLE_DLP_LOCATION = os.environ.get('GOOGLE_DLP_LOCATION', 'global')
+DLP_MIN_LIKELIHOOD = os.environ.get('DLP_MIN_LIKELIHOOD', 'LIKELY')
+DLP_DELETE_RAW_AFTER_HOURS = int(os.environ.get('DLP_DELETE_RAW_AFTER_HOURS', '24'))
+DLP_INFO_TYPES = env_list(
+    'DLP_INFO_TYPES',
+    'EMAIL_ADDRESS,PHONE_NUMBER,CREDIT_CARD_NUMBER,PERSON_NAME,STREET_ADDRESS,'
+    'DATE_OF_BIRTH,MEDICAL_RECORD_NUMBER,TAIWAN_PHONE_NUMBER,TAIWAN_NATIONAL_ID,'
+    'TAIWAN_ARC_ID,NHI_CARD_NUMBER,BANK_ACCOUNT',
+)
+
+# ==============================================================================
 # APNs
 # ==============================================================================
 
