@@ -1,6 +1,7 @@
 from django.test import SimpleTestCase, override_settings
 
 from core.deidentification import get_deidentification_client, prepare_text_for_gpt
+from core.pii_patterns import CUSTOM_REGEX_INFO_TYPES
 from core.storage import build_public_url
 
 
@@ -17,6 +18,13 @@ class StorageURLContractTests(SimpleTestCase):
 
 
 class MockDeidentificationClientTests(SimpleTestCase):
+    def test_custom_regex_patterns_are_google_dlp_re2_compatible(self):
+        unsupported_tokens = ('(?<', '(?=', '(?!')
+
+        for name, pattern in CUSTOM_REGEX_INFO_TYPES.items():
+            for token in unsupported_tokens:
+                self.assertNotIn(token, pattern, msg=f'{name} uses {token}')
+
     @override_settings(DLP_PROVIDER='mock')
     def test_mock_client_redacts_common_identifiers(self):
         client = get_deidentification_client()
