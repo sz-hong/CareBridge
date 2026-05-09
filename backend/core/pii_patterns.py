@@ -9,7 +9,7 @@ COMMON_INFO_TYPES = [
 ]
 
 CUSTOM_REGEX_INFO_TYPES = {
-    'TAIWAN_PHONE_NUMBER': r'(?<!\d)(?:\+?886[-\s]?)?0?9\d{2}[-\s]?\d{3}[-\s]?\d{3}(?!\d)',
+    'TAIWAN_PHONE_NUMBER': r'(?:\+?886[-\s]?)?0?9\d{2}[-\s]?\d{3}[-\s]?\d{3}',
     'TAIWAN_NATIONAL_ID': r'\b[A-Z][12]\d{8}\b',
     'TAIWAN_ARC_ID': r'\b[A-Z][A-D]\d{8}\b',
     'NHI_CARD_NUMBER': r'\b\d{12}\b',
