@@ -14,6 +14,7 @@ services:
       - redis
     volumes:
       - ..:/app
+      - C:/CareBridgeSecrets:/secrets:ro
     command: >
       gunicorn carebridge_api.asgi:application
       -k uvicorn.workers.UvicornWorker
@@ -76,6 +77,9 @@ services:
       - db
       - redis
     command: celery -A carebridge_api worker -l info
+    volumes:
+      - ..:/app
+      - C:/CareBridgeSecrets:/secrets:ro
 
   celery-beat:
     build:
@@ -87,6 +91,9 @@ services:
       - db
       - redis
     command: celery -A carebridge_api beat -l info
+    volumes:
+      - ..:/app
+      - C:/CareBridgeSecrets:/secrets:ro
 
 volumes:
   pgdata:
