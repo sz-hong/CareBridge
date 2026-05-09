@@ -8,14 +8,25 @@ import json
 import logging
 
 from apps.care_log.models import CareLog
-from apps.health.models import HealthData
+from apps.board.models import BoardRequest
+from apps.health.models import HealthAlert, HealthData
+from apps.leave.models import Leave
+from apps.sos.models import SOSRecord
+from apps.todo.models import Todo
 
 from .domain_queries import (
+    query_board_requests,
     query_care_logs,
     query_events,
     query_expenses,
+    query_family_members,
+    query_health_alerts,
     query_health_data,
+    query_leaves,
+    query_medication_confirmations,
     query_medications,
+    query_sos_status,
+    query_todos,
 )
 
 logger = logging.getLogger(__name__)
@@ -126,6 +137,179 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_todos",
+            "description": (
+                "Query household and care task todos for the current family. "
+                "Returns AI-safe fields only."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": list(Todo.Status.values),
+                        "description": "Filter by todo status.",
+                    },
+                    "priority": {
+                        "type": "string",
+                        "enum": list(Todo.Priority.values),
+                        "description": "Filter by priority.",
+                    },
+                    "days_ahead": {
+                        "type": "integer",
+                        "description": "Limit to todos due within this many days.",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_board_requests",
+            "description": (
+                "Query family board purchase or supply requests for the current family. "
+                "Returns AI-safe fields only."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": list(BoardRequest.Status.values),
+                        "description": "Filter by request status.",
+                    },
+                    "category": {
+                        "type": "string",
+                        "enum": list(BoardRequest.Category.values),
+                        "description": "Filter by request category.",
+                    },
+                    "days": {
+                        "type": "integer",
+                        "description": "Number of past days to look back (default 30).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_leaves",
+            "description": (
+                "Query caregiver leave requests and family vote status. "
+                "Returns AI-safe fields only."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": list(Leave.Status.values),
+                        "description": "Filter by leave status.",
+                    },
+                    "days": {
+                        "type": "integer",
+                        "description": "Number of past days to look back (default 30).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_health_alerts",
+            "description": (
+                "Query recent health alerts for abnormal vitals in the current family."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "severity": {
+                        "type": "string",
+                        "enum": list(HealthAlert.Severity.values),
+                        "description": "Filter by alert severity.",
+                    },
+                    "acknowledged": {
+                        "type": "boolean",
+                        "description": "Filter by whether the alert was acknowledged.",
+                    },
+                    "days": {
+                        "type": "integer",
+                        "description": "Number of past days to look back (default 30).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_medication_confirmations",
+            "description": (
+                "Query recent medication confirmation records for the current family. "
+                "Does not expose confirmation photos or URLs."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days": {
+                        "type": "integer",
+                        "description": "Number of past days to look back (default 7).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_sos_status",
+            "description": (
+                "Query recent SOS records for the current family. "
+                "Does not expose precise location or notified member IDs."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": list(SOSRecord.Status.values),
+                        "description": "Filter by SOS status.",
+                    },
+                    "days": {
+                        "type": "integer",
+                        "description": "Number of past days to look back (default 30).",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_family_members",
+            "description": (
+                "Query basic family member names, roles, languages, and primary status. "
+                "Does not expose email, phone, avatar URL, or device data."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
 ]
 
 # --------------------------------------------------------------------------
@@ -160,4 +344,11 @@ TOOL_HANDLERS = {
     "query_medications": query_medications,
     "query_expenses": query_expenses,
     "query_events": query_events,
+    "query_todos": query_todos,
+    "query_board_requests": query_board_requests,
+    "query_leaves": query_leaves,
+    "query_health_alerts": query_health_alerts,
+    "query_medication_confirmations": query_medication_confirmations,
+    "query_sos_status": query_sos_status,
+    "query_family_members": query_family_members,
 }
