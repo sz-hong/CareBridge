@@ -27,6 +27,8 @@ db.sqlite3
 staticfiles/
 media/
 *.log
+celerybeat-schedule
+backend/celerybeat-schedule
 
 # IDE
 .vscode/
