@@ -4,17 +4,24 @@ from django.db.models import Sum, Count
 from django.db.models.functions import TruncMonth
 from django.utils import timezone
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
 from core.responses import empty_success_response, success_response
+from core.upload_paths import (
+    build_quarantine_key,
+    is_valid_quarantine_key,
+    processed_key_for_raw_key,
+)
 from core.viewsets import FamilyScopedQuerySetMixin
 from .models import Expense
 from .serializers import (
-    ExpenseSerializer,
     CreateExpenseSerializer,
+    ExpenseSerializer,
     ScanReceiptSerializer,
 )
+from .tasks import redact_receipt_image_task
 
 
 class ExpenseViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
@@ -59,10 +66,28 @@ class ExpenseViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
     def create(self, request, *args, **kwargs):
         serializer = CreateExpenseSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        raw_image_key = serializer.validated_data.get('raw_image_key')
+        if raw_image_key:
+            self._validate_receipt_key(raw_image_key, request.user.family.id)
+
         expense = serializer.save(
             family=request.user.family,
             recorder=request.user,
         )
+        if raw_image_key:
+            expense.image_url = None
+            expense.raw_image_key = raw_image_key
+            expense.redacted_image_key = processed_key_for_raw_key(raw_image_key)
+            expense.deid_status = Expense.DeidentificationStatus.PROCESSING
+            expense.save(update_fields=[
+                'image_url',
+                'raw_image_key',
+                'redacted_image_key',
+                'deid_status',
+                'updated_at',
+            ])
+            redact_receipt_image_task.delay(expense.id)
+
         out = ExpenseSerializer(expense).data
         return success_response(data=out, status=201)
 
@@ -93,57 +118,58 @@ class ExpenseViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='upload-url')
     def upload_url(self, request):
-        """POST /expenses/upload-url/ — Return presigned PUT URL + stored image_url.
-
-        Frontend flow:
-          1. POST here with {content_type} → receive {upload_url, image_url}
-          2. PUT bytes directly to upload_url (must include same Content-Type header)
-          3. POST /expenses/ with the returned image_url
-        """
-        from core.storage import build_public_url, generate_upload_url
+        """Return a presigned PUT URL for a quarantine receipt object."""
+        from core.storage import generate_upload_url
 
         content_type = request.data.get('content_type') or 'image/jpeg'
-        ext_map = {
-            'image/jpeg': 'jpg',
-            'image/jpg': 'jpg',
-            'image/png': 'png',
-            'image/heic': 'heic',
-        }
-        ext = ext_map.get(content_type, 'jpg')
         family_id = getattr(request.user.family, 'id', None)
-        prefix = f'receipts/{family_id}' if family_id else 'receipts/orphan'
-        key = f'{prefix}/{uuid.uuid4().hex}.{ext}'
+        key = build_quarantine_key(family_id, 'receipts', content_type)
 
         put_url = generate_upload_url(key, content_type)
-        image_url = build_public_url(key)
         return success_response(data={
+            'upload_id': key.rsplit('/', 1)[-1].split('.', 1)[0],
             'upload_url': put_url,
-            'image_url': image_url,
-            'key': key,
+            'raw_key': key,
+            'expires_in': 3600,
         })
 
     @action(detail=False, methods=['post'], url_path='scan')
     def scan(self, request):
-        """POST /expenses/scan/ — Accept image_url, create expense with status='processing'."""
+        """Create a processing expense from a legacy image URL or quarantine key."""
         serializer = ScanReceiptSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        raw_key = serializer.validated_data.get('raw_key')
 
-        expense = Expense.objects.create(
-            family=request.user.family,
-            recorder=request.user,
-            scan_id=str(uuid.uuid4()),
-            image_url=serializer.validated_data['image_url'],
-            date=request.data.get('date', None) or timezone.now().date(),
-            items=[],
-            total_amount=0,
-            status=Expense.Status.PROCESSING,
-        )
+        create_kwargs = {
+            'family': request.user.family,
+            'recorder': request.user,
+            'scan_id': serializer.validated_data.get('upload_id') or str(uuid.uuid4()),
+            'date': request.data.get('date', None) or timezone.now().date(),
+            'items': [],
+            'total_amount': 0,
+            'status': Expense.Status.PROCESSING,
+        }
+
+        if raw_key:
+            self._validate_receipt_key(raw_key, request.user.family.id)
+            create_kwargs.update({
+                'image_url': None,
+                'raw_image_key': raw_key,
+                'redacted_image_key': processed_key_for_raw_key(raw_key),
+                'deid_status': Expense.DeidentificationStatus.PROCESSING,
+            })
+        else:
+            create_kwargs['image_url'] = serializer.validated_data['image_url']
+
+        expense = Expense.objects.create(**create_kwargs)
+        if raw_key:
+            redact_receipt_image_task.delay(expense.id)
         out = ExpenseSerializer(expense).data
         return success_response(data=out, status=202)
 
     @action(detail=False, methods=['get'], url_path='monthly')
     def monthly(self, request):
-        """GET /expenses/monthly/ — Current-month total + category breakdown (%)."""
+        """Return current-month total and category breakdown."""
         family = request.user.family
         today = timezone.localdate()
         month_start = today.replace(day=1)
@@ -179,3 +205,9 @@ class ExpenseViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             'monthly_total': round(monthly_total, 2),
             'category_breakdown': category_breakdown,
         })
+
+    def _validate_receipt_key(self, raw_key, family_id):
+        if not is_valid_quarantine_key(raw_key, family_id, 'receipts'):
+            raise ValidationError({
+                'raw_key': 'Receipt upload key is outside this family quarantine path.'
+            })

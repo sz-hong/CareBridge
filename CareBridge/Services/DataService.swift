@@ -26,6 +26,11 @@ struct SpendingSummary: Codable {
     var categoryBreakdown: [CategoryBreakdownItem]
 }
 
+struct ReceiptUploadReference: Codable {
+    var uploadId: String
+    var rawKey: String
+}
+
 struct CategoryBreakdownItem: Codable {
     var category: String
     var percentage: Double
@@ -70,9 +75,8 @@ protocol DataService {
     func fetchExpenses(month: Date?) async throws -> [Expense]
     func fetchSpendingSummary(month: Date?) async throws -> SpendingSummary
     func createExpense(_ expense: Expense) async throws -> Expense
-    /// Upload a receipt image via presigned PUT and return the bare storage URL
-    /// to include in the subsequent `createExpense` call.
-    func uploadReceiptImage(_ image: UIImage) async throws -> String
+    /// Upload a locally redacted receipt image to quarantine storage.
+    func uploadReceiptImage(_ image: UIImage) async throws -> ReceiptUploadReference
 
     // Todo
     func fetchTodos() async throws -> [TodoItem]

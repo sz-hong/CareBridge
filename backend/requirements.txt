@@ -15,6 +15,7 @@ aioapns>=3.0
 pgvector>=0.2
 psycopg2-binary>=2.9
 Pillow>=10.2
+google-cloud-dlp>=3.21
 gunicorn>=22.0
 uvicorn[standard]>=0.29
 python-dotenv>=1.0

@@ -1,5 +1,6 @@
 from django.test import SimpleTestCase, override_settings
 
+from core.deidentification import get_deidentification_client, prepare_text_for_gpt
 from core.storage import build_public_url
 
 
@@ -13,6 +14,32 @@ class StorageURLContractTests(SimpleTestCase):
             build_public_url('receipts/family-1/receipt.jpg'),
             'https://storage.carebridge-lab.com/carebridge-storage/receipts/family-1/receipt.jpg',
         )
+
+
+class MockDeidentificationClientTests(SimpleTestCase):
+    @override_settings(DLP_PROVIDER='mock')
+    def test_mock_client_redacts_common_identifiers(self):
+        client = get_deidentification_client()
+
+        result = client.deidentify_text(
+            'Email amy@example.com, phone 0912-345-678, card 4111 1111 1111 1111.'
+        )
+
+        self.assertNotIn('amy@example.com', result.text)
+        self.assertNotIn('0912-345-678', result.text)
+        self.assertNotIn('4111 1111 1111 1111', result.text)
+        self.assertIn('[EMAIL_ADDRESS]', result.text)
+        self.assertIn('[TAIWAN_PHONE_NUMBER]', result.text)
+        self.assertIn('[CREDIT_CARD_NUMBER]', result.text)
+        self.assertGreaterEqual(len(result.findings), 3)
+        self.assertNotIn('quote', result.findings_as_dicts()[0])
+        self.assertIn('quote_length', result.findings_as_dicts()[0])
+
+    @override_settings(DLP_PROVIDER='mock')
+    def test_prepare_text_for_gpt_returns_deidentified_text(self):
+        output = prepare_text_for_gpt('Send to amy@example.com')
+
+        self.assertEqual(output, 'Send to [EMAIL_ADDRESS]')
 
     @override_settings(
         AWS_STORAGE_BUCKET_NAME='carebridge-storage',

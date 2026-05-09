@@ -7,11 +7,16 @@ class APIDataService: DataService {
     let baseURL: String
     var authToken: String?
     let apiClient: APIClient
+    let privacyRedactionService: PrivacyRedactionServicing
 
-    init(baseURL: String = AppConfig.apiBaseURL) {
+    init(
+        baseURL: String = AppConfig.apiBaseURL,
+        privacyRedactionService: PrivacyRedactionServicing = DefaultPrivacyRedactionService()
+    ) {
         self.baseURL = baseURL
         self.apiClient = APIClient(baseURL: baseURL)
         self.authToken = KeychainService.accessToken
+        self.privacyRedactionService = privacyRedactionService
     }
 
     // MARK: - Generic Request Helpers

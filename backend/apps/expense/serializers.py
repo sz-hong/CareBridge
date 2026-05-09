@@ -12,7 +12,8 @@ class ExpenseSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'family', 'recorder', 'scan_id', 'store_name',
             'date', 'items', 'total_amount', 'image_url',
-            'ocr_confidence', 'status', 'created_at', 'updated_at',
+            'ocr_confidence', 'status', 'deid_status', 'deid_findings',
+            'deid_processed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = fields
 
@@ -33,8 +34,22 @@ class ExpenseSerializer(serializers.ModelSerializer):
 class CreateExpenseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Expense
-        fields = ['store_name', 'date', 'items', 'total_amount', 'image_url']
+        fields = [
+            'store_name', 'date', 'items', 'total_amount', 'image_url',
+            'raw_image_key',
+        ]
+        extra_kwargs = {
+            'image_url': {'required': False, 'allow_null': True, 'allow_blank': True},
+            'raw_image_key': {'required': False, 'allow_null': True, 'allow_blank': True},
+        }
 
 
 class ScanReceiptSerializer(serializers.Serializer):
-    image_url = serializers.URLField(max_length=500)
+    image_url = serializers.URLField(max_length=500, required=False)
+    upload_id = serializers.CharField(max_length=100, required=False)
+    raw_key = serializers.CharField(max_length=500, required=False)
+
+    def validate(self, attrs):
+        if not attrs.get('image_url') and not attrs.get('raw_key'):
+            raise serializers.ValidationError('image_url or raw_key is required.')
+        return attrs
