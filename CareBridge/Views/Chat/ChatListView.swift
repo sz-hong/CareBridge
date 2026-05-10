@@ -163,6 +163,9 @@ struct ChatRoomRow: View {
 @Observable
 class ChatWebSocket {
     private var task: URLSessionWebSocketTask?
+    private var roomId: String?
+    private var isClosing = false      // disconnect() 設 true 防止 retry 干擾
+    private var retryCount = 0
     var isConnected = false
     var onReceive: ((ChatMessage) -> Void)?
 
@@ -174,6 +177,13 @@ class ChatWebSocket {
     }()
 
     func connect(roomId: String) {
+        self.roomId = roomId
+        self.isClosing = false
+        openSocket()
+    }
+
+    private func openSocket() {
+        guard let roomId else { return }
         var urlString = "\(AppConfig.wsBaseURL)/chat/\(roomId)/"
         if let token = KeychainService.accessToken {
             urlString += "?token=\(token)"
@@ -181,7 +191,7 @@ class ChatWebSocket {
         guard let url = URL(string: urlString) else { return }
         task = URLSession.shared.webSocketTask(with: url)
         task?.resume()
-        isConnected = true
+        DispatchQueue.main.async { self.isConnected = true }
         receiveLoop()
     }
 
@@ -205,26 +215,45 @@ class ChatWebSocket {
     }
 
     func disconnect() {
+        isClosing = true
+        roomId = nil
         task?.cancel(with: .goingAway, reason: nil)
-        isConnected = false
+        task = nil
+        DispatchQueue.main.async { self.isConnected = false }
     }
 
     private func receiveLoop() {
         task?.receive { [weak self] result in
+            guard let self else { return }
             switch result {
             case .success(.string(let text)):
+                self.retryCount = 0
                 if let data = text.data(using: .utf8),
-                   let msg = try? self?.decoder.decode(ChatMessage.self, from: data) {
-                    DispatchQueue.main.async { self?.onReceive?(msg) }
+                   let msg = try? self.decoder.decode(ChatMessage.self, from: data) {
+                    DispatchQueue.main.async { self.onReceive?(msg) }
                 }
-                self?.receiveLoop()
+                self.receiveLoop()
             case .success(.data):
-                self?.receiveLoop()
+                self.receiveLoop()
             case .failure:
-                DispatchQueue.main.async { self?.isConnected = false }
+                DispatchQueue.main.async { self.isConnected = false }
+                self.scheduleReconnect()
             @unknown default:
                 break
             }
+        }
+    }
+
+    /// Exponential backoff reconnect (1s, 2s, 4s, ... capped at 16s) so a
+    /// transient network glitch or backend restart doesn't permanently kill
+    /// the chat. Caller can still drop everything via `disconnect()`.
+    private func scheduleReconnect() {
+        guard !isClosing, roomId != nil else { return }
+        let delay = min(pow(2.0, Double(retryCount)), 16.0)
+        retryCount += 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, !self.isClosing else { return }
+            self.openSocket()
         }
     }
 }
@@ -236,6 +265,7 @@ struct ChatDetailView: View {
     let userRole: UserRole
     @Environment(\.dataService) private var service
     @Environment(UserStore.self) private var userStore
+    @Environment(\.scenePhase) private var scenePhase
     @State private var messages: [ChatMessage] = []
     @State private var inputText = ""
     @State private var isRecording = false
@@ -299,10 +329,23 @@ struct ChatDetailView: View {
         .navigationTitle(room.name)
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            messages = (try? await service.fetchMessages(roomId: room.id)) ?? []
+            // 設 onReceive 一定要在 connect 之前，避免 server 在 connect
+            // 完成的瞬間就推訊息但 callback 還是 nil。
+            socket.onReceive = { msg in handleIncoming(msg) }
             socket.connect(roomId: room.id)
-            socket.onReceive = { msg in
-                handleIncoming(msg)
+            messages = (try? await service.fetchMessages(roomId: room.id)) ?? []
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // App 從背景回前景時重新拉一次歷史並確保 WS 還活著。
+            // WebSocket 在背景一段時間後會被 iOS 砍，這裡兜底重連。
+            guard newPhase == .active else { return }
+            if !socket.isConnected {
+                socket.connect(roomId: room.id)
+            }
+            Task {
+                if let fresh = try? await service.fetchMessages(roomId: room.id) {
+                    mergeFetched(fresh)
+                }
             }
         }
         .onDisappear { socket.disconnect() }
@@ -399,7 +442,18 @@ struct ChatDetailView: View {
         )
         messages.append(newMsg)
         inputText = ""
-        socket.send(content: text, sender: me?.name ?? "", senderRole: me?.role ?? .family)
+
+        // REST guarantees the message lands in the DB even if the WebSocket
+        // happens to be reconnecting. The backend's chat ViewSet broadcasts
+        // through the channel layer, so the WS echo arrives shortly after
+        // and `handleIncoming()` reconciles the optimistic copy. Failure
+        // path falls back to a fetch so we never end up with a "ghost"
+        // message that only lives in this view's state.
+        Task {
+            if (try? await service.sendMessage(roomId: room.id, content: text)) == nil {
+                messages = (try? await service.fetchMessages(roomId: room.id)) ?? messages
+            }
+        }
     }
 
     private func sendRequestCard(type: String, id: String, content: String) {
@@ -426,6 +480,16 @@ struct ChatDetailView: View {
                 messages = (try? await service.fetchMessages(roomId: room.id)) ?? messages
             }
         }
+    }
+
+    /// 把 server 拉回的訊息合併到本地，保留尚未 echo 回來的 optimistic 訊息。
+    private func mergeFetched(_ fresh: [ChatMessage]) {
+        let serverIds = Set(fresh.map { $0.id })
+        // 保留本地有但 server 還沒回的（自己剛送、還沒收到 echo）
+        let stillPending = messages.filter { msg in
+            msg.isMe && !serverIds.contains(msg.id)
+        }
+        messages = fresh + stillPending
     }
 
     /// Merge an incoming WS message

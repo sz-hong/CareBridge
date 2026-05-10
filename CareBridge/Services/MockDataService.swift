@@ -53,6 +53,9 @@ class MockDataService: DataService {
     // MARK: - Health
     func fetchHealthData(elderId: String) async throws -> HealthData { .sample }
     func fetchWeeklySteps(elderId: String) async throws -> [Int] { HealthData.weeklySteps }
+    func syncHealthSamples(_ samples: [HealthSyncItem]) async throws -> HealthSyncResult {
+        HealthSyncResult(synced: samples.count, duplicates: 0)
+    }
 
     // MARK: - Chat
     func fetchChatRooms() async throws -> [ChatRoom] { ChatRoom.samples }

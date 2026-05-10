@@ -20,6 +20,34 @@ from .serializers import (
 )
 
 
+def _broadcast_health_update(family, points, alerts):
+    """Push new health data points + alerts to ws/health/ family group.
+
+    msgpack (the channel layer's packer) can't serialize UUID/datetime,
+    so we round-trip through json with default=str — same workaround the
+    chat consumer uses.
+    """
+    import json
+
+    from asgiref.sync import async_to_sync
+    from channels.layers import get_channel_layer
+
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        return
+
+    payload = json.loads(json.dumps({
+        'type':   'health.update',
+        'points': points,
+        'alerts': alerts,
+    }, default=str))
+
+    async_to_sync(channel_layer.group_send)(
+        f'health_{family.id}',
+        {'type': 'health_update', 'payload': payload},
+    )
+
+
 def _check_thresholds(family, data_point):
     """Check a single health data point against family thresholds and create alert if abnormal."""
     try:
@@ -137,14 +165,28 @@ class HealthDataViewSet(FamilyScopedQuerySetMixin, ViewSet):
 
     @action(detail=False, methods=['post'], url_path='sync')
     def sync(self, request):
-        """POST /health-data/sync/ — batch sync health data points."""
+        """POST /health-data/sync/ — batch sync health data points.
+
+        Idempotent via the (family, type, recorded_at) unique constraint:
+        re-uploading the same samples is a no-op. Reports back how many
+        rows were actually inserted vs. duplicates so the client can
+        advance its anchor confidently.
+        """
         family = request.user.family
+        if family is None:
+            return error_response(
+                code='no_family',
+                message='User is not in a family.',
+                status=400,
+            )
+
         serializer = SyncHealthDataSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         items = serializer.validated_data['data']
         created_count = 0
         alerts = []
+        broadcast_points = []
 
         for item in items:
             obj, created = HealthData.objects.get_or_create(
@@ -155,13 +197,31 @@ class HealthDataViewSet(FamilyScopedQuerySetMixin, ViewSet):
                     'value': item['value'],
                     'unit': item['unit'],
                     'device_id': item.get('device_id', ''),
+                    'source': item.get('source', HealthData.Source.OTHER),
                 },
             )
             if created:
                 created_count += 1
+                broadcast_points.append(HealthDataSerializer(obj).data)
                 alert = _check_thresholds(family, obj)
                 if alert:
                     alerts.append(HealthAlertSerializer(alert).data)
+
+        # Realtime fan-out — push the new samples + any triggered alerts to
+        # every family member connected to ws/health/. Skipped on duplicates
+        # so the dashboard doesn't replay stale data on retries.
+        if broadcast_points or alerts:
+            try:
+                _broadcast_health_update(
+                    family,
+                    points=broadcast_points,
+                    alerts=alerts,
+                )
+            except Exception:
+                import logging
+                logging.getLogger(__name__).warning(
+                    'Failed to broadcast health update', exc_info=True,
+                )
 
         data = {
             'synced': created_count,

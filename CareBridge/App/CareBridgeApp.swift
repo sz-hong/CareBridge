@@ -17,6 +17,8 @@ struct CareBridgeApp: App {
     @State private var calendarStore: CalendarStore
     @State private var medicationStore: MedicationStore
     @State private var localeStore = LocaleStore()
+    @State private var healthSync: HealthKitSyncManager
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         let service: DataService = APIDataService()
@@ -26,6 +28,7 @@ struct CareBridgeApp: App {
         _todoStore       = State(initialValue: TodoStore(service: service))
         _calendarStore   = State(initialValue: CalendarStore(service: service))
         _medicationStore = State(initialValue: MedicationStore(service: service))
+        _healthSync      = State(initialValue: HealthKitSyncManager(service: service))
     }
 
     var body: some Scene {
@@ -38,6 +41,23 @@ struct CareBridgeApp: App {
                     FamilySelectionView(isLoggedIn: $isLoggedIn, userRole: $userRole)
                 } else {
                     ContentView(isLoggedIn: $isLoggedIn, userRole: userRole)
+                        // Once user is logged in AND has a family, kick off
+                        // HealthKit observers + background delivery. Re-runs
+                        // are no-ops (HK Authorization is idempotent and
+                        // observers replace the previous registration).
+                        .task {
+                            await healthSync.startSyncing()
+                        }
+                        // Trigger an explicit sync every time the app comes
+                        // back to foreground. This is the reliable path on
+                        // free Apple Developer accounts (no background
+                        // delivery entitlement) — opening Apple Health app
+                        // pushes data to HK; switching back to us picks it up.
+                        .onChange(of: scenePhase) { _, newPhase in
+                            if newPhase == .active {
+                                Task { await healthSync.incrementalSyncAll() }
+                            }
+                        }
                 }
             }
             .environment(userStore)
@@ -46,6 +66,7 @@ struct CareBridgeApp: App {
             .environment(calendarStore)
             .environment(medicationStore)
             .environment(localeStore)
+            .environment(healthSync)
             .environment(\.locale, localeStore.locale)
             .environment(\.dataService, dataService)
             .preferredColorScheme(.light)

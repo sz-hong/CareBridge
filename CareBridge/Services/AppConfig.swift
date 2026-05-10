@@ -10,13 +10,13 @@ enum AppConfig {
     // MARK: - Switch here
     /// Change this one line to flip between targets.
     //static let mode: Mode = .simulator
-    //static let mode: Mode = .device
-    static let mode: Mode = .publicTunnel
+    static let mode: Mode = .device
+    //static let mode: Mode = .publicTunnel
 
     /// When targeting a physical device, update `lanIP` to your Mac's current
     /// LAN IP. Device and Mac must be on the same Wi-Fi.
-    //static let lanIP = "192.168.1.110"
-    static let lanIP = "100.125.106.32"
+    static let lanIP = "192.168.1.110"
+    //static let lanIP = "100.125.106.32"
     static let publicHost = "api.carebridge-lab.com"
 
     // MARK: - Derived

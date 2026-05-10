@@ -289,17 +289,36 @@ print(f'   ✓ BoardRequest: {BoardRequest.objects.count()} 筆')
 # ============================================================================
 print('📝 建立照護日誌...')
 
-# 生命徵象
+# 生命徵象 — 全部 optional 欄位，這幾筆涵蓋 FE 顯示時要 fallback 的情境：
+#   * 最新一筆只填血壓 + 體重
+#   * 前一筆只填血糖
+#   * 更早一筆只填體溫
+# HealthMonitorView 會依欄位逐一 walk 找最新值，所以即使分散在不同筆也能秀出來。
 CareLog.objects.create(
     family=family, recorder=rita, type='vital',
     content={
         'blood_pressure_systolic': 128,
         'blood_pressure_diastolic': 82,
-        'blood_sugar': 5.8,
-        'temperature': 36.5,
-        'note': '狀況穩定',
+        'weight': 60.5,
+        'note': '晨間量測',
     },
     timestamp=now - timedelta(hours=2),
+)
+CareLog.objects.create(
+    family=family, recorder=rita, type='vital',
+    content={
+        'blood_sugar': 5.8,
+        'note': '飯前血糖',
+    },
+    timestamp=now - timedelta(hours=10),
+)
+CareLog.objects.create(
+    family=family, recorder=rita, type='vital',
+    content={
+        'temperature': 36.5,
+        'note': '無發燒',
+    },
+    timestamp=now - timedelta(hours=18),
 )
 
 # 用藥（後續被 MedicationConfirmation 連結回此 log）

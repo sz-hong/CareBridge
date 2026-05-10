@@ -46,3 +46,7 @@ desktop.ini
 *.cache
 *.bak
 *.tmp
+
+# Local DLP secrets (mounted into Docker as /secrets/)
+backend/docker/secrets/*
+!backend/docker/secrets/.gitkeep

@@ -4,6 +4,11 @@
 <dict>
 	<key>NSFaceIDUsageDescription</key>
 	<string>CareBridge 使用 Face ID 保護您的帳號安全</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- 開發環境允許 HTTP（Tailscale / 區域網路）。正式上架前須移除。 -->
