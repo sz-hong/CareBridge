@@ -98,6 +98,39 @@ struct HealthMonitorView: View {
     private let rangeLabels = ["日", "週", "月"]
     @State private var showThresholdSettings = false
     @State private var healthKit = HealthKitManager()
+    @State private var liveSocket = HealthLiveSocket()
+    @State private var liveBanner: String?
+    @Environment(CareLogStore.self) private var careLogStore
+    @Environment(HealthKitSyncManager.self) private var healthSync
+
+    /// Most-recent vital reading from CareLog (manual entries via 日誌).
+    /// Returns nil for fields the user hasn't logged yet.
+    private var latestVital: CareLogEntry? {
+        careLogStore.entries
+            .filter { $0.type == .vital }
+            .sorted { $0.timestamp > $1.timestamp }
+            .first(where: { entry in
+                // Find the latest vital entry that has *any* of the fields we
+                // care about, so blood pressure / sugar fall back independently.
+                entry.bloodPressureSystolic != nil ||
+                entry.bloodSugar != nil ||
+                entry.weight != nil ||
+                entry.temperature != nil
+            })
+    }
+
+    /// Walk all vital entries newest→oldest to surface the most-recent reading
+    /// per field individually (so 血壓 from yesterday + 血糖 from today coexist).
+    private func latestVital<T>(_ keyPath: KeyPath<CareLogEntry, T?>) -> (value: T, at: Date)? {
+        for entry in careLogStore.entries
+            .filter({ $0.type == .vital })
+            .sorted(by: { $0.timestamp > $1.timestamp }) {
+            if let v = entry[keyPath: keyPath] {
+                return (v, entry.timestamp)
+            }
+        }
+        return nil
+    }
 
     var body: some View {
         ScrollView {
@@ -124,30 +157,60 @@ struct HealthMonitorView: View {
                 }
                 .padding(.horizontal, 16)
 
+                // 血壓 + 血糖 取自照護日誌 (.vital) 最新填寫值。
+                // 還沒填過就顯示 "—"。空狀態不顯示「正常」假狀態。
                 HStack(spacing: 12) {
-                    vitalCard(title: "血壓",
-                              value: "\(Int(healthKit.bloodPressureSystolic))/\(Int(healthKit.bloodPressureDiastolic))",
-                              unit: "mmHg",
-                              icon: "waveform.path.ecg", color: .blue,
-                              status: "正常")
-                    vitalCard(title: "血糖",
-                              value: String(format: "%.1f", healthKit.bloodSugar),
-                              unit: "mmol/L",
-                              icon: "drop.fill", color: .orange,
-                              status: "正常")
+                    let bp = latestVital(\.bloodPressureSystolic)
+                    let bpd = latestVital(\.bloodPressureDiastolic)
+                    vitalCard(
+                        title: "血壓",
+                        value: (bp != nil && bpd != nil)
+                            ? "\(bp!.value)/\(bpd!.value)"
+                            : "—",
+                        unit: "mmHg",
+                        icon: "waveform.path.ecg", color: .blue,
+                        status: bp == nil ? "尚未填寫" : "正常"
+                    )
+
+                    let sugar = latestVital(\.bloodSugar)
+                    vitalCard(
+                        title: "血糖",
+                        value: sugar.map { String(format: "%.1f", $0.value) } ?? "—",
+                        unit: "mmol/L",
+                        icon: "drop.fill", color: .orange,
+                        status: sugar == nil ? "尚未填寫" : "正常"
+                    )
                 }
                 .padding(.horizontal, 16)
 
-                // Heart Rate Chart（HealthKit 歷史資料）
+                // Heart Rate Chart（HealthKit 歷史資料）— 折線圖樣式
                 chartCard(title: "心率趨勢", subtitle: "過去7天 (bpm)",
                           hasAnomaly: healthKit.heartRateHistory.contains(where: { $0.1 > 100 })) {
                     Chart {
+                        // 折線
                         ForEach(healthKit.heartRateHistory, id: \.0) { day, rate in
-                            BarMark(x: .value("Day", day),
-                                    y: .value("BPM", rate))
-                            .foregroundStyle(rate > 100 ? Color.red : Color.brandTeal)
-                            .cornerRadius(4)
+                            LineMark(x: .value("Day", day),
+                                     y: .value("BPM", rate))
+                            .foregroundStyle(Color.brandTeal)
+                            .lineStyle(StrokeStyle(lineWidth: 2.5))
+                            .interpolationMethod(.catmullRom)
                         }
+                        // 線下淡色區
+                        ForEach(healthKit.heartRateHistory, id: \.0) { day, rate in
+                            AreaMark(x: .value("Day", day),
+                                     yStart: .value("Min", 40),
+                                     yEnd: .value("BPM", rate))
+                            .foregroundStyle(Color.brandTeal.opacity(0.12))
+                            .interpolationMethod(.catmullRom)
+                        }
+                        // 每日點，異常時換紅
+                        ForEach(healthKit.heartRateHistory, id: \.0) { day, rate in
+                            PointMark(x: .value("Day", day),
+                                      y: .value("BPM", rate))
+                            .foregroundStyle(rate > 100 ? Color.red : Color.brandTeal)
+                            .symbolSize(60)
+                        }
+                        // 警戒線
                         RuleMark(y: .value("Upper", 100))
                             .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
                             .foregroundStyle(.red.opacity(0.5))
@@ -216,7 +279,39 @@ struct HealthMonitorView: View {
         .background(Color.brandBackground)
         .navigationTitle("健康監測")
         .navigationBarTitleDisplayMode(.large)
-        .task { await healthKit.requestAuthorization() }
+        .task {
+            await healthKit.requestAuthorization()
+
+            // 進入頁面時主動 trigger 一次 HealthKit → backend sync
+            // （免費 Apple Developer 帳號無 background delivery 時的兜底）
+            await healthSync.incrementalSyncAll()
+
+            // Live updates: any family member's HealthKit upload via the
+            // /health-data/sync/ endpoint will be fanned out by the backend
+            // through ws/health/. Apply incoming points to the local state
+            // so the UI stays in sync without manual refresh.
+            liveSocket.onUpdate = { update in
+                applyLiveUpdate(update)
+            }
+            liveSocket.connect()
+        }
+        .refreshable {
+            // 下拉重新整理：手動 trigger HealthKit sync + 等 server 回 WS 推送
+            await healthSync.incrementalSyncAll()
+            await healthKit.loadLatestValues()
+        }
+        .onDisappear { liveSocket.disconnect() }
+        .overlay(alignment: .top) {
+            if let liveBanner {
+                Text(liveBanner)
+                    .font(.system(size: 12, weight: .medium))
+                    .padding(.horizontal, 12).padding(.vertical, 6)
+                    .background(Capsule().fill(Color.brandTealLight))
+                    .foregroundStyle(Color.brandTeal)
+                    .padding(.top, 8)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -254,6 +349,38 @@ struct HealthMonitorView: View {
             }
         }
         .frame(height: 36)
+    }
+
+    /// Apply server-pushed health update to the local cards so the UI
+    /// reflects watch readings the moment they arrive at the backend.
+    private func applyLiveUpdate(_ update: HealthLiveUpdate) {
+        for point in update.points {
+            switch point.type {
+            case "heart_rate":             healthKit.heartRate = point.value
+            case "blood_oxygen":           healthKit.bloodOxygen = point.value
+            case "blood_pressure_systolic":  healthKit.bloodPressureSystolic = point.value
+            case "blood_pressure_diastolic": healthKit.bloodPressureDiastolic = point.value
+            default: break
+            }
+        }
+        if let mostRecent = update.points.max(by: { $0.recordedAt < $1.recordedAt }) {
+            withAnimation { liveBanner = "新數據：\(localizedTypeName(mostRecent.type)) \(Int(mostRecent.value))" }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                withAnimation { liveBanner = nil }
+            }
+        }
+    }
+
+    private func localizedTypeName(_ type: String) -> String {
+        switch type {
+        case "heart_rate":               return "心率"
+        case "blood_oxygen":             return "血氧"
+        case "blood_pressure_systolic":  return "收縮壓"
+        case "blood_pressure_diastolic": return "舒張壓"
+        case "step_count":               return "步數"
+        case "active_energy":            return "活動熱量"
+        default: return type
+        }
     }
 
     private func vitalCard(title: String, value: String, unit: String,

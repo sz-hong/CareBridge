@@ -491,10 +491,13 @@ struct CareLogEntry: Identifiable, Codable {
     var detail: String      // generated from API content JSONB
     var timestamp: Date     // API: timestamp
     var hasPhoto: Bool      // derived from photo_url != nil
-    /// Structured vitals — populated for .vital entries so HomeView can
-    /// show the latest reading without regex-parsing `detail`.
+    /// Structured vitals — populated for .vital entries so views can read the
+    /// latest reading without regex-parsing `detail`. All optional.
     var bloodPressureSystolic: Int? = nil
     var bloodPressureDiastolic: Int? = nil
+    var bloodSugar: Double? = nil
+    var temperature: Double? = nil
+    var weight: Double? = nil
 
     // MARK: Custom Coding
     private enum CodingKeys: String, CodingKey {
@@ -510,6 +513,7 @@ struct CareLogEntry: Identifiable, Codable {
         var bloodPressureDiastolic: Double?
         var bloodSugar: Double?
         var temperature: Double?
+        var weight: Double?
         var note: String?
         var mealType: String?
         var description: String?
@@ -523,18 +527,24 @@ struct CareLogEntry: Identifiable, Codable {
             // All snake_case keys auto-converted by .convertFromSnakeCase
             case medicationName, dosage, note, description, appetite, temperature, text
             case bloodPressureSystolic, bloodPressureDiastolic
-            case bloodSugar, mealType, activityType, durationMinutes, textTranslated
+            case bloodSugar, weight, mealType, activityType, durationMinutes, textTranslated
         }
     }
 
     init(id: String, type: CareLogType, title: String, detail: String,
          timestamp: Date, hasPhoto: Bool,
          bloodPressureSystolic: Int? = nil,
-         bloodPressureDiastolic: Int? = nil) {
+         bloodPressureDiastolic: Int? = nil,
+         bloodSugar: Double? = nil,
+         temperature: Double? = nil,
+         weight: Double? = nil) {
         self.id = id; self.type = type; self.title = title
         self.detail = detail; self.timestamp = timestamp; self.hasPhoto = hasPhoto
         self.bloodPressureSystolic = bloodPressureSystolic
         self.bloodPressureDiastolic = bloodPressureDiastolic
+        self.bloodSugar = bloodSugar
+        self.temperature = temperature
+        self.weight = weight
     }
 
     init(from decoder: Decoder) throws {
@@ -557,9 +567,19 @@ struct CareLogEntry: Identifiable, Codable {
                 bloodPressureSystolic  = Int(s)
                 bloodPressureDiastolic = Int(d)
             }
-            if let bs = content.bloodSugar { parts.append("血糖 \(bs)") }
-            if let t  = content.temperature { parts.append("體溫 \(t)°C") }
-            if let n  = content.note        { parts.append(n) }
+            if let w = content.weight {
+                parts.append("體重 \(String(format: "%.1f", w)) kg")
+                weight = w
+            }
+            if let bs = content.bloodSugar {
+                parts.append("血糖 \(String(format: "%.1f", bs)) mmol/L")
+                bloodSugar = bs
+            }
+            if let t  = content.temperature {
+                parts.append("體溫 \(String(format: "%.1f", t))°C")
+                temperature = t
+            }
+            if let n  = content.note { parts.append(n) }
             detail = parts.joined(separator: "｜")
         case .meal:
             title  = "飲食紀錄"
@@ -584,9 +604,15 @@ struct CareLogEntry: Identifiable, Codable {
         switch type {
         case .note:       content["text"]        = AnyEncodable(detail)
         case .vital:
+            // Vital structured fields go to dedicated keys. We **deliberately**
+            // do NOT put `detail` into `note` — the decoder rebuilds the same
+            // text from those keys, so writing it here would duplicate every
+            // line on read-back.
             if let s = bloodPressureSystolic  { content["blood_pressure_systolic"]  = AnyEncodable(s) }
             if let d = bloodPressureDiastolic { content["blood_pressure_diastolic"] = AnyEncodable(d) }
-            content["note"] = AnyEncodable(detail)
+            if let w  = weight       { content["weight"]      = AnyEncodable(w) }
+            if let bs = bloodSugar   { content["blood_sugar"] = AnyEncodable(bs) }
+            if let t  = temperature  { content["temperature"] = AnyEncodable(t) }
         case .meal:       content["description"] = AnyEncodable(detail)
         case .activity:   content["note"]        = AnyEncodable(detail)
         case .medication: content["medication_name"] = AnyEncodable(title)

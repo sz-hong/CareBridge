@@ -29,6 +29,7 @@ struct HomeView: View {
     @State private var weeklySteps: [Int] = HealthData.weeklySteps
     @State private var showNotifications = false
     @State private var navPath = NavigationPath()
+    @State private var liveSocket = HealthLiveSocket()
     private let weekDays = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
 
     /// 今天在 Mon-Sun 陣列中的 index（Mon=0, Sun=6）
@@ -170,6 +171,29 @@ struct HomeView: View {
                 async let s = service.fetchWeeklySteps(elderId: "")
                 health      = (try? await h) ?? .sample
                 weeklySteps = (try? await s) ?? HealthData.weeklySteps
+
+                // Live updates from any family member's HealthKit upload —
+                // mirror the heart rate / SpO2 values into the home cards
+                // so they refresh in real time as the watch streams data.
+                liveSocket.onUpdate = { update in
+                    applyLiveUpdate(update)
+                }
+                liveSocket.connect()
+            }
+            .onDisappear { liveSocket.disconnect() }
+        }
+    }
+
+    private func applyLiveUpdate(_ update: HealthLiveUpdate) {
+        for point in update.points {
+            switch point.type {
+            case "heart_rate":
+                health.heartRate = Int(point.value)
+                health.timestamp = point.recordedAt
+            case "blood_oxygen":
+                health.bloodOxygen = point.value
+                health.timestamp = point.recordedAt
+            default: break
             }
         }
     }

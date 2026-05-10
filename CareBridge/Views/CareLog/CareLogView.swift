@@ -492,11 +492,14 @@ struct TimelineEntryRow: View {
                     .background(RoundedRectangle(cornerRadius: 8).fill(Color(.systemGray6)))
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("HEART\nRATE")
+                        Text("BLOOD\nSUGAR")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(.secondary)
-                        Text(heartRateText)
+                        Text(bloodSugarText)
                             .font(.system(size: 20, weight: .bold))
+                        Text("mmol/L")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(10)
@@ -543,23 +546,33 @@ struct TimelineEntryRow: View {
         return "—/—"
     }
 
-    /// Heart rate — parsed from the detail string (e.g. "心率 72 bpm").
-    private var heartRateText: String {
-        let patterns = [#"心率\s*(\d{2,3})"#, #"(\d{2,3})\s*bpm"#]
-        for p in patterns {
-            if let m = entry.detail.range(of: p, options: .regularExpression) {
-                let digits = entry.detail[m].compactMap { $0.isNumber ? $0 : nil }
-                if !digits.isEmpty { return "\(String(digits)) bpm" }
-            }
+    /// Blood sugar — prefer structured field, fall back to regex on detail.
+    private var bloodSugarText: String {
+        if let bs = entry.bloodSugar {
+            return String(format: "%.1f", bs)
         }
-        return "— bpm"
+        if let m = entry.detail.range(of: #"血糖\s*(\d+(?:\.\d+)?)"#, options: .regularExpression) {
+            let raw = entry.detail[m]
+                .replacingOccurrences(of: "血糖", with: "")
+                .trimmingCharacters(in: .whitespaces)
+            return raw.isEmpty ? "—" : raw
+        }
+        return "—"
     }
 
-    /// Blood oxygen / condition label appended below the two tiles.
+    /// 體重 / 體溫等其他 vitals 的補充文字（去除已在卡片裡顯示的血壓、血糖
+    /// 與重複的格式化欄位以避免兩行雷同）。靠 dedupe 把同義字串合併。
     private var extraVitalsText: String? {
-        let parts = entry.detail.components(separatedBy: "｜")
-        let extras = parts.filter { !$0.contains("血壓") && !$0.contains("心率") }
-        let text = extras.joined(separator: "｜")
+        let parts = entry.detail
+            .components(separatedBy: "｜")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .filter { !$0.contains("血壓") && !$0.contains("血糖") }
+
+        // dedupe 但保留順序
+        var seen = Set<String>()
+        let unique = parts.filter { seen.insert($0).inserted }
+        let text = unique.joined(separator: "｜")
         return text.isEmpty ? nil : text
     }
 }
@@ -576,9 +589,9 @@ struct AddCareLogView: View {
     // vital signs
     @State private var bp_systolic = ""
     @State private var bp_diastolic = ""
-    @State private var heartRate = ""
-    @State private var bloodOxygen = ""
-    @State private var vitalCondition = 1       // 0=異常, 1=正常, 2=良好
+    @State private var weight = ""              // kg, 選填
+    @State private var bloodSugar = ""          // mmol/L, 選填
+    @State private var temperature = ""         // °C, 選填
 
     // medication
     @State private var medName = ""
@@ -603,7 +616,7 @@ struct AddCareLogView: View {
     private let mealLabels      = ["早餐", "午餐", "晚餐", "點心"]
     private let appetiteLabels  = ["差", "一般", "良好"]
     private let intensityLabels = ["輕度", "中度", "高強度"]
-    private let conditionLabels = ["異常", "正常", "良好"]
+    // (conditionLabels removed — vital section is now optional fields only)
 
     private var availableRecordTypes: [CareLogType] {
         CareLogType.allCases
@@ -659,15 +672,22 @@ struct AddCareLogView: View {
     // MARK: - 生理 section
     @ViewBuilder
     private var vitalSection: some View {
-        Section("血壓") {
+        // 全部欄位 optional — 使用者只填關心的就好。
+        // 心率與血氧由 Apple Watch 自動同步，不在這裡填。
+        Section {
+            Text("以下欄位皆為選填，可只填要記錄的項目")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+        }
+
+        Section("血壓 (mmHg)") {
             HStack {
                 Text("收縮壓")
                 Spacer()
                 TextField("120", text: $bp_systolic)
                     .keyboardType(.numberPad)
                     .multilineTextAlignment(.trailing)
-                    .frame(width: 60)
-                Text("mmHg").foregroundStyle(.secondary)
+                    .frame(width: 70)
             }
             HStack {
                 Text("舒張壓")
@@ -675,39 +695,41 @@ struct AddCareLogView: View {
                 TextField("80", text: $bp_diastolic)
                     .keyboardType(.numberPad)
                     .multilineTextAlignment(.trailing)
-                    .frame(width: 60)
-                Text("mmHg").foregroundStyle(.secondary)
+                    .frame(width: 70)
             }
         }
 
-        Section("心率 & 血氧") {
+        Section("體重 (kg)") {
             HStack {
-                Text("心率")
+                Text("體重")
                 Spacer()
-                TextField("72", text: $heartRate)
-                    .keyboardType(.numberPad)
+                TextField("60.5", text: $weight)
+                    .keyboardType(.decimalPad)
                     .multilineTextAlignment(.trailing)
-                    .frame(width: 60)
-                Text("bpm").foregroundStyle(.secondary)
-            }
-            HStack {
-                Text("血氧")
-                Spacer()
-                TextField("98", text: $bloodOxygen)
-                    .keyboardType(.numberPad)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 60)
-                Text("%").foregroundStyle(.secondary)
+                    .frame(width: 80)
             }
         }
 
-        Section("整體狀況") {
-            Picker("狀況", selection: $vitalCondition) {
-                ForEach(0..<conditionLabels.count, id: \.self) { i in
-                    Text(conditionLabels[i]).tag(i)
-                }
+        Section("血糖 (mmol/L)") {
+            HStack {
+                Text("血糖")
+                Spacer()
+                TextField("5.6", text: $bloodSugar)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 80)
             }
-            .pickerStyle(.segmented)
+        }
+
+        Section("體溫 (°C)") {
+            HStack {
+                Text("體溫")
+                Spacer()
+                TextField("36.5", text: $temperature)
+                    .keyboardType(.decimalPad)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 80)
+            }
         }
     }
 
@@ -806,13 +828,13 @@ struct AddCareLogView: View {
         case .vital:
             title = "生理數值紀錄"
             var parts: [String] = []
-            if !bp_systolic.isEmpty || !bp_diastolic.isEmpty {
+            if !bp_systolic.isEmpty && !bp_diastolic.isEmpty {
                 parts.append("血壓 \(bp_systolic)/\(bp_diastolic) mmHg")
             }
-            if !heartRate.isEmpty   { parts.append("心率 \(heartRate) bpm") }
-            if !bloodOxygen.isEmpty { parts.append("血氧 \(bloodOxygen)%") }
-            parts.append(conditionLabels[vitalCondition])
-            detail = parts.joined(separator: "｜")
+            if !weight.isEmpty      { parts.append("體重 \(weight) kg") }
+            if !bloodSugar.isEmpty  { parts.append("血糖 \(bloodSugar) mmol/L") }
+            if !temperature.isEmpty { parts.append("體溫 \(temperature)°C") }
+            detail = parts.isEmpty ? "未填寫" : parts.joined(separator: "｜")
         case .medication:
             title  = medName.isEmpty ? "用藥紀錄" : "\(medName) \(medDosage)"
             detail = "\(routeLabels[medRoute])｜\(medTaken ? "已服用" : "未服用")"
@@ -835,7 +857,10 @@ struct AddCareLogView: View {
             timestamp: recordDate,
             hasPhoto: false,
             bloodPressureSystolic:  selectedType == .vital ? Int(bp_systolic)  : nil,
-            bloodPressureDiastolic: selectedType == .vital ? Int(bp_diastolic) : nil
+            bloodPressureDiastolic: selectedType == .vital ? Int(bp_diastolic) : nil,
+            bloodSugar:  selectedType == .vital ? Double(bloodSugar)  : nil,
+            temperature: selectedType == .vital ? Double(temperature) : nil,
+            weight:      selectedType == .vital ? Double(weight)      : nil
         )
         onAdd(entry)
         dismiss()

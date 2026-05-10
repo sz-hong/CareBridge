@@ -20,11 +20,20 @@ class HealthData(models.Model):
         KCAL = 'kcal', 'kcal'
         MMHG = 'mmHg', 'mmHg'
 
+    class Source(models.TextChoices):
+        APPLE_WATCH = 'apple_watch', 'Apple Watch'
+        IPHONE      = 'iphone',      'iPhone'
+        MANUAL      = 'manual',      'Manual'
+        OTHER       = 'other',       'Other'
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     family = models.ForeignKey(
         'family.Family', on_delete=models.CASCADE, related_name='health_data'
     )
     device_id = models.CharField(max_length=100, null=True, blank=True)
+    source = models.CharField(
+        max_length=16, choices=Source.choices, default=Source.OTHER,
+    )
     type = models.CharField(max_length=32, choices=Type.choices)
     value = models.DecimalField(max_digits=10, decimal_places=2)
     unit = models.CharField(max_length=10, choices=Unit.choices)

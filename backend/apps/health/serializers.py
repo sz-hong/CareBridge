@@ -9,18 +9,40 @@ class HealthDataSerializer(serializers.ModelSerializer):
     class Meta:
         model = HealthData
         fields = [
-            'id', 'family', 'device_id', 'type', 'value',
+            'id', 'family', 'device_id', 'source', 'type', 'value',
             'unit', 'recorded_at', 'created_at',
         ]
         read_only_fields = fields
 
 
 class SyncHealthDataItemSerializer(serializers.Serializer):
+    """Wire format from clients (Apple Watch / HealthKit).
+
+    `value` is intentionally a FloatField (not DecimalField) so noisy
+    HealthKit input like SpO2 0.97833333… can be accepted; we round to 2
+    decimal places ourselves before storing into the DecimalField column,
+    so clients don't have to be precise.
+    """
     type = serializers.ChoiceField(choices=HealthData.Type.choices)
-    value = serializers.DecimalField(max_digits=10, decimal_places=2)
+    value = serializers.FloatField()
     unit = serializers.ChoiceField(choices=HealthData.Unit.choices)
     recorded_at = serializers.DateTimeField()
     device_id = serializers.CharField(max_length=100, required=False, default='')
+    source = serializers.ChoiceField(
+        choices=HealthData.Source.choices,
+        required=False, default=HealthData.Source.OTHER,
+    )
+
+    def validate_value(self, value):
+        from decimal import Decimal, ROUND_HALF_UP
+        # Coerce any precision to 2 dp matching the DecimalField(max_digits=10,
+        # decimal_places=2) column. Reject only if the integer part is too big.
+        quantized = Decimal(str(value)).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP,
+        )
+        if quantized.adjusted() >= 8:  # > 99,999,999.99
+            raise serializers.ValidationError('Value out of range.')
+        return quantized
 
 
 class SyncHealthDataSerializer(serializers.Serializer):

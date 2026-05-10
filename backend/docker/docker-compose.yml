@@ -6,7 +6,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     ports:
-      - "127.0.0.1:8000:8000"
+      - "8000:8000"  # Bind to all interfaces so phones on the same LAN can reach it
     env_file:
       - ../.env
     depends_on:
@@ -14,7 +14,7 @@ services:
       - redis
     volumes:
       - ..:/app
-      - C:/CareBridgeSecrets:/secrets:ro
+      - ${CAREBRIDGE_SECRETS_DIR:-./secrets}:/secrets:ro
     command: >
       gunicorn carebridge_api.asgi:application
       -k uvicorn.workers.UvicornWorker
@@ -79,7 +79,7 @@ services:
     command: celery -A carebridge_api worker -l info
     volumes:
       - ..:/app
-      - C:/CareBridgeSecrets:/secrets:ro
+      - ${CAREBRIDGE_SECRETS_DIR:-./secrets}:/secrets:ro
 
   celery-beat:
     build:
@@ -93,7 +93,7 @@ services:
     command: celery -A carebridge_api beat -l info
     volumes:
       - ..:/app
-      - C:/CareBridgeSecrets:/secrets:ro
+      - ${CAREBRIDGE_SECRETS_DIR:-./secrets}:/secrets:ro
 
 volumes:
   pgdata:

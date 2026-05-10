@@ -13,6 +13,7 @@ enum APIEndpoint {
 
     static let healthDashboard = "/health-data/dashboard/"
     static let healthWeeklySteps = "/health-data/weekly-steps/"
+    static let healthSync = "/health-data/sync/"
 
     static let chats = "/chats/"
 

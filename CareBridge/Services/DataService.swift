@@ -36,6 +36,32 @@ struct CategoryBreakdownItem: Codable {
     var percentage: Double
 }
 
+// MARK: - HealthKit Sync Payloads
+
+/// One sample being uploaded to /health-data/sync/. Type strings must match
+/// the backend `HealthData.Type` enum (`heart_rate`, `blood_oxygen`, etc.).
+struct HealthSyncItem: Codable {
+    var type: String
+    var value: Double
+    var unit: String
+    var recordedAt: Date
+    var deviceId: String?
+    /// Wire value for `HealthData.Source`: apple_watch / iphone / manual / other
+    var source: String
+
+    enum CodingKeys: String, CodingKey {
+        case type, value, unit
+        case recordedAt = "recorded_at"
+        case deviceId   = "device_id"
+        case source
+    }
+}
+
+struct HealthSyncResult: Codable {
+    var synced: Int
+    var duplicates: Int
+}
+
 // MARK: - DataService Protocol
 protocol DataService {
     // Auth
@@ -53,6 +79,9 @@ protocol DataService {
     // Health
     func fetchHealthData(elderId: String) async throws -> HealthData
     func fetchWeeklySteps(elderId: String) async throws -> [Int]
+    /// Batch upload HealthKit samples to the backend. Idempotent —
+    /// safe to retry; backend dedupes by (family, type, recorded_at).
+    func syncHealthSamples(_ samples: [HealthSyncItem]) async throws -> HealthSyncResult
 
     // Chat
     func fetchChatRooms() async throws -> [ChatRoom]
