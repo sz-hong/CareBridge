@@ -1,6 +1,12 @@
+from types import SimpleNamespace
+
 from django.test import SimpleTestCase, override_settings
 
-from core.deidentification import get_deidentification_client, prepare_text_for_gpt
+from core.deidentification import (
+    GoogleDLPDeidentificationClient,
+    get_deidentification_client,
+    prepare_text_for_gpt,
+)
 from core.pii_patterns import CUSTOM_REGEX_INFO_TYPES
 from core.storage import build_public_url
 
@@ -58,3 +64,35 @@ class MockDeidentificationClientTests(SimpleTestCase):
             build_public_url('receipts/family-1/receipt.jpg'),
             'https://storage.carebridge-lab.com/carebridge-storage/receipts/family-1/receipt.jpg',
         )
+
+
+class GoogleDLPDeidentificationClientTests(SimpleTestCase):
+    @override_settings(
+        GOOGLE_CLOUD_PROJECT='carebridge-test',
+        DLP_PROVIDER='google_dlp',
+    )
+    def test_image_redaction_configs_do_not_duplicate_info_types(self):
+        class FakeDLPClient:
+            request = None
+
+            def redact_image(self, request):
+                self.request = request
+                return SimpleNamespace(
+                    redacted_image=b'redacted',
+                    inspect_result=SimpleNamespace(findings=[]),
+                )
+
+        client = GoogleDLPDeidentificationClient()
+        fake_client = FakeDLPClient()
+        client._client = lambda: fake_client
+
+        client.redact_image(b'raw-image', 'image/jpeg')
+
+        names = [
+            config['info_type']['name']
+            for config in fake_client.request['image_redaction_configs']
+        ]
+        self.assertEqual(len(names), len(set(names)))
+        self.assertIn('EMAIL_ADDRESS', names)
+        self.assertIn('CREDIT_CARD_NUMBER', names)
+        self.assertIn('TAIWAN_PHONE_NUMBER', names)
