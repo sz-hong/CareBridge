@@ -50,3 +50,9 @@ desktop.ini
 # Local DLP secrets (mounted into Docker as /secrets/)
 backend/docker/secrets/*
 !backend/docker/secrets/.gitkeep
+
+# Local Docker Compose overrides; keep frontend work from committing Docker config variants.
+backend/docker/docker-compose.override.yml
+backend/docker/docker-compose.local.yml
+backend/docker/*.override.yml
+backend/docker/*.local.yml

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CareBridge
 
@@ -29,7 +30,41 @@ struct APIDataServiceAITests {
     @Test func decodesDoneStreamEvent() {
         #expect(
             APIDataService.decodeAIStreamEvent(line: #"data: {"type":"done"}"#)
-            == .done
+            == .done(conversationID: nil)
         )
+    }
+
+    @Test func decodesDoneStreamEventWithConversationID() {
+        let event = APIDataService.decodeAIStreamEvent(
+            line: #"data: {"type":"done","conversation_id":"conversation-123"}"#
+        )
+
+        #expect(event == .done(conversationID: "conversation-123"))
+    }
+
+    @Test func encodesAIChatRequestBodyWithConversationID() throws {
+        let data = try APIDataService.aiChatRequestBody(
+            prompt: "今天狀況如何？",
+            conversationID: "conversation-123"
+        )
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: String]
+        )
+
+        #expect(payload["message"] == "今天狀況如何？")
+        #expect(payload["conversation_id"] == "conversation-123")
+    }
+
+    @Test func omitsConversationIDFromFirstAIChatRequestBody() throws {
+        let data = try APIDataService.aiChatRequestBody(
+            prompt: "今天狀況如何？",
+            conversationID: nil
+        )
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: data) as? [String: String]
+        )
+
+        #expect(payload["message"] == "今天狀況如何？")
+        #expect(payload["conversation_id"] == nil)
     }
 }

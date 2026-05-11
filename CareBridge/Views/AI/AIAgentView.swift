@@ -7,6 +7,8 @@ struct AIAgentView: View {
     @State private var messages: [AIMessage] = []
     @State private var inputText = ""
     @State private var isLoading = false
+    @State private var conversationID: String?
+    @State private var responseTask: Task<Void, Never>?
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
@@ -46,7 +48,10 @@ struct AIAgentView: View {
         .toolbar {
             if isModal {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { dismiss() } label: {
+                    Button {
+                        resetChatContext()
+                        dismiss()
+                    } label: {
                         Image(systemName: "xmark")
                             .foregroundStyle(.primary)
                     }
@@ -66,6 +71,9 @@ struct AIAgentView: View {
                     }
                 }
             }
+        }
+        .onDisappear {
+            resetChatContext()
         }
     }
 
@@ -127,14 +135,22 @@ struct AIAgentView: View {
     private func sendMessage() {
         let text = inputText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
+        guard !isLoading else { return }
         messages.append(AIMessage(id: UUID().uuidString, content: text, isUser: true, timestamp: Date()))
         inputText = ""
         isLoading = true
-        Task { await streamAIResponse(prompt: text) }
+        let activeConversationID = conversationID
+        responseTask?.cancel()
+        responseTask = Task {
+            await streamAIResponse(
+                prompt: text,
+                conversationID: activeConversationID
+            )
+        }
     }
 
     /// SSE 串流接收 AI 回應，即時更新畫面；失敗時 fallback 到 mock
-    private func streamAIResponse(prompt: String) async {
+    private func streamAIResponse(prompt: String, conversationID: String?) async {
         let replyId = UUID().uuidString
         await MainActor.run {
             messages.append(AIMessage(id: replyId, content: "", isUser: false, timestamp: Date()))
@@ -142,22 +158,35 @@ struct AIAgentView: View {
 
         do {
             var accumulated = ""
-            for try await chunk in dataService.streamAIResponse(prompt: prompt) {
-                accumulated += chunk
-                let updated = accumulated
-                await MainActor.run {
-                    if let idx = messages.firstIndex(where: { $0.id == replyId }) {
-                        messages[idx] = AIMessage(
-                            id: replyId,
-                            content: updated,
-                            isUser: false,
-                            timestamp: Date()
-                        )
+            for try await event in dataService.streamAIResponse(
+                prompt: prompt,
+                conversationID: conversationID
+            ) {
+                guard !Task.isCancelled else { break }
+                switch event {
+                case .chunk(let chunk):
+                    accumulated += chunk
+                    let updated = accumulated
+                    await MainActor.run {
+                        if let idx = messages.firstIndex(where: { $0.id == replyId }) {
+                            messages[idx] = AIMessage(
+                                id: replyId,
+                                content: updated,
+                                isUser: false,
+                                timestamp: Date()
+                            )
+                        }
                     }
+                case .done(let conversationID):
+                    await MainActor.run {
+                        self.conversationID = conversationID
+                    }
+                case .ignore:
+                    continue
                 }
             }
 
-            if accumulated.isEmpty {
+            if accumulated.isEmpty && !Task.isCancelled {
                 await MainActor.run {
                     if let idx = messages.firstIndex(where: { $0.id == replyId }) {
                         messages[idx] = AIMessage(
@@ -169,9 +198,13 @@ struct AIAgentView: View {
                     }
                 }
             }
+        } catch is CancellationError {
+            // Closing the chat cancels the active stream.
         } catch {
+            let wasCancelled = Task.isCancelled
             await MainActor.run {
-                if let idx = messages.firstIndex(where: { $0.id == replyId }) {
+                if !wasCancelled,
+                   let idx = messages.firstIndex(where: { $0.id == replyId }) {
                     messages[idx] = AIMessage(
                         id: replyId,
                         content: "AI response failed. Please try again.",
@@ -182,7 +215,19 @@ struct AIAgentView: View {
             }
         }
 
-        await MainActor.run { isLoading = false }
+        await MainActor.run {
+            isLoading = false
+            responseTask = nil
+        }
+    }
+
+    private func resetChatContext() {
+        responseTask?.cancel()
+        responseTask = nil
+        messages = []
+        conversationID = nil
+        inputText = ""
+        isLoading = false
     }
 
 }

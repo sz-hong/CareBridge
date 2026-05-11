@@ -62,6 +62,12 @@ struct HealthSyncResult: Codable {
     var duplicates: Int
 }
 
+enum AIResponseStreamEvent: Equatable {
+    case chunk(String)
+    case done(conversationID: String?)
+    case ignore
+}
+
 // MARK: - DataService Protocol
 protocol DataService {
     // Auth
@@ -139,7 +145,10 @@ protocol DataService {
 
     // AI
     func sendAIMessage(content: String) async throws -> AIMessage
-    func streamAIResponse(prompt: String) -> AsyncThrowingStream<String, Error>
+    func streamAIResponse(
+        prompt: String,
+        conversationID: String?
+    ) -> AsyncThrowingStream<AIResponseStreamEvent, Error>
 
     // First Aid (static content, can be cached)
     func fetchFirstAidScenarios() async throws -> [FirstAidScenario]
