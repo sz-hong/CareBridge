@@ -150,19 +150,28 @@ class MockDataService: DataService {
                   isUser: false, timestamp: Date())
     }
 
-    func streamAIResponse(prompt: String) -> AsyncThrowingStream<String, Error> {
+    func streamAIResponse(
+        prompt: String,
+        conversationID: String?
+    ) -> AsyncThrowingStream<AIResponseStreamEvent, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 let chunks = [
                     "這是 AI 的模擬串流回覆：",
                     prompt,
                     "。正式版本會連接後端 SSE。",
                 ]
                 for chunk in chunks {
-                    continuation.yield(chunk)
+                    continuation.yield(.chunk(chunk))
                     try? await Task.sleep(nanoseconds: 80_000_000)
                 }
+                continuation.yield(
+                    .done(conversationID: conversationID ?? "mock-ai-conversation")
+                )
                 continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
             }
         }
     }

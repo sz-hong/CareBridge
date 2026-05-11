@@ -1,10 +1,14 @@
 import Foundation
 
 extension APIDataService {
-    enum AIStreamEvent: Equatable {
-        case chunk(String)
-        case done
-        case ignore
+    struct AIChatRequestBody: Encodable {
+        let message: String
+        let conversationID: String?
+
+        enum CodingKeys: String, CodingKey {
+            case message
+            case conversationID = "conversation_id"
+        }
     }
 }
 
@@ -14,12 +18,16 @@ extension APIDataService {
         try await post(path: APIEndpoint.aiChat, body: ["message": content])
     }
 
-    func streamAIResponse(prompt: String) -> AsyncThrowingStream<String, Error> {
+    func streamAIResponse(
+        prompt: String,
+        conversationID: String?
+    ) -> AsyncThrowingStream<AIResponseStreamEvent, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     try await streamAIResponse(
                         prompt: prompt,
+                        conversationID: conversationID,
                         retried: false,
                         continuation: continuation
                     )
@@ -28,13 +36,17 @@ extension APIDataService {
                     continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
         }
     }
 
     private func streamAIResponse(
         prompt: String,
+        conversationID: String?,
         retried: Bool,
-        continuation: AsyncThrowingStream<String, Error>.Continuation
+        continuation: AsyncThrowingStream<AIResponseStreamEvent, Error>.Continuation
     ) async throws {
         guard let url = Self.aiStreamURL(baseURL: baseURL) else {
             throw URLError(.badURL)
@@ -47,7 +59,10 @@ extension APIDataService {
         if let authToken {
             request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
         }
-        request.httpBody = try JSONEncoder().encode(["message": prompt])
+        request.httpBody = try Self.aiChatRequestBody(
+            prompt: prompt,
+            conversationID: conversationID
+        )
 
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -58,6 +73,7 @@ extension APIDataService {
             if await refreshAccessToken() {
                 try await streamAIResponse(
                     prompt: prompt,
+                    conversationID: conversationID,
                     retried: true,
                     continuation: continuation
                 )
@@ -75,13 +91,25 @@ extension APIDataService {
         for try await line in bytes.lines {
             switch Self.decodeAIStreamEvent(line: line) {
             case .chunk(let text):
-                continuation.yield(text)
-            case .done:
-                break
+                continuation.yield(.chunk(text))
+            case .done(let conversationID):
+                continuation.yield(.done(conversationID: conversationID))
             case .ignore:
                 continue
             }
         }
+    }
+
+    static func aiChatRequestBody(
+        prompt: String,
+        conversationID: String?
+    ) throws -> Data {
+        try JSONEncoder().encode(
+            AIChatRequestBody(
+                message: prompt,
+                conversationID: conversationID
+            )
+        )
     }
 
     static func aiStreamURL(baseURL: String) -> URL? {
@@ -94,7 +122,7 @@ extension APIDataService {
         return components.url
     }
 
-    static func decodeAIStreamEvent(line: String) -> AIStreamEvent {
+    static func decodeAIStreamEvent(line: String) -> AIResponseStreamEvent {
         guard line.hasPrefix("data: ") else { return .ignore }
 
         let payload = String(line.dropFirst(6))
@@ -106,7 +134,7 @@ extension APIDataService {
 
         switch type {
         case "done":
-            return .done
+            return .done(conversationID: json["conversation_id"] as? String)
         case "content":
             if let text = json["text"] as? String {
                 return .chunk(text)
