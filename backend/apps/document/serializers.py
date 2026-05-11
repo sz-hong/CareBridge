@@ -41,3 +41,10 @@ class CreateDocumentSerializer(serializers.ModelSerializer):
             'file_url': {'required': False, 'allow_null': True, 'allow_blank': True},
             'raw_file_key': {'required': False, 'allow_null': True, 'allow_blank': True},
         }
+
+    def validate(self, attrs):
+        if 'file_url' in self.initial_data:
+            raise serializers.ValidationError({
+                'file_url': 'Direct document file URLs are disabled. Upload to quarantine storage and send raw_file_key.'
+            })
+        return attrs

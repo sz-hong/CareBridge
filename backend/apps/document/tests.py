@@ -45,6 +45,24 @@ class DocumentAPIContractTests(TestCase):
         self.assertEqual(response.json(), {'success': True, 'data': {}})
         self.assertFalse(Document.objects.filter(id=document.id).exists())
 
+    def test_create_rejects_direct_file_url_upload_path(self):
+        response = self.client.post(
+            '/api/v1/documents/',
+            {
+                'title': 'Medical Report',
+                'category': Document.Category.MEDICAL,
+                'file_url': 'https://example.com/doc.pdf',
+                'file_size': 128,
+                'mime_type': 'application/pdf',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            Document.objects.filter(file_url='https://example.com/doc.pdf').exists()
+        )
+
     @patch('core.storage.generate_upload_url', return_value='https://upload.example')
     def test_upload_url_returns_quarantine_document_key(self, _upload_url):
         response = self.client.post(

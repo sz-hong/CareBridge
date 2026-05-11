@@ -43,6 +43,13 @@ class CreateExpenseSerializer(serializers.ModelSerializer):
             'raw_image_key': {'required': False, 'allow_null': True, 'allow_blank': True},
         }
 
+    def validate(self, attrs):
+        if 'image_url' in self.initial_data:
+            raise serializers.ValidationError({
+                'image_url': 'Direct receipt image URLs are disabled. Upload to quarantine storage and send raw_image_key.'
+            })
+        return attrs
+
 
 class ScanReceiptSerializer(serializers.Serializer):
     image_url = serializers.URLField(max_length=500, required=False)
@@ -50,6 +57,10 @@ class ScanReceiptSerializer(serializers.Serializer):
     raw_key = serializers.CharField(max_length=500, required=False)
 
     def validate(self, attrs):
-        if not attrs.get('image_url') and not attrs.get('raw_key'):
-            raise serializers.ValidationError('image_url or raw_key is required.')
+        if 'image_url' in self.initial_data:
+            raise serializers.ValidationError({
+                'image_url': 'Direct receipt image URLs are disabled. Upload to quarantine storage and send raw_key.'
+            })
+        if not attrs.get('raw_key'):
+            raise serializers.ValidationError({'raw_key': 'raw_key is required.'})
         return attrs
