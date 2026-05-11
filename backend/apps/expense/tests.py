@@ -96,20 +96,35 @@ class ExpenseAPIEndpointTests(TestCase):
         self.assertEqual(expense.recorder, self.user)
         self.assertEqual(expense.status, Expense.Status.COMPLETED)
 
-    def test_scan_creates_processing_expense(self):
+    def test_scan_rejects_direct_image_url_upload_path(self):
         response = self.client.post(
             '/api/v1/expenses/scan/',
             {'image_url': 'https://example.com/receipt.jpg'},
             format='json',
         )
 
-        self.assertEqual(response.status_code, 202)
-        expense = Expense.objects.get(id=response.json()['data']['id'])
-        self.assertEqual(expense.family, self.family)
-        self.assertEqual(expense.recorder, self.user)
-        self.assertEqual(expense.status, Expense.Status.PROCESSING)
-        self.assertEqual(expense.total_amount, 0)
-        self.assertTrue(expense.scan_id)
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            Expense.objects.filter(image_url='https://example.com/receipt.jpg').exists()
+        )
+
+    def test_create_rejects_direct_image_url_upload_path(self):
+        response = self.client.post(
+            '/api/v1/expenses/',
+            {
+                'store_name': 'Pharmacy',
+                'date': timezone.localdate().isoformat(),
+                'items': [{'name': 'Medicine', 'category': 'medical', 'total': 350}],
+                'total_amount': '350.00',
+                'image_url': 'https://example.com/receipt.jpg',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            Expense.objects.filter(image_url='https://example.com/receipt.jpg').exists()
+        )
 
     @patch('core.storage.generate_upload_url', return_value='https://upload.example')
     def test_upload_url_returns_quarantine_receipt_key(self, _upload_url):
