@@ -10,6 +10,7 @@ Endpoints:
 """
 import json
 import logging
+import re
 from datetime import timedelta
 
 from django.conf import settings
@@ -47,8 +48,49 @@ SYSTEM_PROMPT = (
     "- Provide actionable advice grounded in the data.\n"
     "- Be empathetic, concise, and professional.\n"
     "- If you detect a medical emergency, advise calling 119 immediately.\n"
-    "- Format numbers and dates clearly."
+    "- Format numbers and dates clearly.\n"
+    "- Respond in plain text only. Do not use Markdown syntax."
 )
+
+
+def _plain_text_from_markdown(text, *, strip_edges=True):
+    """Remove common Markdown markers from assistant-facing plain text."""
+    if not text:
+        return ""
+
+    cleaned = text
+    cleaned = re.sub(
+        r"```(?:[A-Za-z0-9_.+-]+)?\s*([\s\S]*?)```",
+        r"\1",
+        cleaned,
+    )
+    cleaned = cleaned.replace("```", "")
+    cleaned = re.sub(r"`([^`]*)`", r"\1", cleaned)
+    cleaned = cleaned.replace("`", "")
+
+    cleaned = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", cleaned)
+    cleaned = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", cleaned)
+    cleaned = re.sub(r"\]\([^)]+\)", "", cleaned)
+    cleaned = cleaned.replace("[", "").replace("]", "")
+
+    cleaned = re.sub(r"(?m)^\s*[-*_]{3,}\s*$", "", cleaned)
+    cleaned = re.sub(r"(?m)^\s*[-*+]\s*$", "", cleaned)
+    cleaned = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", cleaned)
+    cleaned = re.sub(r"(?m)^\s{0,3}>\s?", "", cleaned)
+    cleaned = re.sub(r"(?m)^\s*[-*+](?:\s+|(?=[\u4e00-\u9fff]))", "", cleaned)
+    cleaned = re.sub(r"(?m)^\s*\d+[.)]\s+", "", cleaned)
+    cleaned = re.sub(
+        r"(?<!\w)([*_]{1,3})(?=\S)(.*?)(?<=\S)\1(?!\w)",
+        r"\2",
+        cleaned,
+    )
+    cleaned = cleaned.replace("*", "")
+
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    if strip_edges:
+        return cleaned.strip()
+    return cleaned
 
 
 def _accepts_event_stream(request):
@@ -170,7 +212,7 @@ class AIChatView(APIView):
                     })
             else:
                 # Final text response
-                reply = choice.message.content or ""
+                reply = _plain_text_from_markdown(choice.message.content or "")
                 break
         else:
             reply = "I apologize, I was unable to complete the analysis. Please try again."
@@ -198,7 +240,8 @@ class AIChatView(APIView):
 
         def event_stream():
             total_tokens = 0
-            full_reply = ""
+            raw_full_reply = ""
+            streamed_reply = ""
 
             # First, handle any tool calls (non-streaming)
             for _ in range(5):
@@ -242,16 +285,23 @@ class AIChatView(APIView):
 
             for chunk in stream:
                 if chunk.choices and chunk.choices[0].delta.content:
-                    content = chunk.choices[0].delta.content
-                    full_reply += content
-                    yield f"data: {json.dumps({'type': 'content', 'text': content})}\n\n"
+                    raw_content = chunk.choices[0].delta.content
+                    raw_full_reply += raw_content
+                    plain_reply = _plain_text_from_markdown(raw_full_reply)
+                    content = plain_reply[len(streamed_reply):]
+                    streamed_reply = plain_reply
+                    if content:
+                        yield f"data: {json.dumps({'type': 'content', 'text': content})}\n\n"
 
             # Save conversation
             conversation.messages_history.append(
                 {"role": "user", "content": user_message}
             )
             conversation.messages_history.append(
-                {"role": "assistant", "content": full_reply}
+                {
+                    "role": "assistant",
+                    "content": _plain_text_from_markdown(raw_full_reply),
+                }
             )
             conversation.tokens_used += total_tokens
             conversation.save(
