@@ -372,6 +372,49 @@ class AIChatStreamingContractTests(TestCase):
         self.user.save(update_fields=["family"])
         self.client.force_authenticate(self.user)
 
+    def _streamed_content(self, response):
+        body = b"".join(response.streaming_content).decode()
+        chunks = []
+        for line in body.splitlines():
+            if not line.startswith("data: "):
+                continue
+            payload = json.loads(line.removeprefix("data: "))
+            if payload.get("type") == "content":
+                chunks.append(payload["text"])
+        return "".join(chunks)
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_sync_chat_returns_plain_text_without_markdown(self, mock_get_client):
+        mock_client = Mock()
+        mock_client.chat.completions.create.return_value = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    finish_reason="stop",
+                    message=SimpleNamespace(
+                        tool_calls=None,
+                        content="**重點**\n- 今天狀況良好\n[查看](https://example.com) `用藥`",
+                    ),
+                )
+            ],
+            usage=SimpleNamespace(total_tokens=5),
+        )
+        mock_get_client.return_value = mock_client
+
+        response = self.client.post(
+            "/api/v1/ai/chat/",
+            {"message": "今天狀況如何"},
+            format="json",
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        reply = response.json()["data"]["reply"]
+        self.assertEqual(reply, "重點\n今天狀況良好\n查看 用藥")
+        self.assertNotIn("**", reply)
+        self.assertNotIn("- ", reply)
+        self.assertNotIn("](", reply)
+        self.assertNotIn("`", reply)
+
     @patch("apps.ai_assistant.views._get_client")
     def test_chat_accepts_event_stream_accept_header_without_query_param(self, mock_get_client):
         mock_client = Mock()
@@ -413,3 +456,87 @@ class AIChatStreamingContractTests(TestCase):
         self.assertIn('"type": "content"', body)
         self.assertIn('"text": "\\u6536\\u5230\\uff0c\\u6211\\u6703\\u5354\\u52a9\\u4f60\\u3002"', body)
         self.assertIn('"type": "done"', body)
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_streaming_chat_returns_plain_text_without_markdown(self, mock_get_client):
+        mock_client = Mock()
+        mock_client.chat.completions.create.side_effect = [
+            SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        finish_reason="stop",
+                        message=SimpleNamespace(tool_calls=None),
+                    )
+                ],
+                usage=SimpleNamespace(total_tokens=3),
+            ),
+            [
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(
+                            delta=SimpleNamespace(
+                                content="**重點**\n- 今天狀況良好\n[查看](https://example.com) `用藥`",
+                            ),
+                        )
+                    ]
+                )
+            ],
+        ]
+        mock_get_client.return_value = mock_client
+
+        response = self.client.post(
+            "/api/v1/ai/chat/",
+            {"message": "請幫我看今天的照護狀況"},
+            format="json",
+            HTTP_ACCEPT="text/event-stream",
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        streamed = self._streamed_content(response)
+        self.assertEqual(streamed, "重點\n今天狀況良好\n查看 用藥")
+        self.assertNotIn("**", streamed)
+        self.assertNotIn("- ", streamed)
+        self.assertNotIn("](", streamed)
+        self.assertNotIn("`", streamed)
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_streaming_chat_removes_split_list_marker(self, mock_get_client):
+        mock_client = Mock()
+        mock_client.chat.completions.create.side_effect = [
+            SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        finish_reason="stop",
+                        message=SimpleNamespace(tool_calls=None),
+                    )
+                ],
+                usage=SimpleNamespace(total_tokens=3),
+            ),
+            [
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(delta=SimpleNamespace(content="-")),
+                    ],
+                ),
+                SimpleNamespace(
+                    choices=[
+                        SimpleNamespace(delta=SimpleNamespace(content=" 今天狀況良好")),
+                    ],
+                ),
+            ],
+        ]
+        mock_get_client.return_value = mock_client
+
+        response = self.client.post(
+            "/api/v1/ai/chat/",
+            {"message": "請幫我看今天的照護狀況"},
+            format="json",
+            HTTP_ACCEPT="text/event-stream",
+            secure=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        streamed = self._streamed_content(response)
+        self.assertEqual(streamed, "今天狀況良好")
+        self.assertNotIn("-", streamed)
