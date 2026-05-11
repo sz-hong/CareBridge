@@ -95,13 +95,13 @@ class GoogleDLPDeidentificationClient:
         self.location = getattr(settings, 'GOOGLE_DLP_LOCATION', 'global')
         self.min_likelihood = getattr(settings, 'DLP_MIN_LIKELIHOOD', 'LIKELY')
         configured_info_types = getattr(settings, 'DLP_INFO_TYPES', default_info_types())
-        self.info_types = [
+        self.info_types = list(dict.fromkeys(
             info_type for info_type in configured_info_types
             if info_type in COMMON_INFO_TYPES
-        ]
+        ))
         self.custom_info_types = {
             name: pattern for name, pattern in CUSTOM_REGEX_INFO_TYPES.items()
-            if name in configured_info_types or name not in COMMON_INFO_TYPES
+            if name in configured_info_types and name not in COMMON_INFO_TYPES
         }
 
     @property
@@ -130,6 +130,16 @@ class GoogleDLPDeidentificationClient:
                 for name, pattern in self.custom_info_types.items()
             ],
         }
+
+    def _image_redaction_configs(self):
+        configs = []
+        seen = set()
+        for info_type in [*self.info_types, *self.custom_info_types.keys()]:
+            if info_type in seen:
+                continue
+            seen.add(info_type)
+            configs.append({'info_type': {'name': info_type}})
+        return configs
 
     def inspect_text(self, text: str) -> list[PIIFinding]:
         response = self._client().inspect_content(
@@ -180,12 +190,7 @@ class GoogleDLPDeidentificationClient:
             request={
                 'parent': self.parent,
                 'inspect_config': self._inspect_config(),
-                'image_redaction_configs': [
-                    {'info_type': {'name': info_type}} for info_type in self.info_types
-                ] + [
-                    {'info_type': {'name': info_type}}
-                    for info_type in self.custom_info_types.keys()
-                ],
+                'image_redaction_configs': self._image_redaction_configs(),
                 'byte_item': {
                     'type_': content_type_index,
                     'data': image_bytes,
