@@ -8,6 +8,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ViewSet
 
+from core.permissions import CaregiverCannotDelete
 from core.responses import error_response, success_response
 from core.viewsets import FamilyScopedQuerySetMixin
 from apps.notification.types import NotificationType
@@ -107,7 +108,7 @@ def _check_thresholds(family, data_point):
 
 
 class HealthDataViewSet(FamilyScopedQuerySetMixin, ViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
 
     def list(self, request):
         """GET /health-data/ with optional filters: type, date_from, date_to, aggregation."""

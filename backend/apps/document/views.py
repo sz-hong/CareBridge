@@ -4,6 +4,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
+from core.permissions import CaregiverCannotDelete, DenyCaregiverDocumentAccess
 from core.responses import empty_success_response, success_response
 from core.upload_paths import (
     build_quarantine_key,
@@ -18,7 +19,11 @@ from .tasks import deidentify_document_task
 
 
 class DocumentViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        CaregiverCannotDelete,
+        DenyCaregiverDocumentAccess,
+    ]
     serializer_class = DocumentSerializer
 
     def get_queryset(self):

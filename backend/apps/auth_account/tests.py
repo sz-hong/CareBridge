@@ -237,3 +237,35 @@ class ErrorResponseContractTests(TestCase):
                 },
             },
         )
+
+
+class CaregiverDeletePermissionTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.owner = User.objects.create_user(
+            email="delete-owner@example.com",
+            password="password123",
+            name="Delete Owner",
+            role=User.Role.FAMILY_MEMBER,
+        )
+        self.family = Family.objects.create(
+            name="Delete Permission Family",
+            elder_name="Elder",
+            invite_code="987654",
+            created_by=self.owner,
+        )
+        self.caregiver = User.objects.create_user(
+            email="delete-caregiver@example.com",
+            password="password123",
+            name="Delete Caregiver",
+            role=User.Role.CAREGIVER,
+            family=self.family,
+        )
+        self.client.force_authenticate(self.caregiver)
+
+    def test_caregiver_cannot_delete_own_account(self):
+        response = self.client.delete("/api/v1/auth/account/")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["error"]["code"], "permission_denied")
+        self.assertTrue(User.objects.filter(id=self.caregiver.id).exists())

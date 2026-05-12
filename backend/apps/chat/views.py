@@ -14,6 +14,7 @@ from apps.chat.serializers import (
     SendMessageSerializer,
 )
 from core.pagination import StandardPagination
+from core.permissions import CaregiverCannotDelete
 from core.responses import empty_success_response, error_response, success_response
 from core.translation import SUPPORTED_LANGUAGES, translate_text
 
@@ -27,7 +28,7 @@ class ChatViewSet(ModelViewSet):
     """
 
     serializer_class = ChatSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
     pagination_class = StandardPagination
     lookup_field = 'pk'
 

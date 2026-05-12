@@ -3,6 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
+from core.permissions import CaregiverCannotDelete
 from core.responses import empty_success_response, error_response, success_response
 from core.viewsets import FamilyScopedQuerySetMixin
 
@@ -11,7 +12,7 @@ from .serializers import BoardRequestSerializer, CreateBoardRequestSerializer
 
 
 class BoardRequestViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
     serializer_class = BoardRequestSerializer
 
     def get_queryset(self):

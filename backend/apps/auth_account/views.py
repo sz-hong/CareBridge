@@ -7,6 +7,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 
 from apps.family.models import Family
+from core.permissions import CaregiverCannotDelete
 from core.responses import success_response
 
 from .models import User
@@ -56,7 +57,7 @@ class LoginView(APIView):
 
 
 class MeView(RetrieveUpdateAPIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
 
     def get_object(self):
         return self.request.user
@@ -81,7 +82,7 @@ class MeView(RetrieveUpdateAPIView):
 
 class JoinFamilyView(APIView):
     """Join a family by invite code. Returns refreshed AuthResponse {user, tokens}."""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
 
     def post(self, request):
         code = str(request.data.get("invite_code", "")).strip()
@@ -125,7 +126,7 @@ class JoinFamilyView(APIView):
 
 
 class LogoutView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
 
     def post(self, request):
         refresh_token = request.data.get("refresh")
@@ -140,7 +141,7 @@ class LogoutView(APIView):
 
 
 class DeleteAccountView(DestroyAPIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
 
     def get_object(self):
         return self.request.user

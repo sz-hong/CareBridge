@@ -26,6 +26,13 @@ class DocumentAPIContractTests(TestCase):
         )
         self.user.family = self.family
         self.user.save(update_fields=['family'])
+        self.caregiver = User.objects.create_user(
+            email='caregiver-docs@example.com',
+            password='password123',
+            name='Docs Caregiver',
+            role=User.Role.CAREGIVER,
+            family=self.family,
+        )
         self.client.force_authenticate(self.user)
 
     def test_delete_returns_success_envelope_that_mobile_can_decode(self):
@@ -178,3 +185,68 @@ class DocumentAPIContractTests(TestCase):
             'text/plain',
         )
         build_url.assert_called_once_with(redacted_key)
+
+    @patch('core.storage.generate_upload_url', return_value='https://upload.example')
+    @patch('apps.document.views.deidentify_document_task.delay')
+    def test_caregiver_cannot_access_document_management_endpoints(
+        self,
+        delay,
+        generate_upload_url,
+    ):
+        document = Document.objects.create(
+            family=self.family,
+            uploaded_by=self.user,
+            title='Protected Insurance',
+            category=Document.Category.INSURANCE,
+            file_url='https://example.com/doc.pdf',
+            file_size=128,
+            mime_type='application/pdf',
+        )
+        self.client.force_authenticate(self.caregiver)
+
+        raw_key = f'quarantine/{self.family.id}/documents/caregiver.pdf'
+        checks = [
+            ('get', '/api/v1/documents/', None),
+            ('get', f'/api/v1/documents/{document.id}/', None),
+            (
+                'post',
+                '/api/v1/documents/upload-url/',
+                {
+                    'content_type': 'application/pdf',
+                    'file_size': 128,
+                    'filename': 'caregiver.pdf',
+                },
+            ),
+            (
+                'post',
+                '/api/v1/documents/',
+                {
+                    'title': 'Caregiver upload',
+                    'category': Document.Category.MEDICAL,
+                    'raw_file_key': raw_key,
+                    'file_size': 128,
+                    'mime_type': 'application/pdf',
+                },
+            ),
+            ('delete', f'/api/v1/documents/{document.id}/', None),
+        ]
+
+        for method, path, data in checks:
+            with self.subTest(method=method, path=path):
+                request = getattr(self.client, method)
+                if data is None:
+                    response = request(path)
+                else:
+                    response = request(path, data, format='json')
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(
+                    response.json()['error']['code'],
+                    'permission_denied',
+                )
+
+        self.assertTrue(Document.objects.filter(id=document.id).exists())
+        self.assertFalse(
+            Document.objects.filter(title='Caregiver upload').exists()
+        )
+        generate_upload_url.assert_not_called()
+        delay.assert_not_called()

@@ -5,6 +5,7 @@ from rest_framework.generics import CreateAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
+from core.permissions import CaregiverCannotDelete
 from core.responses import success_response
 
 from .models import Device, Notification
@@ -16,7 +17,7 @@ from .serializers import (
 
 
 class NotificationViewSet(ModelViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
     serializer_class = NotificationSerializer
 
     def get_queryset(self):
@@ -60,7 +61,7 @@ class NotificationViewSet(ModelViewSet):
 
 
 class DeviceView(CreateAPIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
     serializer_class = RegisterDeviceSerializer
 
     def create(self, request, *args, **kwargs):
