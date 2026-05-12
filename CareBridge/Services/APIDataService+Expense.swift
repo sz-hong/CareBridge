@@ -4,6 +4,11 @@ import UIKit
 extension APIDataService {
     // MARK: - Expenses
     func fetchExpenses(month: Date?) async throws -> [Expense] { try await get(path: APIEndpoint.expenses) }
+    /// Hit the detail endpoint so the backend resolves a fresh presigned
+    /// image URL for this one expense — list responses no longer include it.
+    func fetchExpense(id: String) async throws -> Expense {
+        try await get(path: APIEndpoint.expenses + "\(id)/")
+    }
     func fetchSpendingSummary(month: Date?) async throws -> SpendingSummary { try await get(path: APIEndpoint.expenseMonthly) }
     func createExpense(_ expense: Expense) async throws -> Expense { try await post(path: APIEndpoint.expenses, body: expense) }
 

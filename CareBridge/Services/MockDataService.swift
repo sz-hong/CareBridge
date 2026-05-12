@@ -56,6 +56,18 @@ class MockDataService: DataService {
     func syncHealthSamples(_ samples: [HealthSyncItem]) async throws -> HealthSyncResult {
         HealthSyncResult(synced: samples.count, duplicates: 0)
     }
+    func fetchHealthBinding() async throws -> HealthBindingState {
+        HealthBindingState(isBound: false, isOwner: false, userId: nil, userName: nil,
+                           deviceId: nil, deviceLabel: nil, claimedAt: nil)
+    }
+    func claimHealthBinding(deviceId: String, deviceLabel: String?) async throws -> HealthBindingState {
+        HealthBindingState(isBound: true, isOwner: true, userId: "mock", userName: "Mock",
+                           deviceId: deviceId, deviceLabel: deviceLabel, claimedAt: Date())
+    }
+    func releaseHealthBinding() async throws -> HealthBindingState {
+        HealthBindingState(isBound: false, isOwner: false, userId: nil, userName: nil,
+                           deviceId: nil, deviceLabel: nil, claimedAt: nil)
+    }
 
     // MARK: - Chat
     func fetchChatRooms() async throws -> [ChatRoom] { ChatRoom.samples }
@@ -85,6 +97,9 @@ class MockDataService: DataService {
 
     // MARK: - Expenses
     func fetchExpenses(month: Date?) async throws -> [Expense] { Expense.samples }
+    func fetchExpense(id: String) async throws -> Expense {
+        Expense.samples.first(where: { $0.id == id }) ?? Expense.samples[0]
+    }
     func fetchSpendingSummary(month: Date?) async throws -> SpendingSummary {
         SpendingSummary(monthlyTotal: 24850, categoryBreakdown: [
             CategoryBreakdownItem(category: "醫療保健", percentage: 45),

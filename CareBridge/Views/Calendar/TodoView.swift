@@ -58,16 +58,23 @@ struct TodoView: View {
         .background(Color.brandBackground)
         .navigationTitle("代辦事項")
         .navigationBarTitleDisplayMode(.large)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showAddTodo = true
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .foregroundStyle(Color.brandTeal)
-                        .font(.system(size: 22))
+        .overlay(alignment: .bottomTrailing) {
+            // 右下浮動新增按鈕（跟 AI 按鈕同樣 52pt 圓形）
+            Button {
+                showAddTodo = true
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(Color.brandTeal)
+                        .frame(width: 52, height: 52)
+                        .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
+                    Image(systemName: "plus")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.white)
                 }
             }
+            .padding(.trailing, 20)
+            .padding(.bottom, 24)
         }
         .sheet(isPresented: $showAddTodo) {
             AddTodoView { newTodo in

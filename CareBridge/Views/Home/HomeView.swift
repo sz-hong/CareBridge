@@ -89,17 +89,13 @@ struct HomeView: View {
                     // Greeting
                     greetingSection
 
-                    // Activity Trend Card
-                    activityTrendCard
+                    // Vitals 移到最上方 — Apple Watch 即時推播的核心數據
+                    heartRateCard
+
+                    bloodOxygenCard
 
                     // Today's Tasks
                     todayTasksCard
-
-                    // Heart Rate Card
-                    heartRateCard
-
-                    // Blood Oxygen Card
-                    bloodOxygenCard
 
                     Spacer(minLength: 20)
                 }
@@ -123,24 +119,17 @@ struct HomeView: View {
                     .buttonStyle(.plain)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 12) {
-                        Button {
-                            showNotifications = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "bell.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundStyle(Color.brandTeal)
-                                Circle()
-                                    .fill(.red)
-                                    .frame(width: 8, height: 8)
-                                    .offset(x: 2, y: -2)
-                            }
-                        }
-                        Button { } label: {
-                            Image(systemName: "globe")
+                    Button {
+                        showNotifications = true
+                    } label: {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "bell.fill")
                                 .font(.system(size: 20))
                                 .foregroundStyle(Color.brandTeal)
+                            Circle()
+                                .fill(.red)
+                                .frame(width: 8, height: 8)
+                                .offset(x: 2, y: -2)
                         }
                     }
                 }

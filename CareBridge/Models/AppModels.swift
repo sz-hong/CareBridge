@@ -964,15 +964,14 @@ class MedicationStore {
     }
 
     func addMedication(_ medication: Medication) {
-        // Optimistic insert (instant UI). The backend ignores the wire id,
-        // so once it responds we replace the local copy AND rewrite the
-        // dose timeline entries to use the server-assigned medication id —
-        // otherwise tapping "服用" later calls confirmMedication(id:) with
-        // a non-existent local UUID and 404s.
+        // Optimistic insert (instant UI). 透過 setter 賦值整個陣列來觸發
+        // @Observable 的變更通知 —— 直接 mutating state 在某些情況下不會
+        // 通知到外層 SwiftUI 視圖，導致使用者要退出再進入才看得到新藥。
         let optimistic = medication
-        state.updateValue { medications in
-            medications.append(optimistic)
-        }
+        var updatedList = medications
+        updatedList.append(optimistic)
+        medications = updatedList
+
         for time in optimistic.times {
             doses.append(DoseEntry(
                 medicationId: optimistic.id, time: time,
@@ -985,10 +984,10 @@ class MedicationStore {
         Task { @MainActor in
             do {
                 let saved = try await service.createMedication(optimistic)
-                state.updateValue { medications in
-                    if let idx = medications.firstIndex(where: { $0.id == optimistic.id }) {
-                        medications[idx] = saved
-                    }
+                var swapped = medications
+                if let idx = swapped.firstIndex(where: { $0.id == optimistic.id }) {
+                    swapped[idx] = saved
+                    medications = swapped
                 }
                 // Rewrite any dose entries that still reference the local id.
                 for i in doses.indices where doses[i].medicationId == optimistic.id {
@@ -1001,9 +1000,7 @@ class MedicationStore {
                 }
             } catch {
                 print("[MedicationStore] create failed: \(error)")
-                state.updateValue { medications in
-                    medications.removeAll { $0.id == optimistic.id }
-                }
+                medications = medications.filter { $0.id != optimistic.id }
                 doses.removeAll { $0.medicationId == optimistic.id }
             }
         }
@@ -1174,7 +1171,7 @@ struct Expense: Identifiable, Codable {
     var receiptImage: UIImage? = nil
 
     enum CodingKeys: String, CodingKey {
-        case id, date, items, imageUrl, rawImageKey, deidStatus
+        case id, date, items, imageUrl, rawImageKey, deidStatus, hasImage
         case title = "storeName"       // API: store_name → convertFromSnakeCase → storeName
         case amount = "totalAmount"    // API: total_amount → totalAmount
         // `category` is UI-only — backend stores category per item inside `items` JSONB.
@@ -1230,11 +1227,13 @@ struct Expense: Identifiable, Codable {
         let dateStr = try c.decode(String.self, forKey: .date)
         let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
         date = df.date(from: dateStr) ?? Date()
-        // image_url non-nil means receipt exists
+        // Backend 在 list 不再回傳 presigned image_url（每筆都簽一次太貴），
+        // 改用 has_image 旗標判斷有沒有發票；presigned URL 等到 retrieve 才拿。
         imageUrl = try c.decodeIfPresent(String.self, forKey: .imageUrl)
         rawImageKey = try c.decodeIfPresent(String.self, forKey: .rawImageKey)
         deidStatus = try c.decodeIfPresent(String.self, forKey: .deidStatus)
-        hasReceipt = (imageUrl != nil || rawImageKey != nil || deidStatus == "processing")
+        let hasImage = try c.decodeIfPresent(Bool.self, forKey: .hasImage) ?? false
+        hasReceipt = (hasImage || imageUrl != nil || rawImageKey != nil || deidStatus == "processing")
     }
 
     func encode(to encoder: Encoder) throws {

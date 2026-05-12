@@ -107,11 +107,6 @@ struct CareLogView: View {
                                     .offset(x: 2, y: -2)
                             }
                         }
-                        Button { } label: {
-                            Image(systemName: "globe")
-                                .font(.system(size: 20))
-                                .foregroundStyle(Color.brandTeal)
-                        }
                     }
                 }
             }
@@ -583,7 +578,7 @@ struct AddCareLogView: View {
     let userRole: UserRole
     let onAdd: (CareLogEntry) -> Void
 
-    @State private var selectedType: CareLogType = .note
+    @State private var selectedType: CareLogType = .vital  // 預設改為生理數值（移除備註後）
     @State private var recordDate = Date()
 
     // vital signs
@@ -619,7 +614,8 @@ struct AddCareLogView: View {
     // (conditionLabels removed — vital section is now optional fields only)
 
     private var availableRecordTypes: [CareLogType] {
-        CareLogType.allCases
+        // 「備註」類型已由 chat / Todo 取代，新增紀錄時不再提供。
+        CareLogType.allCases.filter { $0 != .note }
     }
 
     var body: some View {

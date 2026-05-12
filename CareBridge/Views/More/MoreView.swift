@@ -90,11 +90,6 @@ struct MoreView: View {
                                     .offset(x: 2, y: -2)
                             }
                         }
-                        Button { } label: {
-                            Image(systemName: "globe")
-                                .font(.system(size: 20))
-                                .foregroundStyle(Color.brandTeal)
-                        }
                     }
                 }
             }

@@ -180,6 +180,23 @@ class HealthDataViewSet(FamilyScopedQuerySetMixin, ViewSet):
                 status=400,
             )
 
+        # 健康同步綁定：只有目前綁定的 user 可以推資料。沒人綁定時，第一個
+        # 上傳者要先打 /families/me/health-binding/ 把自己 claim 起來。
+        # 這層強制要在後端，否則 FE 的 UI 鎖只是裝飾。
+        bound_user = family.health_binding_user
+        if bound_user is None:
+            return error_response(
+                code='health_binding_required',
+                message='No device is currently bound for health sync. Claim the binding first.',
+                status=403,
+            )
+        if bound_user.id != request.user.id:
+            return error_response(
+                code='health_binding_not_owner',
+                message='Another device in this family is the current health-sync owner.',
+                status=403,
+            )
+
         serializer = SyncHealthDataSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 

@@ -6,21 +6,33 @@ from .models import Expense
 
 class ExpenseSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()
+    has_image = serializers.SerializerMethodField()
 
     class Meta:
         model = Expense
         fields = [
             'id', 'family', 'recorder', 'scan_id', 'store_name',
-            'date', 'items', 'total_amount', 'image_url',
+            'date', 'items', 'total_amount', 'image_url', 'has_image',
             'ocr_confidence', 'status', 'deid_status', 'deid_findings',
             'deid_processed_at', 'created_at', 'updated_at',
         ]
         read_only_fields = fields
 
+    def get_has_image(self, obj):
+        return bool(obj.image_url)
+
     def get_image_url(self, obj):
-        # Bucket is private (AWS_QUERYSTRING_AUTH=True), so convert the stored
-        # bare URL into a short-lived presigned GET URL for client display.
+        # Bucket is private (AWS_QUERYSTRING_AUTH=True), so the stored bare URL
+        # has to be converted to a short-lived presigned GET. Doing that for
+        # every row of `list` forces a SigV4 signing trip per expense as soon
+        # as the user opens 消費 — multiply by N rows × multiple page visits
+        # and it dominates the latency. Only resolve on `retrieve`; list
+        # responses surface `has_image` so the client knows whether to bother
+        # fetching the detail endpoint at all.
         if not obj.image_url:
+            return None
+        view = self.context.get('view')
+        if getattr(view, 'action', None) != 'retrieve':
             return None
         key = extract_key_from_url(obj.image_url)
         if not key:
