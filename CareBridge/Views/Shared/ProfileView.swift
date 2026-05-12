@@ -12,6 +12,12 @@ struct ProfileView: View {
     @State private var showFamilyMembers = false
     @State private var showNotificationPrefs = false
     @State private var inviteCodeCopied = false
+    @Environment(HealthKitSyncManager.self) private var healthSync
+    @AppStorage("carebridge.healthSyncEnabled") private var healthSyncEnabled = false
+    @State private var healthBinding: HealthBindingState?
+    @State private var bindingError: String?
+    @State private var bindingBusy = false
+    @State private var showHealthBindingConflict = false
 
     private var user: UserProfile? { userStore.currentUser }
 
@@ -46,7 +52,6 @@ struct ProfileView: View {
                     profileRow(icon: "person.text.rectangle", label: "姓名", value: user?.name ?? "-")
                     profileRow(icon: "phone.fill", label: "電話", value: user?.phone ?? "-")
                     profileRow(icon: "envelope.fill", label: "電子郵件", value: user?.email ?? "-")
-                    profileRow(icon: "birthday.cake.fill", label: "生日", value: user?.birthday ?? "-")
                     Button {
                         showEditProfile = true
                     } label: {
@@ -124,23 +129,57 @@ struct ProfileView: View {
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                     }
-                    Menu {
-                        ForEach(SupportedLanguage.all, id: \.code) { lang in
-                            Button {
-                                Task { await updateLanguage(lang.code) }
-                            } label: {
-                                if lang.code == localeStore.code {
-                                    Label(lang.displayName, systemImage: "checkmark")
-                                } else {
-                                    Text(lang.displayName)
+                    // 與健康 App 的綁定：同一個家庭只能有一支裝置開啟同步，
+                    // 避免雙裝置同時往 backend 推同類型生理資料造成雜訊。
+                    // 真正的 single-binding 規則由後端 `/families/me/health-
+                    // binding/` 強制（health-data/sync/ 會檢查 owner），這裡
+                    // 只是把開關綁到那個 API。
+                    Toggle(isOn: healthSyncBinding) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "heart.text.square.fill")
+                                .foregroundStyle(.red)
+                                .frame(width: 24)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("與健康同步")
+                                if let sub = healthSyncSubtitle {
+                                    Text(sub)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
                                 }
                             }
                         }
-                    } label: {
-                        profileRow(icon: "globe", label: "語言",
-                                   value: SupportedLanguage.displayName(for: localeStore.code))
                     }
-                    .foregroundStyle(.primary)
+                    .tint(Color.brandTeal)
+                    .disabled(bindingBusy || isBoundByOther)
+
+                    HStack(spacing: 12) {
+                        Image(systemName: "globe")
+                            .foregroundStyle(Color.brandTeal)
+                            .frame(width: 24)
+                        Text("語言")
+                        Spacer()
+                        Menu {
+                            ForEach(SupportedLanguage.all, id: \.code) { lang in
+                                Button {
+                                    Task { await updateLanguage(lang.code) }
+                                } label: {
+                                    if lang.code == localeStore.code {
+                                        Label(lang.displayName, systemImage: "checkmark")
+                                    } else {
+                                        Text(lang.displayName)
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(SupportedLanguage.displayName(for: localeStore.code))
+                                    .foregroundStyle(.secondary)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                 }
 
                 // Logout
@@ -168,6 +207,11 @@ struct ProfileView: View {
                     }
                 }
             }
+            .alert("此家庭已綁定其他裝置", isPresented: $showHealthBindingConflict) {
+                Button("確定", role: .cancel) { }
+            } message: {
+                Text("為避免重複資料，每個家庭只能由一支裝置同步健康資料。請先在原裝置關閉同步後再試。")
+            }
             .alert("確定要登出嗎？", isPresented: $showLogoutConfirm) {
                 Button("取消", role: .cancel) { }
                 Button("登出", role: .destructive) {
@@ -185,6 +229,81 @@ struct ProfileView: View {
             .sheet(isPresented: $showNotificationPrefs) {
                 NotificationPreferencesView()
             }
+            .alert("無法切換健康同步", isPresented: Binding(
+                get: { bindingError != nil },
+                set: { if !$0 { bindingError = nil } }
+            )) {
+                Button("確定", role: .cancel) { bindingError = nil }
+            } message: {
+                Text(bindingError ?? "")
+            }
+            .task {
+                await refreshHealthBinding()
+            }
+        }
+    }
+
+    // MARK: - Health Binding Helpers
+
+    private var isOwnerBinding: Bool { healthBinding?.isOwner == true }
+    private var isBoundByOther: Bool {
+        (healthBinding?.isBound == true) && healthBinding?.isOwner == false
+    }
+
+    private var healthSyncSubtitle: String? {
+        if let b = healthBinding {
+            if b.isOwner { return "此裝置為本家庭的健康資料來源" }
+            if b.isBound { return "目前由 \(b.userName ?? "其他成員") 同步" }
+        }
+        return nil
+    }
+
+    /// `Binding<Bool>` 把 Toggle 接到後端的 claim/release。Toggle 切下去
+    /// → 觸發 API → 成功才更新本地 healthSyncEnabled 並啟動 observer。
+    private var healthSyncBinding: Binding<Bool> {
+        Binding(
+            get: { isOwnerBinding && healthSyncEnabled },
+            set: { newValue in
+                Task { await toggleHealthSync(newValue) }
+            }
+        )
+    }
+
+    private func refreshHealthBinding() async {
+        guard user?.family != nil else { return }
+        if let state = try? await service.fetchHealthBinding() {
+            healthBinding = state
+            // 後端權威：若本機 flag 還亮著但 binding 已經不是自己（例如其
+            // 他裝置 claim 走了），自動關掉，避免一直送注定 403 的 sync。
+            if !state.isOwner { healthSyncEnabled = false }
+        }
+    }
+
+    private func toggleHealthSync(_ on: Bool) async {
+        guard !bindingBusy else { return }
+        bindingBusy = true
+        defer { bindingBusy = false }
+
+        do {
+            if on {
+                let label = await MainActor.run { UIDevice.current.name }
+                let state = try await service.claimHealthBinding(
+                    deviceId: deviceIdentifier,
+                    deviceLabel: label,
+                )
+                healthBinding = state
+                healthSyncEnabled = true
+                await healthSync.startSyncing()
+            } else {
+                let state = try await service.releaseHealthBinding()
+                healthBinding = state
+                healthSyncEnabled = false
+            }
+        } catch HealthBindingError.conflict {
+            await refreshHealthBinding()
+            showHealthBindingConflict = true
+        } catch {
+            bindingError = error.localizedDescription
         }
     }
 
@@ -198,6 +317,18 @@ struct ProfileView: View {
         if let updated = try? await service.updateProfile(profile) {
             userStore.currentUser = updated
         }
+    }
+
+    /// 在 UserDefaults 持久化的「本機裝置識別」。第一次取用時生成一個 UUID，
+    /// 之後跨啟動穩定。用來判斷此家庭的健康同步綁定是否在本機。
+    private var deviceIdentifier: String {
+        let key = "carebridge.deviceUUID"
+        if let existing = UserDefaults.standard.string(forKey: key) {
+            return existing
+        }
+        let newId = UUID().uuidString
+        UserDefaults.standard.set(newId, forKey: key)
+        return newId
     }
 
     private func profileRow(icon: String, label: String, value: String) -> some View {

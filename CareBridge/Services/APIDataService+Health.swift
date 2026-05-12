@@ -10,4 +10,35 @@ extension APIDataService {
         struct Body: Encodable { let data: [HealthSyncItem] }
         return try await post(path: APIEndpoint.healthSync, body: Body(data: samples))
     }
+
+    // MARK: - Health Binding
+
+    func fetchHealthBinding() async throws -> HealthBindingState {
+        try await get(path: APIEndpoint.familyHealthBinding)
+    }
+
+    func claimHealthBinding(deviceId: String, deviceLabel: String?) async throws -> HealthBindingState {
+        do {
+            return try await post(
+                path: APIEndpoint.familyHealthBinding,
+                body: ClaimHealthBindingRequest(deviceId: deviceId, deviceLabel: deviceLabel),
+            )
+        } catch APIError.serverError(let code) where code == 409 {
+            throw HealthBindingError.conflict
+        } catch APIError.backendError(let code, _) where code == 409 {
+            throw HealthBindingError.conflict
+        }
+    }
+
+    func releaseHealthBinding() async throws -> HealthBindingState {
+        // DELETE 的回應一樣回 binding state（已清空），所以這裡不能用基底
+        // 的 `delete(path:)` —— 那個是 Void。改用泛型 request 直接拿 body。
+        do {
+            return try await request("DELETE", path: APIEndpoint.familyHealthBinding)
+        } catch APIError.serverError(let code) where code == 403 {
+            throw HealthBindingError.notOwner
+        } catch APIError.backendError(let code, _) where code == 403 {
+            throw HealthBindingError.notOwner
+        }
+    }
 }

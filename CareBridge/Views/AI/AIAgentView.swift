@@ -64,11 +64,6 @@ struct AIAgentView: View {
                             .font(.system(size: 18))
                             .foregroundStyle(Color.brandTeal)
                     }
-                    Button { } label: {
-                        Image(systemName: "globe")
-                            .font(.system(size: 18))
-                            .foregroundStyle(Color.brandTeal)
-                    }
                 }
             }
         }

@@ -29,10 +29,9 @@ struct ChatListView: View {
                         }
 
                         ForEach(chatRooms) { room in
-                            NavigationLink(value: room) {
-                                ChatRoomRow(room: room)
+                            ChatRoomRow(room: room) {
+                                navPath.append(room)
                             }
-                            .buttonStyle(.plain)
                         }
 
                         if chatRooms.isEmpty {
@@ -87,11 +86,6 @@ struct ChatListView: View {
                                     .offset(x: 2, y: -2)
                             }
                         }
-                        Button { } label: {
-                            Image(systemName: "globe")
-                                .font(.system(size: 20))
-                                .foregroundStyle(Color.brandTeal)
-                        }
                     }
                 }
             }
@@ -114,45 +108,53 @@ struct ChatListView: View {
 // MARK: - Chat Room Row
 struct ChatRoomRow: View {
     let room: ChatRoom
+    let onOpen: () -> Void
 
     var body: some View {
-        HStack(spacing: 14) {
-            // Avatar
-            ZStack {
-                Circle()
-                    .fill(Color.brandTealLight)
-                    .frame(width: 52, height: 52)
-                Image(systemName: room.isGroup ? "person.3.fill" : "person.fill")
-                    .foregroundStyle(Color.brandTeal)
-                    .font(.system(size: room.isGroup ? 18 : 22))
-                if room.unreadCount > 0 {
+        HStack(spacing: 0) {
+            // 限定可點擊區域：只有頭像與文字本身觸發進入聊天室，
+            // 右側時間欄與其後的空白不接收點擊。
+            Button(action: onOpen) {
+                HStack(spacing: 14) {
                     ZStack {
-                        Circle().fill(.red).frame(width: 20, height: 20)
-                        Text("\(room.unreadCount)")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(.white)
+                        Circle()
+                            .fill(Color.brandTealLight)
+                            .frame(width: 52, height: 52)
+                        Image(systemName: room.isGroup ? "person.3.fill" : "person.fill")
+                            .foregroundStyle(Color.brandTeal)
+                            .font(.system(size: room.isGroup ? 18 : 22))
+                        if room.unreadCount > 0 {
+                            ZStack {
+                                Circle().fill(.red).frame(width: 20, height: 20)
+                                Text("\(room.unreadCount)")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(.white)
+                            }
+                            .offset(x: 18, y: -18)
+                        }
                     }
-                    .offset(x: 18, y: -18)
-                }
-            }
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(room.name)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    Spacer()
-                    Text(room.lastMessageTime.formatted(.relative(presentation: .named)))
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .fixedSize()
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(room.name)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Text(room.lastMessage)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
-                Text(room.lastMessage)
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 8)
+
+            Text(room.lastMessageTime.formatted(.relative(presentation: .named)))
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize()
         }
         .padding(.vertical, 6)
     }

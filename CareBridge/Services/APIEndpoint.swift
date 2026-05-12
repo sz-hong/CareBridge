@@ -10,6 +10,7 @@ enum APIEndpoint {
 
     static let families = "/families/"
     static let familyMembers = "/families/members/"
+    static let familyHealthBinding = "/families/me/health-binding/"
 
     static let healthDashboard = "/health-data/dashboard/"
     static let healthWeeklySteps = "/health-data/weekly-steps/"

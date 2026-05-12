@@ -92,25 +92,23 @@ struct SpendingView: View {
             }
             .overlay(alignment: .bottomTrailing) {
                 if userRole == .caregiver {
-                    HStack(spacing: 12) {
-                        Button {
-                            showDocumentCamera = true
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: receiptStage == .idle ? "doc.viewfinder.fill" : "ellipsis")
-                                    .font(.system(size: 16))
-                                Text(receiptStage == .idle ? "拍攝收據" : receiptStage.label)
-                                    .font(.system(size: 15, weight: .semibold))
-                            }
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 12)
-                            .background(Capsule().fill(receiptStage == .idle ? Color.brandTeal : Color.gray))
+                    // 跟 AI button 一樣大小（52pt 圓形）+ 位置一致
+                    Button {
+                        showDocumentCamera = true
+                    } label: {
+                        ZStack {
+                            Circle()
+                                .fill(receiptStage == .idle ? Color.brandTeal : Color.gray)
+                                .frame(width: 52, height: 52)
+                                .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
+                            Image(systemName: receiptStage == .idle ? "doc.viewfinder.fill" : "ellipsis")
+                                .font(.system(size: 22, weight: .medium))
+                                .foregroundStyle(.white)
                         }
-                        .disabled(receiptStage != .idle)
                     }
-                    .padding(.trailing, 16)
-                    .padding(.bottom, 24)
+                    .disabled(receiptStage != .idle)
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 70)
                 }
             }
             // 直接開啟原生文件掃描器
@@ -575,37 +573,43 @@ enum OCRProcessor {
     }
 }
 
-// MARK: - Document Camera（VNDocumentCameraViewController 包裝）
+// MARK: - Document Camera（UIImagePickerController 單張拍照）
+// 改用 UIImagePickerController 而非 VNDocumentCameraViewController：
+// VNDocument 的多頁 Save 流程強制要按右上打勾，使用者反映繁瑣。改成
+// 單張拍照 → "Use Photo" → 立刻進 OCR 確認頁，少一個點擊。
 
 struct DocumentCameraView: UIViewControllerRepresentable {
     var onCapture: (UIImage) -> Void
     var onCancel: () -> Void
 
-    func makeUIViewController(context: Context) -> VNDocumentCameraViewController {
-        let vc = VNDocumentCameraViewController()
-        vc.delegate = context.coordinator
-        return vc
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.allowsEditing = false
+        picker.delegate = context.coordinator
+        return picker
     }
 
-    func updateUIViewController(_ uiViewController: VNDocumentCameraViewController, context: Context) {}
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
-    class Coordinator: NSObject, VNDocumentCameraViewControllerDelegate {
+    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
         let parent: DocumentCameraView
         init(_ parent: DocumentCameraView) { self.parent = parent }
 
-        func documentCameraViewController(_ controller: VNDocumentCameraViewController,
-                                          didFinishWith scan: VNDocumentCameraScan) {
-            guard scan.pageCount > 0 else { parent.onCancel(); return }
-            parent.onCapture(scan.imageOfPage(at: 0))
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            if let image = info[.originalImage] as? UIImage {
+                parent.onCapture(image)
+            } else {
+                parent.onCancel()
+            }
         }
 
-        func documentCameraViewControllerDidCancel(_ controller: VNDocumentCameraViewController) {
-            parent.onCancel()
-        }
-
-        func documentCameraViewController(_ controller: VNDocumentCameraViewController,
-                                          didFailWithError error: Error) {
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
             parent.onCancel()
         }
     }
@@ -1014,6 +1018,11 @@ struct AllExpensesView: View {
 // MARK: - Expense Detail View
 struct ExpenseDetailView: View {
     let expense: Expense
+    @Environment(\.dataService) private var service
+    /// 進入這個畫面時才向 backend 拿 presigned image URL —— list 端點為了
+    /// 省下每筆 SigV4 簽名請求已經不回傳，這裡才補拉。
+    @State private var resolvedImageUrl: String?
+    @State private var isFetchingImage = false
 
     var body: some View {
         ScrollView {
@@ -1038,15 +1047,30 @@ struct ExpenseDetailView: View {
         .background(Color.brandBackground)
         .navigationTitle("消費詳情")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            // 只有確實有發票才打 detail；剛拍完的（receiptImage 在記憶體）也不必再打。
+            guard expense.receiptImage == nil,
+                  expense.hasReceipt,
+                  resolvedImageUrl == nil,
+                  !isFetchingImage else { return }
+            isFetchingImage = true
+            defer { isFetchingImage = false }
+            if let fresh = try? await service.fetchExpense(id: expense.id) {
+                resolvedImageUrl = fresh.imageUrl
+            }
+        }
     }
 
     @ViewBuilder
     private var receiptImageSection: some View {
         // Prefer the in-memory UIImage if the user just captured this expense;
-        // otherwise fall back to the presigned URL from the backend.
+        // otherwise fall back to the presigned URL fetched on appear.
         if let img = expense.receiptImage {
             receiptImage(Image(uiImage: img))
-        } else if let urlStr = expense.imageUrl, let url = URL(string: urlStr) {
+        } else if isFetchingImage {
+            ProgressView()
+                .frame(maxWidth: .infinity, minHeight: 240)
+        } else if let urlStr = resolvedImageUrl ?? expense.imageUrl, let url = URL(string: urlStr) {
             AsyncImage(url: url) { phase in
                 switch phase {
                 case .success(let image):

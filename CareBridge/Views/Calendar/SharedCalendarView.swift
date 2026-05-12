@@ -110,30 +110,9 @@ struct SharedCalendarView: View {
 
                 // Selected day events + todos
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text(selectedDate.formatted(date: .complete, time: .omitted))
-                            .font(.system(size: 15, weight: .semibold))
-                        Spacer()
-                        Menu {
-                            Button {
-                                addType = .event
-                                showAddSheet = true
-                            } label: {
-                                Label("新增行程", systemImage: "calendar")
-                            }
-                            Button {
-                                addType = .todo
-                                showAddSheet = true
-                            } label: {
-                                Label("新增待辦事項", systemImage: "checkmark.circle")
-                            }
-                        } label: {
-                            Image(systemName: "plus.circle.fill")
-                                .foregroundStyle(Color.brandTeal)
-                                .font(.system(size: 22))
-                        }
-                    }
-                    .padding(.horizontal, 16)
+                    Text(selectedDate.formatted(date: .complete, time: .omitted))
+                        .font(.system(size: 15, weight: .semibold))
+                        .padding(.horizontal, 16)
 
                     if selectedDayEvents.isEmpty && selectedDayTodos.isEmpty {
                         Text("今日無行程")
@@ -165,6 +144,34 @@ struct SharedCalendarView: View {
         .background(Color.brandBackground)
         .navigationTitle("共享行事曆")
         .navigationBarTitleDisplayMode(.large)
+        .overlay(alignment: .bottomTrailing) {
+            Menu {
+                Button {
+                    addType = .event
+                    showAddSheet = true
+                } label: {
+                    Label("新增行程", systemImage: "calendar")
+                }
+                Button {
+                    addType = .todo
+                    showAddSheet = true
+                } label: {
+                    Label("新增待辦事項", systemImage: "checkmark.circle")
+                }
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(Color.brandTeal)
+                        .frame(width: 52, height: 52)
+                        .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
+                    Image(systemName: "plus")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+            }
+            .padding(.trailing, 20)
+            .padding(.bottom, 24)
+        }
         .sheet(isPresented: $showAddSheet) {
             switch addType {
             case .event:

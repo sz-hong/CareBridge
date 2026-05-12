@@ -18,6 +18,7 @@ struct CareBridgeApp: App {
     @State private var medicationStore: MedicationStore
     @State private var localeStore = LocaleStore()
     @State private var healthSync: HealthKitSyncManager
+    @AppStorage("carebridge.healthSyncEnabled") private var healthSyncEnabled = false
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -46,7 +47,19 @@ struct CareBridgeApp: App {
                         // are no-ops (HK Authorization is idempotent and
                         // observers replace the previous registration).
                         .task {
-                            await healthSync.startSyncing()
+                            // 健康同步只在「本機標記開啟」且「後端 binding 還是
+                            // 自己」時才啟動。其中第二個條件抓的是這個情境：
+                            // 另一支裝置在你離線時 claim 走了 binding ——
+                            // 這時本機再 startSyncing 也是徒勞（會 403），而且
+                            // 還會誤導使用者以為仍在同步。
+                            guard healthSyncEnabled else { return }
+                            if let state = try? await dataService.fetchHealthBinding() {
+                                if state.isOwner {
+                                    await healthSync.startSyncing()
+                                } else {
+                                    healthSyncEnabled = false
+                                }
+                            }
                         }
                         // Trigger an explicit sync every time the app comes
                         // back to foreground. This is the reliable path on
@@ -54,7 +67,7 @@ struct CareBridgeApp: App {
                         // delivery entitlement) — opening Apple Health app
                         // pushes data to HK; switching back to us picks it up.
                         .onChange(of: scenePhase) { _, newPhase in
-                            if newPhase == .active {
+                            if newPhase == .active, healthSyncEnabled {
                                 Task { await healthSync.incrementalSyncAll() }
                             }
                         }

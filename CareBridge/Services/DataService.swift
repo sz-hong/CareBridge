@@ -62,6 +62,42 @@ struct HealthSyncResult: Codable {
     var duplicates: Int
 }
 
+/// 「目前是誰在同步這個家庭的健康資料」—— 對應後端
+/// `/families/me/health-binding/` 的回應。`isOwner` 是以呼叫者為觀點判斷
+/// 的，UI 用這個欄位決定 toggle 顯示打開 vs 顯示「目前由 X 同步」。
+struct HealthBindingState: Codable, Equatable {
+    // 後端用 snake_case 回來；APIClient 預設 keyDecodingStrategy =
+    // .convertFromSnakeCase，所以這裡留 camelCase 即可。
+    var isBound: Bool
+    var isOwner: Bool
+    var userId: String?
+    var userName: String?
+    var deviceId: String?
+    var deviceLabel: String?
+    var claimedAt: Date?
+}
+
+struct ClaimHealthBindingRequest: Codable {
+    var deviceId: String
+    var deviceLabel: String?
+}
+
+enum HealthBindingError: LocalizedError {
+    case conflict
+    case notOwner
+    case noFamily
+    case unknown(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .conflict:    return "此家庭已有另一支裝置在同步健康資料"
+        case .notOwner:    return "只有目前綁定的裝置可以解除綁定"
+        case .noFamily:    return "請先加入或建立家庭"
+        case .unknown(let m): return m
+        }
+    }
+}
+
 enum AIResponseStreamEvent: Equatable {
     case chunk(String)
     case done(conversationID: String?)
@@ -89,6 +125,11 @@ protocol DataService {
     /// safe to retry; backend dedupes by (family, type, recorded_at).
     func syncHealthSamples(_ samples: [HealthSyncItem]) async throws -> HealthSyncResult
 
+    // Health binding (one device per family for /health-data/sync/)
+    func fetchHealthBinding() async throws -> HealthBindingState
+    func claimHealthBinding(deviceId: String, deviceLabel: String?) async throws -> HealthBindingState
+    func releaseHealthBinding() async throws -> HealthBindingState
+
     // Chat
     func fetchChatRooms() async throws -> [ChatRoom]
     func fetchMessages(roomId: String) async throws -> [ChatMessage]
@@ -108,6 +149,7 @@ protocol DataService {
 
     // Expenses
     func fetchExpenses(month: Date?) async throws -> [Expense]
+    func fetchExpense(id: String) async throws -> Expense
     func fetchSpendingSummary(month: Date?) async throws -> SpendingSummary
     func createExpense(_ expense: Expense) async throws -> Expense
     /// Upload a locally redacted receipt image to quarantine storage.
