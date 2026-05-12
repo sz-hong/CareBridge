@@ -27,6 +27,7 @@ from apps.expense.models import Expense
 from apps.family.models import Family
 from apps.health.models import HealthAlert, HealthAlertThreshold, HealthData
 from apps.medication.models import MedicationConfirmation
+from core.permissions import CaregiverCannotDelete
 from apps.todo.models import Todo
 from core.responses import error_response, success_response
 from core.storage import _get_s3_client, build_public_url, extract_key_from_url
@@ -214,12 +215,12 @@ class IsActiveStaff(BasePermission):
 
 
 class StaffReadOnlyAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsActiveStaff]
+    permission_classes = [IsAuthenticated, IsActiveStaff, CaregiverCannotDelete]
     http_method_names = ['get', 'options']
 
 
 class StaffAdminAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsActiveStaff]
+    permission_classes = [IsAuthenticated, IsActiveStaff, CaregiverCannotDelete]
     http_method_names = ['get', 'post', 'delete', 'options']
 
 

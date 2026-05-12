@@ -7,6 +7,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
+from core.permissions import CaregiverCannotDelete
 from core.responses import success_response
 from core.viewsets import FamilyScopedQuerySetMixin
 
@@ -23,7 +24,7 @@ from .serializers import (
 
 
 class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
     serializer_class = LeaveSerializer
 
     def get_queryset(self):

@@ -5,6 +5,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
+from core.permissions import CaregiverCannotDelete, CaregiverMedicationPermission
 from core.responses import empty_success_response, success_response
 from core.viewsets import FamilyScopedQuerySetMixin
 from core.translation import translate_text, SUPPORTED_LANGUAGES
@@ -21,7 +22,11 @@ logger = logging.getLogger(__name__)
 
 
 class MedicationViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+        CaregiverCannotDelete,
+        CaregiverMedicationPermission,
+    ]
     serializer_class = MedicationSerializer
 
     def get_queryset(self):

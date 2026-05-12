@@ -40,6 +40,13 @@ class MedicationAPIEndpointTests(TestCase):
         self.user.save(update_fields=['family'])
         self.other_user.family = self.other_family
         self.other_user.save(update_fields=['family'])
+        self.caregiver = User.objects.create_user(
+            email='caregiver-medication@example.com',
+            password='password123',
+            name='Medication Caregiver',
+            role=User.Role.CAREGIVER,
+            family=self.family,
+        )
         self.client.force_authenticate(self.user)
 
     def create_medication(self, **overrides):
@@ -158,3 +165,77 @@ class MedicationAPIEndpointTests(TestCase):
         self.assertEqual(response.status_code, 200)
         ids = {item['id'] for item in response.json()['data']}
         self.assertEqual(ids, {str(own_confirmation.id)})
+
+    def test_caregiver_can_read_medications_and_confirm_dose(self):
+        medication = self.create_medication(name='Caregiver readable medication')
+        self.client.force_authenticate(self.caregiver)
+
+        list_response = self.client.get('/api/v1/medications/')
+        detail_response = self.client.get(f'/api/v1/medications/{medication.id}/')
+        confirmations_response = self.client.get(
+            '/api/v1/medications/today_confirmations/'
+        )
+        confirm_response = self.client.post(
+            f'/api/v1/medications/{medication.id}/confirm/',
+            {'scheduled_time': '08:00', 'note': 'Taken'},
+            format='json',
+        )
+
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(confirmations_response.status_code, 200)
+        self.assertEqual(confirm_response.status_code, 201)
+        confirmation = MedicationConfirmation.objects.get(
+            id=confirm_response.json()['data']['id']
+        )
+        self.assertEqual(confirmation.confirmed_by, self.caregiver)
+
+    def test_caregiver_cannot_manage_medication_settings(self):
+        medication = self.create_medication(name='Caregiver protected medication')
+        self.client.force_authenticate(self.caregiver)
+
+        medication_payload = {
+            'name': 'Changed',
+            'dosage': '10mg',
+            'frequency': Medication.Frequency.DAILY,
+            'times': ['09:00'],
+            'start_date': timezone.localdate().isoformat(),
+            'reminder_enabled': True,
+        }
+        checks = [
+            (
+                'post',
+                '/api/v1/medications/',
+                {
+                    'name': 'New medication',
+                    'dosage': '5mg',
+                    'frequency': Medication.Frequency.DAILY,
+                    'times': ['08:00'],
+                    'start_date': timezone.localdate().isoformat(),
+                    'reminder_enabled': True,
+                },
+            ),
+            ('put', f'/api/v1/medications/{medication.id}/', medication_payload),
+            ('patch', f'/api/v1/medications/{medication.id}/', {'dosage': '20mg'}),
+            ('delete', f'/api/v1/medications/{medication.id}/', None),
+        ]
+
+        for method, path, data in checks:
+            with self.subTest(method=method, path=path):
+                request = getattr(self.client, method)
+                if data is None:
+                    response = request(path)
+                else:
+                    response = request(path, data, format='json')
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(
+                    response.json()['error']['code'],
+                    'permission_denied',
+                )
+
+        medication.refresh_from_db()
+        self.assertEqual(medication.dosage, '5mg')
+        self.assertTrue(Medication.objects.filter(id=medication.id).exists())
+        self.assertFalse(
+            Medication.objects.filter(name='New medication').exists()
+        )

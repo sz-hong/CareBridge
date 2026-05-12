@@ -8,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
 from apps.auth_account.models import User
+from core.permissions import CaregiverCannotDelete
 from core.responses import error_response, success_response
 
 from .models import Family
@@ -23,7 +24,7 @@ def generate_invite_code(length=6):
 
 class FamilyViewSet(ModelViewSet):
     serializer_class = FamilySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
 
     def get_queryset(self):
         queryset = Family.objects.select_related('created_by').prefetch_related(

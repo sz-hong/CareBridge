@@ -6,6 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ViewSet
 
+from core.permissions import CaregiverCannotDelete
 from core.responses import error_response, success_response
 from core.viewsets import FamilyScopedQuerySetMixin
 from apps.notification.types import NotificationType
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class SOSViewSet(FamilyScopedQuerySetMixin, ViewSet):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
 
     @action(detail=False, methods=['post'], url_path='trigger')
     def trigger(self, request):

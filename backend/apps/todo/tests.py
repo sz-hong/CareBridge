@@ -117,3 +117,18 @@ class TodoAPIEndpointTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(CareLog.objects.filter(todos=todo).count(), 1)
+
+    def test_caregiver_cannot_delete_todo(self):
+        todo = Todo.objects.create(
+            family=self.family,
+            created_by=self.user,
+            assignee=self.assignee,
+            title='Protected todo',
+        )
+        self.client.force_authenticate(self.assignee)
+
+        response = self.client.delete(f'/api/v1/todos/{todo.id}/')
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()['error']['code'], 'permission_denied')
+        self.assertTrue(Todo.objects.filter(id=todo.id).exists())

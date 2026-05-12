@@ -22,6 +22,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.renderers import JSONRenderer
 from rest_framework.views import APIView
 
+from core.permissions import CaregiverCannotDelete
 from core.responses import error_response, success_response
 from .models import AIConversation, FirstAidDocument
 from .renderers import EventStreamRenderer
@@ -119,7 +120,7 @@ class AIChatView(APIView):
     Conversational AI with OpenAI Function Calling.
     Supports SSE streaming via ?stream=true query param.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
     renderer_classes = [JSONRenderer, EventStreamRenderer]
 
     def post(self, request):
@@ -324,7 +325,7 @@ class CareAnalysisView(APIView):
     POST /ai/care-analysis/
     Generates an AI-powered analysis of recent care records.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
 
     def post(self, request):
         serializer = CareAnalysisSerializer(data=request.data)
@@ -414,7 +415,7 @@ class HandoverReportView(APIView):
     POST /ai/handover-report/
     Generates a bilingual (zh-TW + English) handover report for caregiver shift changes.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
 
     def post(self, request):
         serializer = HandoverReportSerializer(data=request.data)
@@ -519,7 +520,7 @@ class SubsidyFormView(APIView):
     POST /ai/subsidy-form/
     Auto-fills subsidy application form fields based on the elder's data.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
 
     def post(self, request):
         serializer = SubsidyFormSerializer(data=request.data)
@@ -615,7 +616,7 @@ class FirstAidView(APIView):
 
     Falls back to direct GPT-4o query if no documents or embeddings are available.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
 
     def post(self, request):
         serializer = FirstAidQuerySerializer(data=request.data)
