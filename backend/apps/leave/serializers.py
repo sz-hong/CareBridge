@@ -23,7 +23,8 @@ class LeaveSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'family', 'applicant', 'applicant_name', 'type',
             'start_date', 'end_date', 'days', 'reason', 'reason_translated',
-            'status', 'reply', 'reviewed_by', 'reviewed_at', 'calendar_event',
+            'reason_translations', 'status', 'reply', 'reply_translations',
+            'reviewed_by', 'reviewed_at', 'calendar_event',
             'votes', 'created_at',
         ]
         read_only_fields = fields

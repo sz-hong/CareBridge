@@ -1,5 +1,6 @@
 import json
 import logging
+import sys
 
 from django.conf import settings
 from openai import OpenAI
@@ -12,6 +13,88 @@ SUPPORTED_LANGUAGES = {
     'vi': 'Vietnamese',
     'tl': 'Tagalog',
 }
+
+
+def normalize_language(language):
+    return language if language in SUPPORTED_LANGUAGES else 'zh-TW'
+
+
+def _is_unmocked_test_run():
+    return (
+        'test' in sys.argv
+        and type(translate_text).__module__ != 'unittest.mock'
+    )
+
+
+def translate_for_user(text, user=None, source_lang=None, target_langs=None):
+    """
+    Best-effort dynamic text translation.
+
+    Returns a JSON-friendly mapping that always includes the source text keyed
+    by source language. Translation failures are logged and fall back to the
+    source language only so API writes do not fail because OpenAI is unavailable.
+    """
+    if not text or not str(text).strip():
+        return {}
+
+    source = normalize_language(
+        source_lang or getattr(user, 'language', None) or 'zh-TW'
+    )
+    targets = list(target_langs or SUPPORTED_LANGUAGES.keys())
+    targets = [normalize_language(lang) for lang in targets]
+    targets = list(dict.fromkeys(targets))
+    translated = {source: str(text)}
+
+    request_targets = [lang for lang in targets if lang != source]
+    if not request_targets:
+        return translated
+    if _is_unmocked_test_run():
+        return translated
+
+    try:
+        translated.update(translate_text(str(text), source, request_targets))
+    except Exception as exc:
+        logger.warning('Dynamic translation failed: %s', exc)
+    return translated
+
+
+def translate_content_fields(content, user=None, keys=None, source_lang=None):
+    """
+    Translate selected string leaves in JSON content while preserving shape.
+    """
+    if not isinstance(content, dict):
+        return {}
+    key_filter = set(keys or [])
+    translated = {}
+    for key, value in content.items():
+        if isinstance(value, str) and (not key_filter or key in key_filter):
+            payload = translate_for_user(value, user=user, source_lang=source_lang)
+            if payload:
+                translated[key] = payload
+        elif isinstance(value, dict):
+            nested = translate_content_fields(
+                value, user=user, keys=keys, source_lang=source_lang
+            )
+            if nested:
+                translated[key] = nested
+    return translated
+
+
+def translate_board_items(items, user=None, source_lang=None):
+    if not isinstance(items, list):
+        return items
+    translated_items = []
+    for item in items:
+        if not isinstance(item, dict):
+            translated_items.append(item)
+            continue
+        translated_item = dict(item)
+        name = translated_item.get('name')
+        payload = translate_for_user(name, user=user, source_lang=source_lang)
+        if payload:
+            translated_item['name_translated'] = payload
+        translated_items.append(translated_item)
+    return translated_items
 
 
 def translate_text(text, source_lang, target_langs):

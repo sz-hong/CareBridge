@@ -5,6 +5,7 @@ from rest_framework.viewsets import ModelViewSet
 
 from core.permissions import CaregiverCannotDelete
 from core.responses import empty_success_response, success_response
+from core.translation import translate_for_user
 from core.viewsets import FamilyScopedQuerySetMixin
 
 from .models import Event
@@ -53,6 +54,9 @@ class EventViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             family=request.user.family,
             created_by=request.user,
         )
+        event.title_translated = translate_for_user(event.title, user=request.user)
+        event.note_translated = translate_for_user(event.note or '', user=request.user)
+        event.save(update_fields=['title_translated', 'note_translated'])
         return success_response(
             data=EventSerializer(event).data,
             status=status.HTTP_201_CREATED,
@@ -69,6 +73,15 @@ class EventViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        if 'title' in request.data:
+            instance.title_translated = translate_for_user(
+                instance.title, user=request.user,
+            )
+        if 'note' in request.data:
+            instance.note_translated = translate_for_user(
+                instance.note or '', user=request.user,
+            )
+        instance.save(update_fields=['title_translated', 'note_translated'])
         return success_response(data=EventSerializer(instance).data)
 
     def destroy(self, request, *args, **kwargs):
@@ -87,5 +100,12 @@ class EventViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
                 family=request.user.family,
                 created_by=request.user,
             )
+            event.title_translated = translate_for_user(
+                event.title, user=request.user,
+            )
+            event.note_translated = translate_for_user(
+                event.note or '', user=request.user,
+            )
+            event.save(update_fields=['title_translated', 'note_translated'])
             created.append(EventSerializer(event).data)
         return success_response(data=created, status=status.HTTP_201_CREATED)

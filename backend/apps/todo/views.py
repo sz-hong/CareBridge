@@ -5,6 +5,7 @@ from rest_framework.viewsets import ModelViewSet
 
 from core.permissions import CaregiverCannotDelete
 from core.responses import empty_success_response, success_response
+from core.translation import translate_for_user
 from core.viewsets import FamilyScopedQuerySetMixin
 
 from apps.care_log.models import CareLog
@@ -54,6 +55,8 @@ class TodoViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             created_by=request.user,
             assignee_id=serializer.validated_data['assignee_id'],
         )
+        todo.title_translated = translate_for_user(todo.title, user=request.user)
+        todo.save(update_fields=['title_translated'])
         return success_response(
             data=TodoSerializer(todo).data,
             status=status.HTTP_201_CREATED,
@@ -72,6 +75,10 @@ class TodoViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         for field in ('title', 'priority', 'due_date', 'status'):
             if field in request.data:
                 setattr(instance, field, request.data[field])
+        if 'title' in request.data:
+            instance.title_translated = translate_for_user(
+                instance.title, user=request.user,
+            )
 
         # Cross-module trigger: auto-create CareLog on completion
         if old_status != 'completed' and new_status == 'completed':

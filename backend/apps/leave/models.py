@@ -30,10 +30,12 @@ class Leave(models.Model):
     days = models.IntegerField()
     reason = models.TextField()
     reason_translated = models.TextField(null=True, blank=True)
+    reason_translations = models.JSONField(null=True, blank=True)
     status = models.CharField(
         max_length=10, choices=Status.choices, default=Status.PENDING
     )
     reply = models.TextField(null=True, blank=True)
+    reply_translations = models.JSONField(null=True, blank=True)
     reviewed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

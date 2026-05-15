@@ -9,6 +9,7 @@ from rest_framework.viewsets import ModelViewSet
 
 from core.permissions import CaregiverCannotDelete
 from core.responses import success_response
+from core.translation import translate_for_user
 from core.viewsets import FamilyScopedQuerySetMixin
 
 from apps.auth_account.models import User
@@ -64,6 +65,10 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             applicant=request.user,
             days=days,
         )
+        leave.reason_translations = translate_for_user(
+            leave.reason, user=request.user,
+        )
+        leave.save(update_fields=['reason_translations'])
         return success_response(
             data=LeaveSerializer(leave).data,
             status=status.HTTP_201_CREATED,
@@ -84,6 +89,9 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
 
         instance.status = new_status
         instance.reply = reply
+        instance.reply_translations = translate_for_user(
+            reply, user=request.user,
+        )
         instance.reviewed_by = request.user
         instance.reviewed_at = timezone.now()
 

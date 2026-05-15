@@ -1,6 +1,7 @@
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
+from unittest.mock import patch
 
 from apps.auth_account.models import User
 from apps.calendar_event.models import Event
@@ -103,6 +104,32 @@ class CalendarEventAPIEndpointTests(TestCase):
         self.assertEqual(event.created_by, self.user)
         self.assertEqual(event.source, Event.Source.MANUAL)
         self.assertEqual(event.reminder_minutes, 30)
+
+    @patch('core.translation.translate_text', side_effect=[
+        {'id': 'Sesi rehabilitasi'},
+        {'id': 'Bawa laporan'},
+    ])
+    def test_create_translates_event_title_and_note(self, _translate):
+        start = timezone.now() + timezone.timedelta(hours=3)
+
+        response = self.client.post(
+            '/api/v1/events/',
+            {
+                'title': 'Rehab session',
+                'start_time': start.isoformat(),
+                'location': 'Clinic',
+                'type': Event.Type.REHAB,
+                'note': 'Bring report',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        event = Event.objects.get(id=response.json()['data']['id'])
+        self.assertEqual(event.title_translated['zh-TW'], 'Rehab session')
+        self.assertEqual(event.title_translated['id'], 'Sesi rehabilitasi')
+        self.assertEqual(event.note_translated['zh-TW'], 'Bring report')
+        self.assertEqual(event.note_translated['id'], 'Bawa laporan')
 
     def test_batch_create_assigns_family_and_created_by_to_each_event(self):
         start = timezone.now() + timezone.timedelta(days=2)

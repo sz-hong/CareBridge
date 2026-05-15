@@ -5,6 +5,10 @@ from rest_framework.viewsets import ModelViewSet
 
 from core.permissions import CaregiverCannotDelete
 from core.responses import empty_success_response, error_response, success_response
+from core.translation import (
+    translate_board_items,
+    translate_for_user,
+)
 from core.viewsets import FamilyScopedQuerySetMixin
 
 from .models import BoardRequest
@@ -46,6 +50,13 @@ class BoardRequestViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             family=request.user.family,
             requester=request.user,
         )
+        board_request.items = translate_board_items(
+            board_request.items, user=request.user,
+        )
+        board_request.note_translations = translate_for_user(
+            board_request.note or '', user=request.user,
+        )
+        board_request.save(update_fields=['items', 'note_translations', 'updated_at'])
         return success_response(
             data=BoardRequestSerializer(board_request).data,
             status=status.HTTP_201_CREATED,
@@ -62,6 +73,15 @@ class BoardRequestViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        if 'items' in request.data:
+            instance.items = translate_board_items(
+                instance.items, user=request.user,
+            )
+        if 'note' in request.data:
+            instance.note_translations = translate_for_user(
+                instance.note or '', user=request.user,
+            )
+        instance.save(update_fields=['items', 'note_translations', 'updated_at'])
         return success_response(data=BoardRequestSerializer(instance).data)
 
     def destroy(self, request, *args, **kwargs):
@@ -84,6 +104,11 @@ class BoardRequestViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
 
         instance.status = new_status
         instance.reply = reply
+        instance.reply_translations = translate_for_user(
+            reply, user=request.user,
+        )
         instance.reviewed_by = request.user
-        instance.save(update_fields=['status', 'reply', 'reviewed_by', 'updated_at'])
+        instance.save(update_fields=[
+            'status', 'reply', 'reply_translations', 'reviewed_by', 'updated_at',
+        ])
         return success_response(data=BoardRequestSerializer(instance).data)

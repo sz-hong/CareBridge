@@ -30,6 +30,7 @@ class Event(models.Model):
     type = models.CharField(max_length=20, choices=Type.choices)
     reminder_minutes = models.IntegerField(default=60)
     note = models.TextField(null=True, blank=True)
+    note_translated = models.JSONField(null=True, blank=True)
     source = models.CharField(
         max_length=20, choices=Source.choices, default=Source.MANUAL
     )

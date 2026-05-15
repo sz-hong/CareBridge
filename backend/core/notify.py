@@ -27,6 +27,8 @@ import logging
 
 from django.conf import settings
 
+from core.translation import translate_for_user
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,7 +57,9 @@ def send_notification(user, type, title, body, data=None, push=True):
         user=user,
         type=type,
         title=title,
+        title_translated=translate_for_user(title, user=user),
         body=body,
+        body_translated=translate_for_user(body, user=user),
         data=data or {},
     )
 

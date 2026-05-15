@@ -10,9 +10,20 @@ from rest_framework.viewsets import ModelViewSet
 
 from core.permissions import CaregiverCannotDelete
 from core.responses import empty_success_response, success_response
+from core.translation import translate_content_fields
 from core.viewsets import FamilyScopedQuerySetMixin
 from .models import CareLog
 from .serializers import CareLogSerializer, CreateCareLogSerializer
+
+CARE_LOG_TRANSLATION_KEYS = {
+    'activity_type',
+    'appetite',
+    'description',
+    'meal_type',
+    'medication_name',
+    'note',
+    'text',
+}
 
 
 class CareLogViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
@@ -69,6 +80,12 @@ class CareLogViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             family=request.user.family,
             recorder=request.user,
         )
+        serializer.instance.content_translated = translate_content_fields(
+            serializer.instance.content,
+            user=request.user,
+            keys=CARE_LOG_TRANSLATION_KEYS,
+        )
+        serializer.instance.save(update_fields=['content_translated'])
         out = CareLogSerializer(serializer.instance).data
         return success_response(data=out, status=201)
 
@@ -85,6 +102,13 @@ class CareLogViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        if 'content' in request.data:
+            instance.content_translated = translate_content_fields(
+                instance.content,
+                user=request.user,
+                keys=CARE_LOG_TRANSLATION_KEYS,
+            )
+            instance.save(update_fields=['content_translated'])
         out = CareLogSerializer(instance).data
         return success_response(data=out)
 

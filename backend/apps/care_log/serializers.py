@@ -15,7 +15,7 @@ class CareLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = CareLog
         fields = [
-            'id', 'family', 'recorder', 'type', 'content',
+            'id', 'family', 'recorder', 'type', 'content', 'content_translated',
             'photo_url', 'timestamp', 'created_at',
         ]
         read_only_fields = fields

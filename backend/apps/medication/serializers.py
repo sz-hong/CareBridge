@@ -36,7 +36,7 @@ class MedicationConfirmationSerializer(serializers.ModelSerializer):
         model = MedicationConfirmation
         fields = [
             'id', 'medication', 'confirmed_by', 'photo_url',
-            'scheduled_time', 'note', 'confirmed_at',
+            'scheduled_time', 'note', 'note_translated', 'confirmed_at',
         ]
         read_only_fields = fields
 

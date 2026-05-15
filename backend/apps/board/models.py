@@ -30,10 +30,12 @@ class BoardRequest(models.Model):
     items = models.JSONField()
     note = models.TextField(null=True, blank=True)
     note_translated = models.TextField(null=True, blank=True)
+    note_translations = models.JSONField(null=True, blank=True)
     status = models.CharField(
         max_length=10, choices=Status.choices, default=Status.PENDING
     )
     reply = models.TextField(null=True, blank=True)
+    reply_translations = models.JSONField(null=True, blank=True)
     reviewed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

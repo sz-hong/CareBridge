@@ -1,6 +1,7 @@
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
+from unittest.mock import patch
 
 from apps.auth_account.models import User
 from apps.family.models import Family
@@ -8,6 +9,7 @@ from apps.medication.models import Medication
 from apps.notification.models import Device, Notification
 from apps.notification.tasks import send_medication_reminders
 from apps.notification.types import NotificationType
+from core.notify import send_notification
 
 
 class NotificationTypeContractTests(SimpleTestCase):
@@ -113,6 +115,24 @@ class NotificationAPIEndpointTests(TestCase):
         self.assertEqual(response.status_code, 200)
         ids = {item['id'] for item in response.json()['data']}
         self.assertEqual(ids, {str(own.id)})
+
+    @patch('core.translation.translate_text', side_effect=[
+        {'id': 'Pesan baru'},
+        {'id': 'Periksa obrolan'},
+    ])
+    def test_send_notification_translates_title_and_body(self, _translate):
+        notification = send_notification(
+            user=self.user,
+            type=NotificationType.CHAT_MESSAGE,
+            title='New message',
+            body='Check chat',
+            push=False,
+        )
+
+        self.assertEqual(notification.title_translated['zh-TW'], 'New message')
+        self.assertEqual(notification.title_translated['id'], 'Pesan baru')
+        self.assertEqual(notification.body_translated['zh-TW'], 'Check chat')
+        self.assertEqual(notification.body_translated['id'], 'Periksa obrolan')
 
     def test_mark_read_updates_only_owned_notification(self):
         notification = Notification.objects.create(
