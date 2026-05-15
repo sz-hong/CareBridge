@@ -155,6 +155,81 @@ class AIToolQueryTests(TestCase):
             self.assertEqual(data[result_key], [], tool_name)
             self.assertEqual(data["count"], 0, tool_name)
 
+    def test_todo_tool_filters_exact_due_date_and_excludes_unscheduled_todos(self):
+        today = timezone.localdate()
+        tomorrow = today + timezone.timedelta(days=1)
+        Todo.objects.create(
+            family=self.family,
+            title="Today Todo",
+            assignee=self.caregiver,
+            created_by=self.user,
+            priority=Todo.Priority.HIGH,
+            status=Todo.Status.PENDING,
+            due_date=today,
+        )
+        Todo.objects.create(
+            family=self.family,
+            title="Tomorrow Todo",
+            assignee=self.caregiver,
+            created_by=self.user,
+            priority=Todo.Priority.HIGH,
+            status=Todo.Status.PENDING,
+            due_date=tomorrow,
+        )
+        Todo.objects.create(
+            family=self.family,
+            title="No Date Todo",
+            assignee=self.caregiver,
+            created_by=self.user,
+            priority=Todo.Priority.MEDIUM,
+            status=Todo.Status.PENDING,
+            due_date=None,
+        )
+
+        data = self._execute("query_todos", {"due_date": today.isoformat()})
+        dumped = json.dumps(data, ensure_ascii=False, default=str)
+
+        self.assertEqual(data["count"], 1)
+        self.assertIn("Today Todo", dumped)
+        self.assertNotIn("Tomorrow Todo", dumped)
+        self.assertNotIn("No Date Todo", dumped)
+
+    def test_todo_tool_context_defaults_today_for_today_todo_question(self):
+        today = timezone.localdate()
+        yesterday = today - timezone.timedelta(days=1)
+        Todo.objects.create(
+            family=self.family,
+            title="Context Today Todo",
+            assignee=self.caregiver,
+            created_by=self.user,
+            priority=Todo.Priority.HIGH,
+            status=Todo.Status.PENDING,
+            due_date=today,
+        )
+        Todo.objects.create(
+            family=self.family,
+            title="Context Old Todo",
+            assignee=self.caregiver,
+            created_by=self.user,
+            priority=Todo.Priority.HIGH,
+            status=Todo.Status.PENDING,
+            due_date=yesterday,
+        )
+
+        payload = execute_tool(
+            "query_todos",
+            json.dumps({}),
+            self.user,
+            user_message="今天有什麼代辦事項",
+        )
+        data = json.loads(payload)
+        dumped = json.dumps(data, ensure_ascii=False, default=str)
+
+        self.assertNotIn("error", data)
+        self.assertEqual(data["count"], 1)
+        self.assertIn("Context Today Todo", dumped)
+        self.assertNotIn("Context Old Todo", dumped)
+
     def test_new_operational_tools_are_family_scoped(self):
         today = timezone.localdate()
         medication = Medication.objects.create(
