@@ -69,6 +69,10 @@ struct APIClientTests {
         #expect(APIEndpoint.boardStatus(id: "board-1") == "/board/board-1/status/")
         #expect(APIEndpoint.aiChat == "/ai/chat/")
         #expect(APIEndpoint.aiFirstAid == "/ai/first-aid/")
+        #expect(APIEndpoint.aiFirstAidScenarios == "/ai/first-aid/scenarios/")
+        #expect(APIEndpoint.aiCareAnalysis == "/ai/care-analysis/")
+        #expect(APIEndpoint.aiHandoverReport == "/ai/handover-report/")
+        #expect(APIEndpoint.aiSubsidyForm == "/ai/subsidy-form/")
         #expect(APIEndpoint.sosTrigger == "/sos/trigger/")
     }
 

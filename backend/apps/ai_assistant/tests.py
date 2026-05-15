@@ -7,6 +7,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from apps.ai_assistant.models import FirstAidDocument
 from apps.ai_assistant.tools import TOOL_DEFINITIONS, execute_tool
 from apps.auth_account.models import User
 from apps.board.models import BoardRequest
@@ -615,3 +616,43 @@ class AIChatStreamingContractTests(TestCase):
         streamed = self._streamed_content(response)
         self.assertEqual(streamed, "今天狀況良好")
         self.assertNotIn("-", streamed)
+
+
+class FirstAidScenarioEndpointTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            email="first-aid@example.com",
+            password="password123",
+            name="First Aid User",
+            role=User.Role.FAMILY_MEMBER,
+        )
+        self.family = Family.objects.create(
+            name="First Aid Family",
+            elder_name="Grandma Wu",
+            invite_code="654123",
+            created_by=self.user,
+        )
+        self.user.family = self.family
+        self.user.save(update_fields=["family"])
+        self.client.force_authenticate(self.user)
+
+    def test_scenarios_endpoint_returns_static_first_aid_documents_for_ios(self):
+        FirstAidDocument.objects.create(
+            title="Chest pain",
+            source="Manual",
+            section="Emergency",
+            content="Call 119 immediately.\nKeep the elder seated.",
+        )
+
+        response = self.client.get("/api/v1/ai/first-aid/scenarios/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["title"], "Chest pain")
+        self.assertEqual(data[0]["icon"], "cross.case.fill")
+        self.assertEqual(
+            data[0]["steps"],
+            ["Call 119 immediately.", "Keep the elder seated."],
+        )

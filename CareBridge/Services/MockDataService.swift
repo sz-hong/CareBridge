@@ -165,6 +165,33 @@ class MockDataService: DataService {
                   isUser: false, timestamp: Date())
     }
 
+    func fetchCareAnalysis(days: Int) async throws -> AICareAnalysisResponse {
+        AICareAnalysisResponse(
+            analysis: "Mock care analysis for the last \(days) days.",
+            periodDays: days,
+            tokensUsed: 0
+        )
+    }
+
+    func generateHandoverReport(date: String) async throws -> AIHandoverReportResponse {
+        AIHandoverReportResponse(
+            report: "Mock handover report for \(date).",
+            date: date,
+            tokensUsed: 0
+        )
+    }
+
+    func generateSubsidyForm(formType: String) async throws -> AISubsidyFormResponse {
+        AISubsidyFormResponse(
+            formType: formType,
+            formFields: [
+                "applicant": "Mock elder",
+                "care_need": "Daily assistance"
+            ],
+            tokensUsed: 0
+        )
+    }
+
     func streamAIResponse(
         prompt: String,
         conversationID: String?
@@ -193,6 +220,14 @@ class MockDataService: DataService {
 
     // MARK: - First Aid
     func fetchFirstAidScenarios() async throws -> [FirstAidScenario] { FirstAidScenario.samples }
+
+    func askFirstAid(query: String) async throws -> FirstAidAnswer {
+        FirstAidAnswer(
+            answer: "Mock first-aid answer for: \(query)",
+            sources: [],
+            tokensUsed: 0
+        )
+    }
 
     // MARK: - SOS
     func triggerSOS(location: String?) async throws { }

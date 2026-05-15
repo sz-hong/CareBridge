@@ -624,6 +624,31 @@ class SubsidyFormView(APIView):
         })
 
 
+class FirstAidScenarioListView(APIView):
+    """
+    GET /ai/first-aid/scenarios/
+    Returns static first-aid scenarios for the iOS quick guide.
+    """
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
+
+    def get(self, request):
+        scenarios = []
+        for doc in FirstAidDocument.objects.all():
+            steps = [
+                line.strip()
+                for line in doc.content.splitlines()
+                if line.strip()
+            ]
+            scenarios.append({
+                "id": str(doc.id),
+                "title": doc.title,
+                "icon": "cross.case.fill",
+                "steps": steps,
+            })
+
+        return success_response(data=scenarios)
+
+
 class FirstAidView(APIView):
     """
     POST /ai/first-aid/

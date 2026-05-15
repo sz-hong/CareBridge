@@ -80,6 +80,10 @@ enum APIEndpoint {
 
     static let aiChat = "/ai/chat/"
     static let aiFirstAid = "/ai/first-aid/"
+    static let aiFirstAidScenarios = "/ai/first-aid/scenarios/"
+    static let aiCareAnalysis = "/ai/care-analysis/"
+    static let aiHandoverReport = "/ai/handover-report/"
+    static let aiSubsidyForm = "/ai/subsidy-form/"
     static let sosTrigger = "/sos/trigger/"
 
     static func chatMessages(roomId: String) -> String {
