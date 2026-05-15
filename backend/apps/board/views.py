@@ -54,7 +54,10 @@ class BoardRequestViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             board_request.items, user=request.user,
         )
         board_request.note_translations = translate_for_user(
-            board_request.note or '', user=request.user,
+            board_request.note or '',
+            user=request.user,
+            mode='mixed_text',
+            protected_terms=_board_protected_terms(board_request, request.user),
         )
         board_request.save(update_fields=['items', 'note_translations', 'updated_at'])
         return success_response(
@@ -79,7 +82,10 @@ class BoardRequestViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             )
         if 'note' in request.data:
             instance.note_translations = translate_for_user(
-                instance.note or '', user=request.user,
+                instance.note or '',
+                user=request.user,
+                mode='mixed_text',
+                protected_terms=_board_protected_terms(instance, request.user),
             )
         instance.save(update_fields=['items', 'note_translations', 'updated_at'])
         return success_response(data=BoardRequestSerializer(instance).data)
@@ -105,10 +111,29 @@ class BoardRequestViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         instance.status = new_status
         instance.reply = reply
         instance.reply_translations = translate_for_user(
-            reply, user=request.user,
+            reply,
+            user=request.user,
+            mode='mixed_text',
+            protected_terms=_board_protected_terms(instance, request.user),
         )
         instance.reviewed_by = request.user
         instance.save(update_fields=[
             'status', 'reply', 'reply_translations', 'reviewed_by', 'updated_at',
         ])
         return success_response(data=BoardRequestSerializer(instance).data)
+
+
+def _board_protected_terms(board_request, user):
+    family = getattr(user, 'family', None)
+    item_names = [
+        item.get('name')
+        for item in (board_request.items or [])
+        if isinstance(item, dict)
+    ]
+    terms = [
+        *item_names,
+        getattr(user, 'name', None),
+        getattr(family, 'name', None),
+        getattr(family, 'elder_name', None),
+    ]
+    return [term for term in terms if term]

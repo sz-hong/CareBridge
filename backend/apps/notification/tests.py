@@ -1,3 +1,5 @@
+import re
+
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -116,23 +118,32 @@ class NotificationAPIEndpointTests(TestCase):
         ids = {item['id'] for item in response.json()['data']}
         self.assertEqual(ids, {str(own.id)})
 
-    @patch('core.translation.translate_text', side_effect=[
-        {'id': 'Pesan baru'},
-        {'id': 'Periksa obrolan'},
-    ])
-    def test_send_notification_translates_title_and_body(self, _translate):
+    @patch('core.translation.translate_text')
+    def test_send_notification_translates_title_and_body_with_protected_terms(
+        self, translate_text,
+    ):
+        def fake_translate(masked_text, _source, _targets):
+            self.assertNotIn('Amlodipine', masked_text)
+            self.assertNotIn('5mg', masked_text)
+            placeholders = re.findall(r'__CB_PROTECTED_\d+__', masked_text)
+            if 'message' in masked_text:
+                return {'id': 'Pesan baru'}
+            return {'id': f'Periksa {placeholders[0]} {placeholders[1]}'}
+
+        translate_text.side_effect = fake_translate
+
         notification = send_notification(
             user=self.user,
             type=NotificationType.CHAT_MESSAGE,
             title='New message',
-            body='Check chat',
+            body='Check Amlodipine 5mg',
             push=False,
         )
 
         self.assertEqual(notification.title_translated['zh-TW'], 'New message')
         self.assertEqual(notification.title_translated['id'], 'Pesan baru')
-        self.assertEqual(notification.body_translated['zh-TW'], 'Check chat')
-        self.assertEqual(notification.body_translated['id'], 'Periksa obrolan')
+        self.assertEqual(notification.body_translated['zh-TW'], 'Check Amlodipine 5mg')
+        self.assertEqual(notification.body_translated['id'], 'Periksa Amlodipine 5mg')
 
     def test_mark_read_updates_only_owned_notification(self):
         notification = Notification.objects.create(

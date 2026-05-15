@@ -1,3 +1,5 @@
+import re
+
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -98,8 +100,17 @@ class LeaveAPIEndpointTests(TestCase):
         self.assertEqual(leave.applicant, self.user)
         self.assertEqual(leave.days, 3)
 
-    @patch('core.translation.translate_text', return_value={'id': 'Janji temu medis'})
-    def test_create_translates_leave_reason(self, _translate):
+    @patch('core.translation.translate_text')
+    def test_create_translates_leave_reason_and_preserves_document_number(
+        self, translate_text,
+    ):
+        def fake_translate(masked_text, _source, _targets):
+            self.assertNotIn('A123456789', masked_text)
+            placeholders = re.findall(r'__CB_PROTECTED_\d+__', masked_text)
+            self.assertTrue(placeholders)
+            return {'id': f'Janji temu medis untuk dokumen {placeholders[0]}'}
+
+        translate_text.side_effect = fake_translate
         start_date = timezone.localdate()
         end_date = start_date + timezone.timedelta(days=1)
 
@@ -109,15 +120,21 @@ class LeaveAPIEndpointTests(TestCase):
                 'type': Leave.Type.SICK,
                 'start_date': start_date.isoformat(),
                 'end_date': end_date.isoformat(),
-                'reason': 'Medical appointment',
+                'reason': 'Medical appointment for document A123456789',
             },
             format='json',
         )
 
         self.assertEqual(response.status_code, 201)
         leave = Leave.objects.get(id=response.json()['data']['id'])
-        self.assertEqual(leave.reason_translations['zh-TW'], 'Medical appointment')
-        self.assertEqual(leave.reason_translations['id'], 'Janji temu medis')
+        self.assertEqual(
+            leave.reason_translations['zh-TW'],
+            'Medical appointment for document A123456789',
+        )
+        self.assertEqual(
+            leave.reason_translations['id'],
+            'Janji temu medis untuk dokumen A123456789',
+        )
 
     @patch('apps.notification.tasks.send_notification_task.delay')
     def test_approving_leave_creates_calendar_event_only_once(self, _delay):

@@ -1,3 +1,5 @@
+import re
+
 from django.test import TestCase
 from rest_framework.test import APIClient
 from unittest.mock import patch
@@ -123,6 +125,33 @@ class BoardRequestAPIEndpointTests(TestCase):
         self.assertEqual(
             board_request.note_translations['id'],
             'Perlu perangkat cadangan',
+        )
+
+    @patch('core.translation.translate_text')
+    def test_create_preserves_board_item_brand_and_model(self, translate_text):
+        def fake_translate(masked_text, _source, _targets):
+            self.assertNotIn('Omron HEM-7121', masked_text)
+            placeholders = re.findall(r'__CB_PROTECTED_\d+__', masked_text)
+            self.assertTrue(placeholders)
+            return {'id': f'Monitor tekanan darah {placeholders[0]}'}
+
+        translate_text.side_effect = fake_translate
+
+        response = self.client.post(
+            '/api/v1/board/',
+            {
+                'category': BoardRequest.Category.MEDICAL,
+                'items': [{'name': 'Omron HEM-7121 blood pressure monitor'}],
+                'note': '',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        board_request = BoardRequest.objects.get(id=response.json()['data']['id'])
+        self.assertEqual(
+            board_request.items[0]['name_translated']['id'],
+            'Monitor tekanan darah Omron HEM-7121',
         )
 
     def test_update_status_sets_reply_and_reviewer(self):

@@ -55,7 +55,12 @@ class TodoViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             created_by=request.user,
             assignee_id=serializer.validated_data['assignee_id'],
         )
-        todo.title_translated = translate_for_user(todo.title, user=request.user)
+        todo.title_translated = translate_for_user(
+            todo.title,
+            user=request.user,
+            mode='mixed_text',
+            protected_terms=_todo_protected_terms(todo, request.user),
+        )
         todo.save(update_fields=['title_translated'])
         return success_response(
             data=TodoSerializer(todo).data,
@@ -77,7 +82,10 @@ class TodoViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
                 setattr(instance, field, request.data[field])
         if 'title' in request.data:
             instance.title_translated = translate_for_user(
-                instance.title, user=request.user,
+                instance.title,
+                user=request.user,
+                mode='mixed_text',
+                protected_terms=_todo_protected_terms(instance, request.user),
             )
 
         # Cross-module trigger: auto-create CareLog on completion
@@ -104,3 +112,14 @@ class TodoViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         instance = self.get_object()
         instance.delete()
         return empty_success_response()
+
+
+def _todo_protected_terms(todo, user):
+    family = getattr(user, 'family', None)
+    terms = [
+        getattr(todo.assignee, 'name', None),
+        getattr(user, 'name', None),
+        getattr(family, 'name', None),
+        getattr(family, 'elder_name', None),
+    ]
+    return [term for term in terms if term]

@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -133,6 +134,41 @@ class CareLogAPIContractTests(TestCase):
         care_log = CareLog.objects.get(id=response.json()['data']['id'])
         self.assertEqual(care_log.content_translated['text']['zh-TW'], 'Morning note')
         self.assertEqual(care_log.content_translated['text']['id'], 'Catatan pagi')
+
+    @patch('core.translation.translate_text')
+    def test_create_protects_medication_name_and_mixed_note(self, translate_text):
+        def fake_translate(masked_text, _source, _targets):
+            self.assertNotIn('Aspirin', masked_text)
+            self.assertNotIn('08:00', masked_text)
+            placeholders = re.findall(r'__CB_PROTECTED_\d+__', masked_text)
+            self.assertGreaterEqual(len(placeholders), 2)
+            return {'id': f'{placeholders[0]} diberikan pada {placeholders[1]}'}
+
+        translate_text.side_effect = fake_translate
+
+        response = self.client.post(
+            '/api/v1/care-logs/',
+            {
+                'type': CareLog.Type.MEDICATION,
+                'content': {
+                    'medication_name': 'Aspirin',
+                    'note': 'Aspirin given at 08:00',
+                },
+                'timestamp': timezone.now().isoformat(),
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        care_log = CareLog.objects.get(id=response.json()['data']['id'])
+        self.assertEqual(
+            care_log.content_translated['medication_name']['id'],
+            'Aspirin',
+        )
+        self.assertEqual(
+            care_log.content_translated['note']['id'],
+            'Aspirin diberikan pada 08:00',
+        )
 
     def test_summary_counts_logs_and_medication_compliance(self):
         now = timezone.now()

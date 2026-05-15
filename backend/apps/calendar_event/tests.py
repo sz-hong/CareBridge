@@ -1,3 +1,5 @@
+import re
+
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -105,31 +107,51 @@ class CalendarEventAPIEndpointTests(TestCase):
         self.assertEqual(event.source, Event.Source.MANUAL)
         self.assertEqual(event.reminder_minutes, 30)
 
-    @patch('core.translation.translate_text', side_effect=[
-        {'id': 'Sesi rehabilitasi'},
-        {'id': 'Bawa laporan'},
-    ])
-    def test_create_translates_event_title_and_note(self, _translate):
+    @patch('core.translation.translate_text')
+    def test_create_translates_event_text_and_preserves_hospital_name(
+        self, translate_text,
+    ):
+        def fake_translate(masked_text, _source, _targets):
+            self.assertNotIn('Taipei Veterans General Hospital', masked_text)
+            placeholders = re.findall(r'__CB_PROTECTED_\d+__', masked_text)
+            self.assertTrue(placeholders)
+            if 'Rehab' in masked_text:
+                return {'id': f'Sesi rehabilitasi di {placeholders[0]}'}
+            return {'id': f'Bawa laporan ke {placeholders[0]}'}
+
+        translate_text.side_effect = fake_translate
         start = timezone.now() + timezone.timedelta(hours=3)
 
         response = self.client.post(
             '/api/v1/events/',
             {
-                'title': 'Rehab session',
+                'title': 'Rehab session at Taipei Veterans General Hospital',
                 'start_time': start.isoformat(),
-                'location': 'Clinic',
+                'location': 'Taipei Veterans General Hospital',
                 'type': Event.Type.REHAB,
-                'note': 'Bring report',
+                'note': 'Bring report to Taipei Veterans General Hospital',
             },
             format='json',
         )
 
         self.assertEqual(response.status_code, 201)
         event = Event.objects.get(id=response.json()['data']['id'])
-        self.assertEqual(event.title_translated['zh-TW'], 'Rehab session')
-        self.assertEqual(event.title_translated['id'], 'Sesi rehabilitasi')
-        self.assertEqual(event.note_translated['zh-TW'], 'Bring report')
-        self.assertEqual(event.note_translated['id'], 'Bawa laporan')
+        self.assertEqual(
+            event.title_translated['zh-TW'],
+            'Rehab session at Taipei Veterans General Hospital',
+        )
+        self.assertEqual(
+            event.title_translated['id'],
+            'Sesi rehabilitasi di Taipei Veterans General Hospital',
+        )
+        self.assertEqual(
+            event.note_translated['zh-TW'],
+            'Bring report to Taipei Veterans General Hospital',
+        )
+        self.assertEqual(
+            event.note_translated['id'],
+            'Bawa laporan ke Taipei Veterans General Hospital',
+        )
 
     def test_batch_create_assigns_family_and_created_by_to_each_event(self):
         start = timezone.now() + timezone.timedelta(days=2)

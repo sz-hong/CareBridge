@@ -1,4 +1,6 @@
+import re
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -9,6 +11,11 @@ from core.deidentification import (
 )
 from core.pii_patterns import CUSTOM_REGEX_INFO_TYPES
 from core.storage import build_public_url
+from core.translation import (
+    SUPPORTED_LANGUAGES,
+    protected_entity_map,
+    translate_for_user,
+)
 
 
 class StorageURLContractTests(SimpleTestCase):
@@ -21,6 +28,62 @@ class StorageURLContractTests(SimpleTestCase):
             build_public_url('receipts/family-1/receipt.jpg'),
             'https://storage.carebridge-lab.com/carebridge-storage/receipts/family-1/receipt.jpg',
         )
+
+
+class TranslationProtectedEntityTests(SimpleTestCase):
+    def test_protected_entity_map_returns_original_for_every_language(self):
+        result = protected_entity_map('Amlodipine 5mg')
+
+        self.assertEqual(set(result), set(SUPPORTED_LANGUAGES))
+        self.assertTrue(
+            all(value == 'Amlodipine 5mg' for value in result.values())
+        )
+
+    @patch('core.translation.translate_text')
+    def test_mixed_text_masks_and_restores_protected_spans(self, translate_text):
+        def fake_translate(masked_text, _source, _targets):
+            self.assertNotIn('Amlodipine', masked_text)
+            self.assertNotIn('08:00', masked_text)
+            placeholders = re.findall(r'__CB_PROTECTED_\d+__', masked_text)
+            self.assertGreaterEqual(len(placeholders), 2)
+            return {
+                'id': (
+                    f'Tolong minum {placeholders[0]} setelah makan '
+                    f'pada {placeholders[1]}'
+                )
+            }
+
+        translate_text.side_effect = fake_translate
+
+        result = translate_for_user(
+            'Please take Amlodipine after meals at 08:00',
+            source_lang='zh-TW',
+            target_langs=['id'],
+            mode='mixed_text',
+            protected_terms=['Amlodipine'],
+        )
+
+        self.assertEqual(
+            result['id'],
+            'Tolong minum Amlodipine setelah makan pada 08:00',
+        )
+
+    @patch('core.translation.translate_text')
+    def test_mixed_text_falls_back_when_translation_drops_placeholder(
+        self, translate_text,
+    ):
+        text = 'Take Amlodipine 5mg after meals'
+        translate_text.return_value = {'id': 'Minum obat setelah makan'}
+
+        result = translate_for_user(
+            text,
+            source_lang='zh-TW',
+            target_langs=['id'],
+            mode='mixed_text',
+            protected_terms=['Amlodipine'],
+        )
+
+        self.assertEqual(result['id'], text)
 
 
 class MockDeidentificationClientTests(SimpleTestCase):

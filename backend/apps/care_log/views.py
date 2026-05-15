@@ -24,6 +24,22 @@ CARE_LOG_TRANSLATION_KEYS = {
     'note',
     'text',
 }
+CARE_LOG_PROTECTED_KEYS = {'medication_name'}
+CARE_LOG_PROTECTED_TERM_KEYS = {
+    'medication_name',
+    'dosage',
+    'scheduled_time',
+    'time',
+}
+
+
+def _care_log_protected_terms(content):
+    if not isinstance(content, dict):
+        return []
+    return [
+        value for key, value in content.items()
+        if key in CARE_LOG_PROTECTED_TERM_KEYS and isinstance(value, str) and value
+    ]
 
 
 class CareLogViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
@@ -84,6 +100,8 @@ class CareLogViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             serializer.instance.content,
             user=request.user,
             keys=CARE_LOG_TRANSLATION_KEYS,
+            protected_keys=CARE_LOG_PROTECTED_KEYS,
+            protected_terms=_care_log_protected_terms(serializer.instance.content),
         )
         serializer.instance.save(update_fields=['content_translated'])
         out = CareLogSerializer(serializer.instance).data
@@ -107,6 +125,8 @@ class CareLogViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
                 instance.content,
                 user=request.user,
                 keys=CARE_LOG_TRANSLATION_KEYS,
+                protected_keys=CARE_LOG_PROTECTED_KEYS,
+                protected_terms=_care_log_protected_terms(instance.content),
             )
             instance.save(update_fields=['content_translated'])
         out = CareLogSerializer(instance).data
