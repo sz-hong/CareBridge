@@ -6,7 +6,11 @@ from rest_framework.viewsets import ModelViewSet
 from core.permissions import CaregiverCannotDelete, CaregiverMedicationPermission
 from core.responses import empty_success_response, success_response
 from core.viewsets import FamilyScopedQuerySetMixin
-from core.translation import translate_content_fields, translate_for_user
+from core.translation import (
+    protected_entity_map,
+    translate_content_fields,
+    translate_for_user,
+)
 from apps.care_log.models import CareLog
 from .models import Medication, MedicationConfirmation
 from .serializers import (
@@ -72,11 +76,13 @@ class MedicationViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             created_by=request.user,
         )
 
-        medication.name_translated = translate_for_user(
-            medication.name, user=request.user,
-        )
+        protected_terms = _medication_protected_terms(medication)
+        medication.name_translated = protected_entity_map(medication.name)
         medication.instructions_translated = translate_for_user(
-            medication.instructions or '', user=request.user,
+            medication.instructions or '',
+            user=request.user,
+            mode='mixed_text',
+            protected_terms=protected_terms,
         )
         medication.save(update_fields=[
             'name_translated', 'instructions_translated',
@@ -98,13 +104,15 @@ class MedicationViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        protected_terms = _medication_protected_terms(instance)
         if 'name' in request.data:
-            instance.name_translated = translate_for_user(
-                instance.name, user=request.user,
-            )
+            instance.name_translated = protected_entity_map(instance.name)
         if 'instructions' in request.data:
             instance.instructions_translated = translate_for_user(
-                instance.instructions or '', user=request.user,
+                instance.instructions or '',
+                user=request.user,
+                mode='mixed_text',
+                protected_terms=protected_terms,
             )
         instance.save(update_fields=[
             'name_translated', 'instructions_translated', 'updated_at',
@@ -128,7 +136,14 @@ class MedicationViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         serializer.is_valid(raise_exception=True)
 
         note = serializer.validated_data.get('note', '')
-        note_translated = translate_for_user(note, user=request.user)
+        protected_terms = _medication_protected_terms(medication)
+        protected_terms.append(serializer.validated_data['scheduled_time'])
+        note_translated = translate_for_user(
+            note,
+            user=request.user,
+            mode='mixed_text',
+            protected_terms=protected_terms,
+        )
 
         # Create a CareLog entry for medication confirmation
         care_log_content = {
@@ -147,6 +162,8 @@ class MedicationViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
                 care_log_content,
                 user=request.user,
                 keys={'medication_name', 'note'},
+                protected_keys={'medication_name'},
+                protected_terms=protected_terms,
             ),
             photo_url=serializer.validated_data.get('photo_url'),
             timestamp=timezone.now(),
@@ -176,3 +193,9 @@ class MedicationViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         
         out = MedicationConfirmationSerializer(confirmations, many=True).data
         return success_response(data=out)
+
+
+def _medication_protected_terms(medication):
+    terms = [medication.name, medication.dosage]
+    terms.extend(medication.times or [])
+    return [term for term in terms if term]

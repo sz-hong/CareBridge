@@ -1,3 +1,5 @@
+import re
+
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -89,12 +91,29 @@ class TodoAPIEndpointTests(TestCase):
         self.assertEqual(todo.assignee, self.assignee)
         self.assertEqual(todo.priority, Todo.Priority.HIGH)
 
-    @patch('core.translation.translate_text', return_value={'id': 'Berjalan'})
-    def test_create_translates_todo_title_for_supported_languages(self, _translate):
+    @patch('core.translation.translate_text')
+    def test_create_translates_todo_title_and_preserves_medical_terms(
+        self, translate_text,
+    ):
+        def fake_translate(masked_text, _source, _targets):
+            self.assertNotIn('Amlodipine', masked_text)
+            self.assertNotIn('5mg', masked_text)
+            self.assertNotIn('08:00', masked_text)
+            placeholders = re.findall(r'__CB_PROTECTED_\d+__', masked_text)
+            self.assertGreaterEqual(len(placeholders), 3)
+            return {
+                'id': (
+                    f'Ingatkan minum {placeholders[0]} {placeholders[1]} '
+                    f'pada {placeholders[2]}'
+                )
+            }
+
+        translate_text.side_effect = fake_translate
+
         response = self.client.post(
             '/api/v1/todos/',
             {
-                'title': 'Take a walk',
+                'title': 'Remind Amlodipine 5mg at 08:00',
                 'assignee_id': str(self.assignee.id),
                 'priority': Todo.Priority.HIGH,
                 'due_date': timezone.localdate().isoformat(),
@@ -104,8 +123,11 @@ class TodoAPIEndpointTests(TestCase):
 
         self.assertEqual(response.status_code, 201)
         todo = Todo.objects.get(id=response.json()['data']['id'])
-        self.assertEqual(todo.title_translated['zh-TW'], 'Take a walk')
-        self.assertEqual(todo.title_translated['id'], 'Berjalan')
+        self.assertEqual(todo.title_translated['zh-TW'], 'Remind Amlodipine 5mg at 08:00')
+        self.assertEqual(
+            todo.title_translated['id'],
+            'Ingatkan minum Amlodipine 5mg pada 08:00',
+        )
 
     @patch('core.translation.translate_text', side_effect=RuntimeError('openai down'))
     def test_create_todo_still_succeeds_when_translation_fails(self, _translate):

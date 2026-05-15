@@ -54,8 +54,19 @@ class EventViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             family=request.user.family,
             created_by=request.user,
         )
-        event.title_translated = translate_for_user(event.title, user=request.user)
-        event.note_translated = translate_for_user(event.note or '', user=request.user)
+        protected_terms = _event_protected_terms(event, request.user)
+        event.title_translated = translate_for_user(
+            event.title,
+            user=request.user,
+            mode='mixed_text',
+            protected_terms=protected_terms,
+        )
+        event.note_translated = translate_for_user(
+            event.note or '',
+            user=request.user,
+            mode='mixed_text',
+            protected_terms=protected_terms,
+        )
         event.save(update_fields=['title_translated', 'note_translated'])
         return success_response(
             data=EventSerializer(event).data,
@@ -73,13 +84,20 @@ class EventViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        protected_terms = _event_protected_terms(instance, request.user)
         if 'title' in request.data:
             instance.title_translated = translate_for_user(
-                instance.title, user=request.user,
+                instance.title,
+                user=request.user,
+                mode='mixed_text',
+                protected_terms=protected_terms,
             )
         if 'note' in request.data:
             instance.note_translated = translate_for_user(
-                instance.note or '', user=request.user,
+                instance.note or '',
+                user=request.user,
+                mode='mixed_text',
+                protected_terms=protected_terms,
             )
         instance.save(update_fields=['title_translated', 'note_translated'])
         return success_response(data=EventSerializer(instance).data)
@@ -100,12 +118,30 @@ class EventViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
                 family=request.user.family,
                 created_by=request.user,
             )
+            protected_terms = _event_protected_terms(event, request.user)
             event.title_translated = translate_for_user(
-                event.title, user=request.user,
+                event.title,
+                user=request.user,
+                mode='mixed_text',
+                protected_terms=protected_terms,
             )
             event.note_translated = translate_for_user(
-                event.note or '', user=request.user,
+                event.note or '',
+                user=request.user,
+                mode='mixed_text',
+                protected_terms=protected_terms,
             )
             event.save(update_fields=['title_translated', 'note_translated'])
             created.append(EventSerializer(event).data)
         return success_response(data=created, status=status.HTTP_201_CREATED)
+
+
+def _event_protected_terms(event, user):
+    family = getattr(user, 'family', None)
+    terms = [
+        event.location,
+        getattr(user, 'name', None),
+        getattr(family, 'name', None),
+        getattr(family, 'elder_name', None),
+    ]
+    return [term for term in terms if term]

@@ -66,7 +66,10 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             days=days,
         )
         leave.reason_translations = translate_for_user(
-            leave.reason, user=request.user,
+            leave.reason,
+            user=request.user,
+            mode='mixed_text',
+            protected_terms=_leave_protected_terms(leave, request.user),
         )
         leave.save(update_fields=['reason_translations'])
         return success_response(
@@ -90,7 +93,10 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         instance.status = new_status
         instance.reply = reply
         instance.reply_translations = translate_for_user(
-            reply, user=request.user,
+            reply,
+            user=request.user,
+            mode='mixed_text',
+            protected_terms=_leave_protected_terms(instance, request.user),
         )
         instance.reviewed_by = request.user
         instance.reviewed_at = timezone.now()
@@ -216,3 +222,14 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             note=leave.reason,
             created_by=actor,
         )
+
+
+def _leave_protected_terms(leave, user):
+    family = getattr(user, 'family', None)
+    terms = [
+        getattr(leave.applicant, 'name', None),
+        getattr(user, 'name', None),
+        getattr(family, 'name', None),
+        getattr(family, 'elder_name', None),
+    ]
+    return [term for term in terms if term]

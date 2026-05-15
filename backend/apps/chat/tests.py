@@ -1,3 +1,5 @@
+import re
+
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -132,15 +134,23 @@ class ChatAPIEndpointTests(TestCase):
 
     @patch('apps.notification.tasks.send_notification_task.delay')
     @patch('apps.chat.views.ChatViewSet._broadcast_message')
-    @patch('apps.chat.views.translate_text', return_value={'id': 'Halo'})
+    @patch('core.translation.translate_text')
     def test_send_text_message_creates_message_for_chat_member(
-        self, _translate_text, _broadcast_message, _delay,
+        self, translate_text, _broadcast_message, _delay,
     ):
+        def fake_translate(masked_text, _source, _targets):
+            self.assertNotIn('Amlodipine', masked_text)
+            self.assertNotIn('5mg', masked_text)
+            placeholders = re.findall(r'__CB_PROTECTED_\d+__', masked_text)
+            self.assertGreaterEqual(len(placeholders), 2)
+            return {'id': f'Halo tentang {placeholders[0]} {placeholders[1]}'}
+
+        translate_text.side_effect = fake_translate
         chat = self.create_chat()
 
         response = self.client.post(
             f'/api/v1/chats/{chat.id}/messages/',
-            {'type': Message.Type.TEXT, 'content': 'Hello'},
+            {'type': Message.Type.TEXT, 'content': 'Hello about Amlodipine 5mg'},
             format='json',
         )
 
@@ -150,7 +160,11 @@ class ChatAPIEndpointTests(TestCase):
         self.assertEqual(message.sender, self.user)
         self.assertEqual(message.type, Message.Type.TEXT)
         self.assertEqual(message.message_type, Message.MessageType.TEXT)
-        self.assertEqual(message.content, 'Hello')
+        self.assertEqual(message.content, 'Hello about Amlodipine 5mg')
+        self.assertEqual(
+            message.translations['id'],
+            'Halo tentang Amlodipine 5mg',
+        )
 
     def test_message_history_returns_recent_page_in_chronological_order(self):
         chat = self.create_chat()

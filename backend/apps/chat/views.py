@@ -16,7 +16,7 @@ from apps.chat.serializers import (
 from core.pagination import StandardPagination
 from core.permissions import CaregiverCannotDelete
 from core.responses import empty_success_response, error_response, success_response
-from core.translation import SUPPORTED_LANGUAGES, translate_text
+from core.translation import SUPPORTED_LANGUAGES, translate_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -280,14 +280,29 @@ class ChatViewSet(ModelViewSet):
             return
 
         try:
-            translations = translate_text(
-                message.content, source_lang, target_langs,
+            translations = translate_for_user(
+                message.content,
+                user=sender,
+                source_lang=source_lang,
+                target_langs=[source_lang, *target_langs],
+                mode='mixed_text',
+                protected_terms=_chat_protected_terms(message, sender),
             )
-            # Include the original text keyed by source language
-            translations[source_lang] = message.content
             message.translations = translations
             message.save(update_fields=['translations'])
         except Exception:
             logger.exception(
                 'Translation failed for message %s', message.id,
             )
+
+
+def _chat_protected_terms(message, sender):
+    family = getattr(sender, 'family', None)
+    chat = getattr(message, 'chat', None)
+    terms = [
+        getattr(sender, 'name', None),
+        getattr(chat, 'name', None),
+        getattr(family, 'name', None),
+        getattr(family, 'elder_name', None),
+    ]
+    return [term for term in terms if term]

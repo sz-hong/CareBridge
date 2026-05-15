@@ -57,9 +57,19 @@ def send_notification(user, type, title, body, data=None, push=True):
         user=user,
         type=type,
         title=title,
-        title_translated=translate_for_user(title, user=user),
+        title_translated=translate_for_user(
+            title,
+            user=user,
+            mode='mixed_text',
+            protected_terms=_notification_protected_terms(user),
+        ),
         body=body,
-        body_translated=translate_for_user(body, user=user),
+        body_translated=translate_for_user(
+            body,
+            user=user,
+            mode='mixed_text',
+            protected_terms=_notification_protected_terms(user),
+        ),
         data=data or {},
     )
 
@@ -146,3 +156,13 @@ def _send_push_to_user(user, title, body, data=None):
         logger.warning('apns2 not installed, skipping push notifications')
     except Exception:
         logger.exception('Push notification error for user %s', user.id)
+
+
+def _notification_protected_terms(user):
+    family = getattr(user, 'family', None)
+    terms = [
+        getattr(user, 'name', None),
+        getattr(family, 'name', None),
+        getattr(family, 'elder_name', None),
+    ]
+    return [term for term in terms if term]
