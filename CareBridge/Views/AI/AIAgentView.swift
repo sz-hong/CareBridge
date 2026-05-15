@@ -9,10 +9,13 @@ struct AIAgentView: View {
     @State private var isLoading = false
     @State private var conversationID: String?
     @State private var responseTask: Task<Void, Never>?
+    @State private var selectedTool: AIToolKind?
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
+            aiQuickActions
+
             // Messages
             ScrollViewReader { proxy in
                 ScrollView {
@@ -70,6 +73,9 @@ struct AIAgentView: View {
         .onDisappear {
             resetChatContext()
         }
+        .sheet(item: $selectedTool) { tool in
+            AIToolSheet(tool: tool)
+        }
     }
 
     // MARK: - Typing Indicator
@@ -92,6 +98,33 @@ struct AIAgentView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(RoundedRectangle(cornerRadius: 16).fill(Color(red: 0.93, green: 0.90, blue: 0.98)))
+    }
+
+    // MARK: - Quick Actions
+    private var aiQuickActions: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(AIToolKind.allCases) { tool in
+                    Button {
+                        selectedTool = tool
+                    } label: {
+                        Label(tool.title, systemImage: tool.icon)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color.brandTeal)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.brandTeal.opacity(0.10))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        }
+        .background(Color.brandBackground)
     }
 
     // MARK: - Input Bar
@@ -225,6 +258,171 @@ struct AIAgentView: View {
         isLoading = false
     }
 
+}
+
+private enum AIToolKind: String, CaseIterable, Identifiable {
+    case careAnalysis
+    case handoverReport
+    case subsidyForm
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .careAnalysis: return "照護分析"
+        case .handoverReport: return "交班報告"
+        case .subsidyForm: return "補助表單"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .careAnalysis: return "chart.line.uptrend.xyaxis"
+        case .handoverReport: return "doc.text"
+        case .subsidyForm: return "square.and.pencil"
+        }
+    }
+
+    var actionTitle: String {
+        switch self {
+        case .careAnalysis: return "產生分析"
+        case .handoverReport: return "產生報告"
+        case .subsidyForm: return "產生表單"
+        }
+    }
+}
+
+private struct AIToolSheet: View {
+    let tool: AIToolKind
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dataService) private var dataService
+    @State private var days = 7
+    @State private var reportDate = Date()
+    @State private var subsidyFormType = "long_term_care"
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    @State private var resultText: String?
+    @State private var formFields: [String: String] = [:]
+
+    private static let requestDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    inputControls
+                }
+
+                Section {
+                    Button {
+                        Task { await runTool() }
+                    } label: {
+                        HStack {
+                            if isLoading {
+                                ProgressView()
+                            }
+                            Text(tool.actionTitle)
+                        }
+                    }
+                    .disabled(isLoading)
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                if let resultText {
+                    Section("結果") {
+                        Text(resultText)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                if !formFields.isEmpty {
+                    Section("表單欄位") {
+                        ForEach(formFields.keys.sorted(), id: \.self) { key in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(key)
+                                    .font(.system(size: 13, weight: .semibold))
+                                Text(formFields[key] ?? "")
+                                    .font(.system(size: 14))
+                                    .textSelection(.enabled)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    }
+                }
+            }
+            .navigationTitle(tool.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var inputControls: some View {
+        switch tool {
+        case .careAnalysis:
+            Stepper(value: $days, in: 1...30) {
+                Text("分析最近 \(days) 天")
+            }
+        case .handoverReport:
+            DatePicker(
+                "交班日期",
+                selection: $reportDate,
+                displayedComponents: .date
+            )
+        case .subsidyForm:
+            Picker("表單類型", selection: $subsidyFormType) {
+                Text("長照補助").tag("long_term_care")
+                Text("身障補助").tag("disability")
+                Text("喘息服務").tag("respite_care")
+            }
+        }
+    }
+
+    @MainActor
+    private func runTool() async {
+        guard !isLoading else { return }
+        isLoading = true
+        errorMessage = nil
+        resultText = nil
+        formFields = [:]
+
+        do {
+            switch tool {
+            case .careAnalysis:
+                let response = try await dataService.fetchCareAnalysis(days: days)
+                resultText = response.analysis
+            case .handoverReport:
+                let date = Self.requestDateFormatter.string(from: reportDate)
+                let response = try await dataService.generateHandoverReport(date: date)
+                resultText = response.report
+            case .subsidyForm:
+                let response = try await dataService.generateSubsidyForm(
+                    formType: subsidyFormType
+                )
+                formFields = response.formFields
+            }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+
+        isLoading = false
+    }
 }
 
 // MARK: - AI Message Bubble

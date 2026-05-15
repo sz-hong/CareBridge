@@ -59,6 +59,7 @@ class MedicationConfirmation(models.Model):
     photo_url = models.URLField(max_length=500, null=True, blank=True)
     scheduled_time = models.CharField(max_length=5)
     note = models.TextField(null=True, blank=True)
+    note_translated = models.JSONField(null=True, blank=True)
     care_log = models.ForeignKey(
         'care_log.CareLog',
         on_delete=models.SET_NULL,

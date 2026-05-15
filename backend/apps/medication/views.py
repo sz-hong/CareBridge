@@ -1,5 +1,3 @@
-import logging
-
 from django.utils import timezone
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -8,7 +6,7 @@ from rest_framework.viewsets import ModelViewSet
 from core.permissions import CaregiverCannotDelete, CaregiverMedicationPermission
 from core.responses import empty_success_response, success_response
 from core.viewsets import FamilyScopedQuerySetMixin
-from core.translation import translate_text, SUPPORTED_LANGUAGES
+from core.translation import translate_content_fields, translate_for_user
 from apps.care_log.models import CareLog
 from .models import Medication, MedicationConfirmation
 from .serializers import (
@@ -17,9 +15,6 @@ from .serializers import (
     MedicationConfirmationSerializer,
     ConfirmMedicationSerializer,
 )
-
-logger = logging.getLogger(__name__)
-
 
 class MedicationViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
     permission_classes = [
@@ -77,31 +72,15 @@ class MedicationViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             created_by=request.user,
         )
 
-        # Attempt auto-translation of name
-        try:
-            source_lang = request.user.language or 'zh-TW'
-            target_langs = [
-                code for code in SUPPORTED_LANGUAGES
-                if code != source_lang
-            ]
-            if target_langs and medication.name:
-                name_translated = translate_text(
-                    medication.name, source_lang, target_langs,
-                )
-                medication.name_translated = name_translated
-                if medication.instructions:
-                    instructions_translated = translate_text(
-                        medication.instructions, source_lang, target_langs,
-                    )
-                    medication.instructions_translated = instructions_translated
-                medication.save(update_fields=[
-                    'name_translated', 'instructions_translated',
-                ])
-        except Exception:
-            logger.warning(
-                'Auto-translation failed for medication %s', medication.id,
-                exc_info=True,
-            )
+        medication.name_translated = translate_for_user(
+            medication.name, user=request.user,
+        )
+        medication.instructions_translated = translate_for_user(
+            medication.instructions or '', user=request.user,
+        )
+        medication.save(update_fields=[
+            'name_translated', 'instructions_translated',
+        ])
 
         out = MedicationSerializer(medication).data
         return success_response(data=out, status=201)
@@ -119,6 +98,17 @@ class MedicationViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        if 'name' in request.data:
+            instance.name_translated = translate_for_user(
+                instance.name, user=request.user,
+            )
+        if 'instructions' in request.data:
+            instance.instructions_translated = translate_for_user(
+                instance.instructions or '', user=request.user,
+            )
+        instance.save(update_fields=[
+            'name_translated', 'instructions_translated', 'updated_at',
+        ])
         out = MedicationSerializer(instance).data
         return success_response(data=out)
 
@@ -137,18 +127,27 @@ class MedicationViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         serializer = ConfirmMedicationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
+        note = serializer.validated_data.get('note', '')
+        note_translated = translate_for_user(note, user=request.user)
+
         # Create a CareLog entry for medication confirmation
+        care_log_content = {
+            'medication_id': str(medication.id),
+            'medication_name': medication.name,
+            'dosage': medication.dosage,
+            'scheduled_time': serializer.validated_data['scheduled_time'],
+            'note': note,
+        }
         care_log = CareLog.objects.create(
             family=medication.family,
             recorder=request.user,
             type=CareLog.Type.MEDICATION,
-            content={
-                'medication_id': str(medication.id),
-                'medication_name': medication.name,
-                'dosage': medication.dosage,
-                'scheduled_time': serializer.validated_data['scheduled_time'],
-                'note': serializer.validated_data.get('note', ''),
-            },
+            content=care_log_content,
+            content_translated=translate_content_fields(
+                care_log_content,
+                user=request.user,
+                keys={'medication_name', 'note'},
+            ),
             photo_url=serializer.validated_data.get('photo_url'),
             timestamp=timezone.now(),
         )
@@ -159,7 +158,8 @@ class MedicationViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             confirmed_by=request.user,
             photo_url=serializer.validated_data.get('photo_url'),
             scheduled_time=serializer.validated_data['scheduled_time'],
-            note=serializer.validated_data.get('note', ''),
+            note=note,
+            note_translated=note_translated,
             care_log=care_log,
         )
 

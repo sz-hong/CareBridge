@@ -1,6 +1,7 @@
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
+from unittest.mock import patch
 
 from apps.auth_account.models import User
 from apps.care_log.models import CareLog
@@ -87,6 +88,39 @@ class TodoAPIEndpointTests(TestCase):
         self.assertEqual(todo.created_by, self.user)
         self.assertEqual(todo.assignee, self.assignee)
         self.assertEqual(todo.priority, Todo.Priority.HIGH)
+
+    @patch('core.translation.translate_text', return_value={'id': 'Berjalan'})
+    def test_create_translates_todo_title_for_supported_languages(self, _translate):
+        response = self.client.post(
+            '/api/v1/todos/',
+            {
+                'title': 'Take a walk',
+                'assignee_id': str(self.assignee.id),
+                'priority': Todo.Priority.HIGH,
+                'due_date': timezone.localdate().isoformat(),
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        todo = Todo.objects.get(id=response.json()['data']['id'])
+        self.assertEqual(todo.title_translated['zh-TW'], 'Take a walk')
+        self.assertEqual(todo.title_translated['id'], 'Berjalan')
+
+    @patch('core.translation.translate_text', side_effect=RuntimeError('openai down'))
+    def test_create_todo_still_succeeds_when_translation_fails(self, _translate):
+        response = self.client.post(
+            '/api/v1/todos/',
+            {
+                'title': 'Fallback task',
+                'assignee_id': str(self.assignee.id),
+                'priority': Todo.Priority.MEDIUM,
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(Todo.objects.filter(title='Fallback task').exists())
 
     def test_completing_todo_creates_activity_care_log_once(self):
         todo = Todo.objects.create(

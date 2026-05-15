@@ -114,6 +114,20 @@ def _get_model():
     return getattr(settings, 'OPENAI_MODEL', 'gpt-4o')
 
 
+def _system_prompt_for_user(user):
+    now = timezone.localtime()
+    return (
+        f"{SYSTEM_PROMPT}\n\n"
+        "Current runtime context:\n"
+        f"- Current date: {now.date().isoformat()}\n"
+        f"- Current local time: {now.strftime('%H:%M:%S')}\n"
+        f"- Time zone: {settings.TIME_ZONE}\n"
+        f"- User language: {getattr(user, 'language', '') or 'zh-TW'}\n"
+        "- Interpret relative dates such as today, tomorrow, and yesterday "
+        "using this runtime context before calling tools."
+    )
+
+
 class AIChatView(APIView):
     """
     POST /ai/chat/
@@ -151,7 +165,7 @@ class AIChatView(APIView):
             )
 
         # Build messages for OpenAI
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        messages = [{"role": "system", "content": _system_prompt_for_user(user)}]
         # Add conversation history (last 20 messages to save tokens)
         history = conversation.messages_history[-20:]
         messages.extend(history)
@@ -205,6 +219,7 @@ class AIChatView(APIView):
                         tool_call.function.name,
                         tool_call.function.arguments,
                         user,
+                        user_message=user_message,
                     )
                     messages.append({
                         "role": "tool",
@@ -264,6 +279,7 @@ class AIChatView(APIView):
                             tool_call.function.name,
                             tool_call.function.arguments,
                             user,
+                            user_message=user_message,
                         )
                         messages.append({
                             "role": "tool",
@@ -606,6 +622,31 @@ class SubsidyFormView(APIView):
             "form_fields": form_fields,
             "tokens_used": tokens_used,
         })
+
+
+class FirstAidScenarioListView(APIView):
+    """
+    GET /ai/first-aid/scenarios/
+    Returns static first-aid scenarios for the iOS quick guide.
+    """
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
+
+    def get(self, request):
+        scenarios = []
+        for doc in FirstAidDocument.objects.all():
+            steps = [
+                line.strip()
+                for line in doc.content.splitlines()
+                if line.strip()
+            ]
+            scenarios.append({
+                "id": str(doc.id),
+                "title": doc.title,
+                "icon": "cross.case.fill",
+                "steps": steps,
+            })
+
+        return success_response(data=scenarios)
 
 
 class FirstAidView(APIView):

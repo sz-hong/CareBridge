@@ -1,5 +1,6 @@
 from django.test import TestCase
 from rest_framework.test import APIClient
+from unittest.mock import patch
 
 from apps.auth_account.models import User
 from apps.board.models import BoardRequest
@@ -94,6 +95,36 @@ class BoardRequestAPIEndpointTests(TestCase):
         self.assertEqual(board_request.requester, self.user)
         self.assertEqual(board_request.status, BoardRequest.Status.PENDING)
 
+    @patch('core.translation.translate_text', side_effect=[
+        {'id': 'Monitor tekanan darah'},
+        {'id': 'Perlu perangkat cadangan'},
+    ])
+    def test_create_translates_item_names_and_note(self, _translate):
+        response = self.client.post(
+            '/api/v1/board/',
+            {
+                'category': BoardRequest.Category.MEDICAL,
+                'items': [{'name': 'Blood pressure monitor', 'quantity': 1}],
+                'note': 'Need a spare device',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        board_request = BoardRequest.objects.get(id=response.json()['data']['id'])
+        self.assertEqual(
+            board_request.items[0]['name_translated']['zh-TW'],
+            'Blood pressure monitor',
+        )
+        self.assertEqual(
+            board_request.items[0]['name_translated']['id'],
+            'Monitor tekanan darah',
+        )
+        self.assertEqual(
+            board_request.note_translations['id'],
+            'Perlu perangkat cadangan',
+        )
+
     def test_update_status_sets_reply_and_reviewer(self):
         board_request = self.create_request()
         self.client.force_authenticate(self.reviewer)
@@ -112,6 +143,25 @@ class BoardRequestAPIEndpointTests(TestCase):
         self.assertEqual(board_request.status, BoardRequest.Status.APPROVED)
         self.assertEqual(board_request.reply, 'Approved for purchase')
         self.assertEqual(board_request.reviewed_by, self.reviewer)
+
+    @patch('core.translation.translate_text', return_value={'id': 'Disetujui untuk dibeli'})
+    def test_update_status_translates_reply(self, _translate):
+        board_request = self.create_request()
+        self.client.force_authenticate(self.reviewer)
+
+        response = self.client.patch(
+            f'/api/v1/board/{board_request.id}/status/',
+            {
+                'status': BoardRequest.Status.APPROVED,
+                'reply': 'Approved for purchase',
+            },
+            format='json',
+        )
+
+        board_request.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(board_request.reply_translations['zh-TW'], 'Approved for purchase')
+        self.assertEqual(board_request.reply_translations['id'], 'Disetujui untuk dibeli')
 
     def test_invalid_status_returns_error_envelope(self):
         board_request = self.create_request()

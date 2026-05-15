@@ -12,7 +12,7 @@ class EventSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'family', 'title', 'title_translated', 'start_time',
             'end_time', 'location', 'type', 'reminder_minutes', 'note',
-            'source', 'source_id', 'created_by', 'created_at',
+            'note_translated', 'source', 'source_id', 'created_by', 'created_at',
         ]
         read_only_fields = fields
 

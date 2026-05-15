@@ -1902,6 +1902,22 @@ struct PurchaseRequest: Identifiable, Codable {
     }
 }
 
+// MARK: - Dynamic Translation
+enum DynamicTranslation {
+    static func displayText(
+        original: String,
+        translations: [String: String]?,
+        language: String?
+    ) -> String {
+        guard let language,
+              let translated = translations?[language],
+              !translated.isEmpty else {
+            return original
+        }
+        return translated
+    }
+}
+
 // MARK: - AI Message
 struct AIMessage: Identifiable, Codable {
     var id: String
@@ -1918,6 +1934,107 @@ struct AIMessage: Identifiable, Codable {
             AIMessage(id: UUID().uuidString, content: "需要現在調整用藥嗎？",
                       isUser: true, timestamp: Date().addingTimeInterval(-300)),
         ]
+    }
+}
+
+// MARK: - AI Tool Responses
+struct FirstAidSource: Codable, Hashable {
+    var title: String
+    var source: String
+}
+
+struct FirstAidAnswer: Codable {
+    var answer: String
+    var sources: [FirstAidSource]
+    var tokensUsed: Int
+}
+
+struct AICareAnalysisResponse: Codable {
+    var analysis: String
+    var periodDays: Int
+    var tokensUsed: Int
+}
+
+struct AIHandoverReportResponse: Codable {
+    var report: String
+    var date: String
+    var tokensUsed: Int
+}
+
+private enum DynamicFormValue: Decodable {
+    case string(String)
+    case int(Int)
+    case double(Double)
+    case bool(Bool)
+    case object([String: DynamicFormValue])
+    case array([DynamicFormValue])
+    case null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+        } else if let value = try? container.decode(String.self) {
+            self = .string(value)
+        } else if let value = try? container.decode(Int.self) {
+            self = .int(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .double(value)
+        } else if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode([String: DynamicFormValue].self) {
+            self = .object(value)
+        } else if let value = try? container.decode([DynamicFormValue].self) {
+            self = .array(value)
+        } else {
+            self = .null
+        }
+    }
+
+    var stringValue: String {
+        switch self {
+        case .string(let value):
+            return value
+        case .int(let value):
+            return String(value)
+        case .double(let value):
+            return String(value)
+        case .bool(let value):
+            return value ? "true" : "false"
+        case .object(let value):
+            return value
+                .sorted { $0.key < $1.key }
+                .map { "\($0.key): \($0.value.stringValue)" }
+                .joined(separator: "\n")
+        case .array(let value):
+            return value.map(\.stringValue).joined(separator: "\n")
+        case .null:
+            return ""
+        }
+    }
+}
+
+struct AISubsidyFormResponse: Codable {
+    var formType: String
+    var formFields: [String: String]
+    var tokensUsed: Int
+
+    private enum CodingKeys: String, CodingKey {
+        case formType, formFields, tokensUsed
+    }
+
+    init(formType: String, formFields: [String: String], tokensUsed: Int) {
+        self.formType = formType
+        self.formFields = formFields
+        self.tokensUsed = tokensUsed
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        formType = (try? container.decode(String.self, forKey: .formType)) ?? ""
+        tokensUsed = (try? container.decode(Int.self, forKey: .tokensUsed)) ?? 0
+        let rawFields = (try? container.decode([String: DynamicFormValue].self, forKey: .formFields)) ?? [:]
+        formFields = rawFields.mapValues(\.stringValue)
     }
 }
 

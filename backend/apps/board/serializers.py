@@ -11,8 +11,8 @@ class BoardRequestSerializer(serializers.ModelSerializer):
         model = BoardRequest
         fields = [
             'id', 'family', 'requester', 'category', 'items', 'note',
-            'note_translated', 'status', 'reply', 'reviewed_by',
-            'created_at', 'updated_at',
+            'note_translated', 'note_translations', 'status', 'reply',
+            'reply_translations', 'reviewed_by', 'created_at', 'updated_at',
         ]
         read_only_fields = fields
 

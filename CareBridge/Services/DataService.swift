@@ -187,6 +187,9 @@ protocol DataService {
 
     // AI
     func sendAIMessage(content: String) async throws -> AIMessage
+    func fetchCareAnalysis(days: Int) async throws -> AICareAnalysisResponse
+    func generateHandoverReport(date: String) async throws -> AIHandoverReportResponse
+    func generateSubsidyForm(formType: String) async throws -> AISubsidyFormResponse
     func streamAIResponse(
         prompt: String,
         conversationID: String?
@@ -194,6 +197,7 @@ protocol DataService {
 
     // First Aid (static content, can be cached)
     func fetchFirstAidScenarios() async throws -> [FirstAidScenario]
+    func askFirstAid(query: String) async throws -> FirstAidAnswer
 
     // SOS
     func triggerSOS(location: String?) async throws

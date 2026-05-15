@@ -10,12 +10,53 @@ extension APIDataService {
             case conversationID = "conversation_id"
         }
     }
+
+    struct FirstAidQueryRequestBody: Encodable {
+        let query: String
+    }
+
+    struct CareAnalysisRequestBody: Encodable {
+        let days: Int
+    }
+
+    struct HandoverReportRequestBody: Encodable {
+        let date: String
+    }
+
+    struct SubsidyFormRequestBody: Encodable {
+        let formType: String
+
+        enum CodingKeys: String, CodingKey {
+            case formType = "form_type"
+        }
+    }
 }
 
 extension APIDataService {
     // MARK: - AI
     func sendAIMessage(content: String) async throws -> AIMessage {
         try await post(path: APIEndpoint.aiChat, body: ["message": content])
+    }
+
+    func fetchCareAnalysis(days: Int) async throws -> AICareAnalysisResponse {
+        try await post(
+            path: APIEndpoint.aiCareAnalysis,
+            body: CareAnalysisRequestBody(days: days)
+        )
+    }
+
+    func generateHandoverReport(date: String) async throws -> AIHandoverReportResponse {
+        try await post(
+            path: APIEndpoint.aiHandoverReport,
+            body: HandoverReportRequestBody(date: date)
+        )
+    }
+
+    func generateSubsidyForm(formType: String) async throws -> AISubsidyFormResponse {
+        try await post(
+            path: APIEndpoint.aiSubsidyForm,
+            body: SubsidyFormRequestBody(formType: formType)
+        )
     }
 
     func streamAIResponse(
@@ -110,6 +151,22 @@ extension APIDataService {
                 conversationID: conversationID
             )
         )
+    }
+
+    static func firstAidQueryRequestBody(query: String) throws -> Data {
+        try JSONEncoder().encode(FirstAidQueryRequestBody(query: query))
+    }
+
+    static func careAnalysisRequestBody(days: Int) throws -> Data {
+        try JSONEncoder().encode(CareAnalysisRequestBody(days: days))
+    }
+
+    static func handoverReportRequestBody(date: String) throws -> Data {
+        try JSONEncoder().encode(HandoverReportRequestBody(date: date))
+    }
+
+    static func subsidyFormRequestBody(formType: String) throws -> Data {
+        try JSONEncoder().encode(SubsidyFormRequestBody(formType: formType))
     }
 
     static func aiStreamURL(baseURL: String) -> URL? {

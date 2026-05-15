@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
+from unittest.mock import patch
 
 from apps.auth_account.models import User
 from apps.care_log.models import CareLog
@@ -115,6 +116,23 @@ class CareLogAPIContractTests(TestCase):
         self.assertEqual(care_log.family, self.family)
         self.assertEqual(care_log.recorder, self.user)
         self.assertEqual(care_log.type, CareLog.Type.VITAL)
+
+    @patch('core.translation.translate_text', return_value={'id': 'Catatan pagi'})
+    def test_create_translates_care_log_text_content(self, _translate):
+        response = self.client.post(
+            '/api/v1/care-logs/',
+            {
+                'type': CareLog.Type.NOTE,
+                'content': {'text': 'Morning note'},
+                'timestamp': timezone.now().isoformat(),
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        care_log = CareLog.objects.get(id=response.json()['data']['id'])
+        self.assertEqual(care_log.content_translated['text']['zh-TW'], 'Morning note')
+        self.assertEqual(care_log.content_translated['text']['id'], 'Catatan pagi')
 
     def test_summary_counts_logs_and_medication_compliance(self):
         now = timezone.now()

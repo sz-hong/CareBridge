@@ -2,6 +2,7 @@ import logging
 from datetime import timedelta
 
 from django.db.models import Sum
+from django.utils.dateparse import parse_date
 from django.utils import timezone
 
 from core.deidentification import prepare_text_for_gpt
@@ -69,6 +70,16 @@ def _user_name(user):
 
 def _date_range(days):
     return timezone.now() - timedelta(days=_positive_int(days, 30))
+
+
+def _valid_date(value):
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value
+    if not isinstance(value, str):
+        value = str(value)
+    return parse_date(value)
 
 
 def query_health_data(args, user):
@@ -221,10 +232,19 @@ def query_todos(args, user):
     priority = args.get("priority")
     if priority:
         qs = qs.filter(priority=priority)
+    due_date = _valid_date(args.get("due_date"))
+    if due_date:
+        qs = qs.filter(due_date=due_date)
+    date_from = _valid_date(args.get("date_from"))
+    if date_from:
+        qs = qs.filter(due_date__gte=date_from)
+    date_to = _valid_date(args.get("date_to"))
+    if date_to:
+        qs = qs.filter(due_date__lte=date_to)
     days_ahead = args.get("days_ahead")
-    if days_ahead:
+    if days_ahead is not None:
         until = timezone.localdate() + timedelta(days=_positive_int(days_ahead, 30))
-        qs = qs.filter(due_date__lte=until)
+        qs = qs.filter(due_date__isnull=False, due_date__lte=until)
 
     results = [
         {

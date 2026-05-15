@@ -7,6 +7,8 @@ during a conversation (e.g. "How is grandma's blood pressure this week?").
 import json
 import logging
 
+from django.utils import timezone
+
 from apps.care_log.models import CareLog
 from apps.board.models import BoardRequest
 from apps.health.models import HealthAlert, HealthData
@@ -161,6 +163,18 @@ TOOL_DEFINITIONS = [
                     "days_ahead": {
                         "type": "integer",
                         "description": "Limit to todos due within this many days.",
+                    },
+                    "due_date": {
+                        "type": "string",
+                        "description": "Exact due date filter in YYYY-MM-DD format.",
+                    },
+                    "date_from": {
+                        "type": "string",
+                        "description": "Start due date filter in YYYY-MM-DD format.",
+                    },
+                    "date_to": {
+                        "type": "string",
+                        "description": "End due date filter in YYYY-MM-DD format.",
                     },
                 },
                 "required": [],
@@ -317,7 +331,30 @@ TOOL_DEFINITIONS = [
 # --------------------------------------------------------------------------
 
 
-def execute_tool(tool_name, arguments, user):
+def _mentions_today_todo(user_message):
+    if not user_message:
+        return False
+    lowered = str(user_message).lower()
+    today_words = ("today", "今天", "今日")
+    todo_words = ("todo", "todos", "task", "tasks", "代辦", "待辦")
+    return (
+        any(word in lowered for word in today_words)
+        and any(word in lowered for word in todo_words)
+    )
+
+
+def _apply_context_defaults(tool_name, args, user_message):
+    if tool_name != "query_todos":
+        return args
+    if any(args.get(key) for key in ("due_date", "date_from", "date_to", "days_ahead")):
+        return args
+    if _mentions_today_todo(user_message):
+        args = dict(args)
+        args["due_date"] = timezone.localdate().isoformat()
+    return args
+
+
+def execute_tool(tool_name, arguments, user, user_message=None):
     """Execute a tool call and return the result as a string."""
     try:
         args = json.loads(arguments) if isinstance(arguments, str) else arguments
@@ -325,6 +362,7 @@ def execute_tool(tool_name, arguments, user):
         args = {}
     if not isinstance(args, dict):
         args = {}
+    args = _apply_context_defaults(tool_name, args, user_message)
 
     handler = TOOL_HANDLERS.get(tool_name)
     if not handler:
