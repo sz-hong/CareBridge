@@ -6,7 +6,10 @@ from rest_framework.test import APIClient
 from core.deidentification import RedactedFile
 from apps.auth_account.models import User
 from apps.expense.models import Expense
-from apps.expense.tasks import redact_receipt_image_task
+from apps.expense.tasks import (
+    delete_expired_receipt_quarantine_files_task,
+    redact_receipt_image_task,
+)
 from apps.family.models import Family
 
 
@@ -270,3 +273,50 @@ class ExpenseAPIEndpointTests(TestCase):
         download_bytes.assert_called_once_with(raw_key)
         put_bytes.assert_called_once_with(redacted_key, b'redacted-image', 'image/jpeg')
         build_url.assert_called_once_with(redacted_key)
+
+    @patch('apps.expense.tasks.delete_object')
+    def test_cleanup_deletes_completed_and_reviewed_receipt_raw_files_only(
+        self,
+        delete_object,
+    ):
+        old = timezone.now() - timezone.timedelta(hours=25)
+        completed = self.create_expense(
+            image_url='https://storage.example/processed/completed.jpg',
+            raw_image_key=f'quarantine/{self.family.id}/receipts/completed.jpg',
+            deid_status=Expense.DeidentificationStatus.COMPLETED,
+            deid_processed_at=old,
+        )
+        reviewed = self.create_expense(
+            image_url='https://storage.example/processed/reviewed.jpg',
+            raw_image_key=f'quarantine/{self.family.id}/receipts/reviewed.jpg',
+            deid_status=Expense.DeidentificationStatus.NEEDS_REVIEW,
+            deid_processed_at=old,
+        )
+        failed = self.create_expense(
+            image_url=None,
+            raw_image_key=f'quarantine/{self.family.id}/receipts/failed.jpg',
+            deid_status=Expense.DeidentificationStatus.FAILED,
+            deid_processed_at=old,
+        )
+        processing = self.create_expense(
+            image_url=None,
+            raw_image_key=f'quarantine/{self.family.id}/receipts/processing.jpg',
+            deid_status=Expense.DeidentificationStatus.PROCESSING,
+            deid_processed_at=old,
+        )
+
+        result = delete_expired_receipt_quarantine_files_task()
+
+        self.assertEqual(result['deleted'], 2)
+        self.assertEqual(
+            {call.args[0] for call in delete_object.call_args_list},
+            {completed.raw_image_key, reviewed.raw_image_key},
+        )
+        completed.refresh_from_db()
+        reviewed.refresh_from_db()
+        failed.refresh_from_db()
+        processing.refresh_from_db()
+        self.assertEqual(completed.raw_image_key, '')
+        self.assertEqual(reviewed.raw_image_key, '')
+        self.assertTrue(failed.raw_image_key)
+        self.assertTrue(processing.raw_image_key)

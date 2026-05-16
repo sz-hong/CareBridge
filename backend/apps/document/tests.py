@@ -1,12 +1,36 @@
-from django.test import TestCase
+from django.conf import settings
+from django.test import SimpleTestCase, TestCase
+from django.utils import timezone
 from unittest.mock import patch
 from rest_framework.test import APIClient
 
 from core.deidentification import DeidentificationResult
 from apps.auth_account.models import User
 from apps.document.models import Document
-from apps.document.tasks import deidentify_document_task
+from apps.document.tasks import (
+    deidentify_document_task,
+    delete_expired_document_quarantine_files_task,
+)
 from apps.family.models import Family
+
+
+class DocumentCeleryScheduleTests(SimpleTestCase):
+    def test_document_and_receipt_quarantine_cleanup_are_scheduled_hourly(self):
+        schedule = settings.CELERY_BEAT_SCHEDULE
+
+        document_cleanup = schedule['delete-expired-document-quarantine-files-hourly']
+        receipt_cleanup = schedule['delete-expired-receipt-quarantine-files-hourly']
+
+        self.assertEqual(
+            document_cleanup['task'],
+            'apps.document.tasks.delete_expired_document_quarantine_files_task',
+        )
+        self.assertEqual(
+            receipt_cleanup['task'],
+            'apps.expense.tasks.delete_expired_receipt_quarantine_files_task',
+        )
+        self.assertEqual(document_cleanup['schedule'], 3600.0)
+        self.assertEqual(receipt_cleanup['schedule'], 3600.0)
 
 
 class DocumentAPIContractTests(TestCase):
@@ -185,6 +209,77 @@ class DocumentAPIContractTests(TestCase):
             'text/plain',
         )
         build_url.assert_called_once_with(redacted_key)
+
+    @patch('apps.document.tasks.delete_object')
+    def test_cleanup_deletes_completed_and_reviewed_document_raw_files_only(
+        self,
+        delete_object,
+    ):
+        old = timezone.now() - timezone.timedelta(hours=25)
+        completed = Document.objects.create(
+            family=self.family,
+            uploaded_by=self.user,
+            title='Completed',
+            category=Document.Category.MEDICAL,
+            file_url='https://storage.example/processed/completed.pdf',
+            file_size=128,
+            mime_type='application/pdf',
+            raw_file_key=f'quarantine/{self.family.id}/documents/completed.pdf',
+            deid_status=Document.DeidentificationStatus.COMPLETED,
+            deid_processed_at=old,
+        )
+        reviewed = Document.objects.create(
+            family=self.family,
+            uploaded_by=self.user,
+            title='Reviewed',
+            category=Document.Category.MEDICAL,
+            file_url='https://storage.example/processed/reviewed.pdf',
+            file_size=128,
+            mime_type='application/pdf',
+            raw_file_key=f'quarantine/{self.family.id}/documents/reviewed.pdf',
+            deid_status=Document.DeidentificationStatus.NEEDS_REVIEW,
+            deid_processed_at=old,
+        )
+        failed = Document.objects.create(
+            family=self.family,
+            uploaded_by=self.user,
+            title='Failed',
+            category=Document.Category.MEDICAL,
+            file_url=None,
+            file_size=128,
+            mime_type='application/pdf',
+            raw_file_key=f'quarantine/{self.family.id}/documents/failed.pdf',
+            deid_status=Document.DeidentificationStatus.FAILED,
+            deid_processed_at=old,
+        )
+        processing = Document.objects.create(
+            family=self.family,
+            uploaded_by=self.user,
+            title='Processing',
+            category=Document.Category.MEDICAL,
+            file_url=None,
+            file_size=128,
+            mime_type='application/pdf',
+            raw_file_key=f'quarantine/{self.family.id}/documents/processing.pdf',
+            deid_status=Document.DeidentificationStatus.PROCESSING,
+            deid_processed_at=old,
+        )
+
+        result = delete_expired_document_quarantine_files_task()
+
+        self.assertEqual(result['deleted'], 2)
+        self.assertEqual(
+            {call.args[0] for call in delete_object.call_args_list},
+            {completed.raw_file_key, reviewed.raw_file_key},
+        )
+        completed.refresh_from_db()
+        reviewed.refresh_from_db()
+        failed.refresh_from_db()
+        processing.refresh_from_db()
+        self.assertEqual(completed.raw_file_key, '')
+        self.assertEqual(reviewed.raw_file_key, '')
+        self.assertTrue(failed.raw_file_key)
+        self.assertTrue(processing.raw_file_key)
 
     @patch('core.storage.generate_upload_url', return_value='https://upload.example')
     @patch('apps.document.views.deidentify_document_task.delay')

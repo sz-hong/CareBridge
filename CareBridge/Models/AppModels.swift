@@ -1669,7 +1669,22 @@ struct AppDocument: Identifiable, Codable {
         try c.encode(category, forKey: .category)
     }
 
-    var previewURL: URL? { localURL ?? remoteURL }
+    var normalizedDeidStatus: String {
+        deidStatus ?? "completed"
+    }
+
+    var isAwaitingDeidentification: Bool {
+        normalizedDeidStatus == "pending" || normalizedDeidStatus == "processing"
+    }
+
+    var hasFailedDeidentification: Bool {
+        normalizedDeidStatus == "failed"
+    }
+
+    var previewURL: URL? {
+        guard !isAwaitingDeidentification, !hasFailedDeidentification else { return nil }
+        return remoteURL
+    }
 
     var categoryIcon: String {
         switch category {

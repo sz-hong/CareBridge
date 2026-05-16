@@ -50,7 +50,10 @@ def delete_expired_receipt_quarantine_files_task():
         hours=getattr(settings, 'DLP_DELETE_RAW_AFTER_HOURS', 24)
     )
     qs = Expense.objects.filter(
-        deid_status=Expense.DeidentificationStatus.COMPLETED,
+        deid_status__in=[
+            Expense.DeidentificationStatus.COMPLETED,
+            Expense.DeidentificationStatus.NEEDS_REVIEW,
+        ],
         deid_processed_at__lt=cutoff,
         raw_image_key__isnull=False,
     ).exclude(raw_image_key='')
