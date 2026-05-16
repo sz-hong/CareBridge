@@ -10,8 +10,6 @@ class HealthKitManager {
 
     var heartRate: Double = 72
     var bloodOxygen: Double = 97.5
-    var bloodPressureSystolic: Double = 118
-    var bloodPressureDiastolic: Double = 75
     var bloodSugar: Double = 5.8
     var isAuthorized = false
 
@@ -33,8 +31,6 @@ class HealthKitManager {
             HKObjectType.quantityType(forIdentifier: .heartRate)!,
             HKObjectType.quantityType(forIdentifier: .oxygenSaturation)!,
             HKObjectType.quantityType(forIdentifier: .bloodGlucose)!,
-            HKObjectType.quantityType(forIdentifier: .bloodPressureSystolic)!,
-            HKObjectType.quantityType(forIdentifier: .bloodPressureDiastolic)!,
         ]
         do {
             try await store.requestAuthorization(toShare: [], read: readTypes)
@@ -46,14 +42,10 @@ class HealthKitManager {
     func loadLatestValues() async {
         async let hr   = fetchLatest(.heartRate, unit: HKUnit(from: "count/min"))
         async let spo2 = fetchLatest(.oxygenSaturation, unit: .percent())
-        async let sys  = fetchLatest(.bloodPressureSystolic, unit: .millimeterOfMercury())
-        async let dia  = fetchLatest(.bloodPressureDiastolic, unit: .millimeterOfMercury())
         async let bg   = fetchLatest(.bloodGlucose, unit: HKUnit(from: "mmol/L"))
-        let (hrV, spo2V, sysV, diaV, bgV) = await (hr, spo2, sys, dia, bg)
+        let (hrV, spo2V, bgV) = await (hr, spo2, bg)
         if let v = hrV   { heartRate = v }
         if let v = spo2V { bloodOxygen = v * 100 }
-        if let v = sysV  { bloodPressureSystolic = v }
-        if let v = diaV  { bloodPressureDiastolic = v }
         if let v = bgV   { bloodSugar = v }
 
         if let hist = await fetchWeekly(.heartRate, unit: HKUnit(from: "count/min")) {
@@ -100,8 +92,10 @@ struct HealthMonitorView: View {
     @State private var healthKit = HealthKitManager()
     @State private var liveSocket = HealthLiveSocket()
     @State private var liveBanner: String?
+    @AppStorage("carebridge.healthSyncEnabled") private var healthSyncEnabled = false
     @Environment(CareLogStore.self) private var careLogStore
     @Environment(HealthKitSyncManager.self) private var healthSync
+    @Environment(\.dataService) private var service
 
     /// Most-recent vital reading from CareLog (manual entries via 日誌).
     /// Returns nil for fields the user hasn't logged yet.
@@ -284,7 +278,7 @@ struct HealthMonitorView: View {
 
             // 進入頁面時主動 trigger 一次 HealthKit → backend sync
             // （免費 Apple Developer 帳號無 background delivery 時的兜底）
-            await healthSync.incrementalSyncAll()
+            await syncHealthIfCurrentOwner()
 
             // Live updates: any family member's HealthKit upload via the
             // /health-data/sync/ endpoint will be fanned out by the backend
@@ -297,7 +291,7 @@ struct HealthMonitorView: View {
         }
         .refreshable {
             // 下拉重新整理：手動 trigger HealthKit sync + 等 server 回 WS 推送
-            await healthSync.incrementalSyncAll()
+            await syncHealthIfCurrentOwner()
             await healthKit.loadLatestValues()
         }
         .onDisappear { liveSocket.disconnect() }
@@ -324,6 +318,15 @@ struct HealthMonitorView: View {
         }
         .sheet(isPresented: $showThresholdSettings) {
             HealthThresholdSettingsView()
+        }
+    }
+
+    private func syncHealthIfCurrentOwner() async {
+        guard healthSyncEnabled else { return }
+        if let state = try? await service.fetchHealthBinding(), state.isOwner {
+            await healthSync.incrementalSyncAll()
+        } else {
+            healthSyncEnabled = false
         }
     }
 
@@ -358,8 +361,6 @@ struct HealthMonitorView: View {
             switch point.type {
             case "heart_rate":             healthKit.heartRate = point.value
             case "blood_oxygen":           healthKit.bloodOxygen = point.value
-            case "blood_pressure_systolic":  healthKit.bloodPressureSystolic = point.value
-            case "blood_pressure_diastolic": healthKit.bloodPressureDiastolic = point.value
             default: break
             }
         }
@@ -375,8 +376,6 @@ struct HealthMonitorView: View {
         switch type {
         case "heart_rate":               return "心率"
         case "blood_oxygen":             return "血氧"
-        case "blood_pressure_systolic":  return "收縮壓"
-        case "blood_pressure_diastolic": return "舒張壓"
         case "step_count":               return "步數"
         case "active_energy":            return "活動熱量"
         default: return type
@@ -481,12 +480,15 @@ struct HealthMonitorView: View {
 // MARK: - Health Threshold Settings
 struct HealthThresholdSettingsView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dataService) private var service
     @State private var heartRateMax: Double = 100
     @State private var heartRateMin: Double = 55
     @State private var bloodOxygenMin: Double = 94
     @State private var bloodPressureSystolicMax: Double = 140
     @State private var bloodPressureDiastolicMax: Double = 90
     @State private var bloodSugarMax: Double = 7.8
+    @State private var isSaving = false
+    @State private var errorMessage: String? = nil
 
     var body: some View {
         NavigationStack {
@@ -536,6 +538,15 @@ struct HealthThresholdSettingsView: View {
                     }
                 }
 
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                if false {
                 Section("血壓 (mmHg)") {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
@@ -560,7 +571,9 @@ struct HealthThresholdSettingsView: View {
                             .tint(.purple)
                     }
                 }
+                }
 
+                if false {
                 Section("血糖 (mmol/L)") {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
@@ -574,6 +587,7 @@ struct HealthThresholdSettingsView: View {
                             .tint(.orange)
                     }
                 }
+                }
             }
             .navigationTitle("警戒值設定")
             .navigationBarTitleDisplayMode(.inline)
@@ -583,11 +597,44 @@ struct HealthThresholdSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("儲存") { dismiss() }
+                    Button("儲存") { Task { await saveThresholds() } }
                         .bold()
                         .foregroundStyle(Color.brandTeal)
+                        .disabled(isSaving)
                 }
             }
+            .task { await loadThresholds() }
+        }
+    }
+
+    @MainActor
+    private func loadThresholds() async {
+        do {
+            let thresholds = try await service.fetchHealthThresholds()
+            heartRateMax = Double(thresholds.heartRateHigh)
+            heartRateMin = Double(thresholds.heartRateLow)
+            bloodOxygenMin = thresholds.bloodOxygenLow
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private func saveThresholds() async {
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            _ = try await service.updateHealthThresholds(
+                HealthAlertThresholdSettings(
+                    heartRateHigh: Int(heartRateMax),
+                    heartRateLow: Int(heartRateMin),
+                    bloodOxygenLow: bloodOxygenMin
+                )
+            )
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 }

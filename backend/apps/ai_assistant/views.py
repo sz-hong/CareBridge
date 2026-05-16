@@ -377,7 +377,7 @@ class CareAnalysisView(APIView):
 
         medications = list(
             Medication.objects.filter(family=family, is_active=True)
-            .values('name', 'dosage', 'frequency', 'time_slots')
+            .values('name', 'dosage', 'frequency', 'times')
         )
 
         # Build prompt
@@ -457,7 +457,7 @@ class HandoverReportView(APIView):
 
         medications = list(
             Medication.objects.filter(family=family, is_active=True)
-            .values('name', 'dosage', 'frequency', 'time_slots')
+            .values('name', 'dosage', 'frequency', 'times')
         )
 
         confirmations = list(
@@ -549,7 +549,7 @@ class SubsidyFormView(APIView):
         from apps.care_log.models import CareLog
         from apps.health.models import HealthData
         from apps.expense.models import Expense
-        from django.db.models import Sum, Avg
+        from django.db.models import Avg, Count, Sum
 
         # Gather relevant data for form filling
         thirty_days_ago = timezone.now() - timedelta(days=30)
@@ -557,13 +557,13 @@ class SubsidyFormView(APIView):
         care_summary = list(
             CareLog.objects.filter(family=family, timestamp__gte=thirty_days_ago)
             .values('type')
-            .annotate(count=Sum('id'))
+            .annotate(count=Count('id'))
             .order_by('type')
         )
 
         expense_total = (
             Expense.objects.filter(family=family, date__gte=thirty_days_ago.date())
-            .aggregate(total=Sum('amount'))['total'] or 0
+            .aggregate(total=Sum('total_amount'))['total'] or 0
         )
 
         avg_health = list(

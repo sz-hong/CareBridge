@@ -68,7 +68,13 @@ struct CareBridgeApp: App {
                         // pushes data to HK; switching back to us picks it up.
                         .onChange(of: scenePhase) { _, newPhase in
                             if newPhase == .active, healthSyncEnabled {
-                                Task { await healthSync.incrementalSyncAll() }
+                                Task {
+                                    if let state = try? await dataService.fetchHealthBinding(), state.isOwner {
+                                        await healthSync.incrementalSyncAll()
+                                    } else {
+                                        healthSyncEnabled = false
+                                    }
+                                }
                             }
                         }
                 }

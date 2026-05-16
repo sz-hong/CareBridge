@@ -37,6 +37,12 @@ class HealthAPIEndpointTests(TestCase):
         )
         self.user.family = self.family
         self.user.save(update_fields=['family'])
+        self.family.health_binding_user = self.user
+        self.family.health_binding_device_id = 'watch-1'
+        self.family.save(update_fields=[
+            'health_binding_user',
+            'health_binding_device_id',
+        ])
         self.other_user.family = self.other_family
         self.other_user.save(update_fields=['family'])
         self.client.force_authenticate(self.user)
@@ -91,7 +97,7 @@ class HealthAPIEndpointTests(TestCase):
         self.assertEqual(systolic.type, 'blood_pressure_systolic')
         self.assertEqual(diastolic.type, 'blood_pressure_diastolic')
 
-    def test_sync_accepts_blood_pressure_metrics(self):
+    def test_sync_rejects_blood_pressure_metrics(self):
         recorded_at = timezone.now().isoformat()
 
         response = self.client.post(
@@ -117,11 +123,14 @@ class HealthAPIEndpointTests(TestCase):
             format='json',
         )
 
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json()['data']['synced'], 2)
-        self.assertEqual(
-            set(HealthData.objects.values_list('type', flat=True)),
-            {'blood_pressure_systolic', 'blood_pressure_diastolic'},
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            HealthData.objects.filter(
+                type__in=[
+                    HealthData.Type.BLOOD_PRESSURE_SYSTOLIC,
+                    HealthData.Type.BLOOD_PRESSURE_DIASTOLIC,
+                ],
+            ).exists()
         )
 
     @patch('apps.notification.tasks.broadcast_family_task.delay')
@@ -182,6 +191,18 @@ class HealthAPIEndpointTests(TestCase):
             recorded_at=latest,
         )
         self.create_data(
+            type=HealthData.Type.BLOOD_PRESSURE_SYSTOLIC,
+            value=128,
+            unit=HealthData.Unit.MMHG,
+            recorded_at=latest,
+        )
+        self.create_data(
+            type=HealthData.Type.BLOOD_PRESSURE_DIASTOLIC,
+            value=82,
+            unit=HealthData.Unit.MMHG,
+            recorded_at=latest,
+        )
+        self.create_data(
             family=self.other_family,
             type=HealthData.Type.HEART_RATE,
             value=150,
@@ -194,6 +215,8 @@ class HealthAPIEndpointTests(TestCase):
         data = response.json()['data']
         self.assertEqual(data['heart_rate']['id'], str(heart_rate.id))
         self.assertEqual(data['blood_oxygen']['id'], str(oxygen.id))
+        self.assertNotIn('blood_pressure_systolic', data)
+        self.assertNotIn('blood_pressure_diastolic', data)
 
     def test_acknowledge_alert_marks_family_alert(self):
         alert = HealthAlert.objects.create(

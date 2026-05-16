@@ -1,5 +1,6 @@
 import SwiftUI
 import QuickLook
+import UniformTypeIdentifiers
 
 struct DocumentsView: View {
     @Environment(\.dataService) private var service
@@ -53,15 +54,13 @@ struct DocumentsView: View {
                     ForEach(filteredDocuments) { doc in
                         DocumentRow(document: doc) {
                             // Open document preview
-                            if let url = doc.localURL {
+                            if let url = doc.previewURL {
                                 previewURL = url
                             }
                         }
                         .listRowBackground(Color.white)
                     }
-                    .onDelete { indexSet in
-                        documents.remove(atOffsets: indexSet)
-                    }
+                    .onDelete(perform: deleteDocuments)
                 }
                 .listStyle(.plain)
                 .quickLookPreview($previewURL)
@@ -91,6 +90,22 @@ struct DocumentsView: View {
         }
         .task {
             documents = (try? await service.fetchDocuments()) ?? []
+        }
+    }
+
+    private func deleteDocuments(at indexSet: IndexSet) {
+        let deleted = indexSet.map { filteredDocuments[$0] }
+        documents.removeAll { doc in deleted.contains { $0.id == doc.id } }
+        Task {
+            for doc in deleted {
+                do {
+                    try await service.deleteDocument(id: doc.id)
+                } catch {
+                    await MainActor.run {
+                        documents.insert(doc, at: 0)
+                    }
+                }
+            }
         }
     }
 }
@@ -137,10 +152,11 @@ struct DocumentRow: View {
                     onPreview()
                 } label: {
                     Image(systemName: "eye.circle")
-                        .foregroundStyle(Color.brandTeal)
+                        .foregroundStyle(document.previewURL == nil ? .secondary : Color.brandTeal)
                         .font(.system(size: 20))
                 }
                 .buttonStyle(.plain)
+                .disabled(document.previewURL == nil)
             }
         }
         .padding(.vertical, 6)
@@ -150,6 +166,7 @@ struct DocumentRow: View {
 // MARK: - Upload Document View
 struct UploadDocumentView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dataService) private var service
     let onUpload: (AppDocument) -> Void
 
     @State private var title = ""
@@ -157,6 +174,10 @@ struct UploadDocumentView: View {
     @State private var showFilePicker = false
     @State private var selectedFileName: String? = nil
     @State private var selectedFileSize: String? = nil
+    @State private var selectedFileURL: URL? = nil
+    @State private var selectedFileData: Data? = nil
+    @State private var isUploading = false
+    @State private var uploadError: String? = nil
     // API values as binding values, Chinese for display
     private let categories: [(api: String, display: String)] = [
         ("insurance", "保險"), ("medical", "醫療"),
@@ -235,12 +256,11 @@ struct UploadDocumentView: View {
                             fileSize: selectedFileSize ?? "—",
                             uploadDate: Date()
                         )
-                        onUpload(doc)
-                        dismiss()
+                        Task { await uploadSelectedDocument() }
                     }
                     .bold()
                     .foregroundStyle(Color.brandTeal)
-                    .disabled(selectedFileName == nil && title.isEmpty)
+                    .disabled(selectedFileData == nil || isUploading)
                 }
             }
             .fileImporter(
@@ -252,18 +272,56 @@ struct UploadDocumentView: View {
                 case .success(let urls):
                     if let url = urls.first {
                         selectedFileName = url.lastPathComponent
+                        selectedFileURL = url
                         if let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize {
                             let mb = Double(fileSize) / 1_048_576
                             selectedFileSize = mb < 1 ? "\(Int(mb * 1024)) KB" : String(format: "%.1f MB", mb)
                         }
+                        readSelectedFile(url)
                         if title.isEmpty {
                             title = url.deletingPathExtension().lastPathComponent
                         }
                     }
-                case .failure:
-                    break
+                case .failure(let error):
+                    uploadError = error.localizedDescription
                 }
             }
+        }
+    }
+
+    @MainActor
+    private func uploadSelectedDocument() async {
+        guard let fileData = selectedFileData else { return }
+        isUploading = true
+        uploadError = nil
+        do {
+            var document = try await service.uploadDocument(
+                title: title.isEmpty ? (selectedFileName ?? "document") : title,
+                category: category,
+                fileData: fileData
+            )
+            document.localURL = selectedFileURL
+            onUpload(document)
+            dismiss()
+        } catch {
+            uploadError = error.localizedDescription
+            isUploading = false
+        }
+    }
+
+    private func readSelectedFile(_ url: URL) {
+        uploadError = nil
+        let hasAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if hasAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        do {
+            selectedFileData = try Data(contentsOf: url)
+        } catch {
+            selectedFileData = nil
+            uploadError = error.localizedDescription
         }
     }
 }

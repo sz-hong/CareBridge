@@ -119,18 +119,20 @@ struct HealthData: Identifiable, Codable {
     var bloodSugar: Double
     var temperature: Double
     var steps: Int
+    var activeEnergy: Double
     var timestamp: Date
     var isAbnormal: Bool
 
     init(id: String, heartRate: Int, bloodOxygen: Double,
          bloodPressureSystolic: Int, bloodPressureDiastolic: Int,
-         bloodSugar: Double, temperature: Double, steps: Int,
+         bloodSugar: Double, temperature: Double, steps: Int, activeEnergy: Double = 0,
          timestamp: Date, isAbnormal: Bool) {
         self.id = id; self.heartRate = heartRate; self.bloodOxygen = bloodOxygen
         self.bloodPressureSystolic = bloodPressureSystolic
         self.bloodPressureDiastolic = bloodPressureDiastolic
         self.bloodSugar = bloodSugar; self.temperature = temperature
-        self.steps = steps; self.timestamp = timestamp; self.isAbnormal = isAbnormal
+        self.steps = steps; self.activeEnergy = activeEnergy
+        self.timestamp = timestamp; self.isAbnormal = isAbnormal
     }
 
     private struct Entry: Codable {
@@ -158,16 +160,18 @@ struct HealthData: Identifiable, Codable {
         let hr = entry("heartRate")    // API: heart_rate → convertFromSnakeCase → heartRate
         let ox = entry("bloodOxygen")  // API: blood_oxygen
         let st = entry("stepCount")    // API: step_count
+        let ae = entry("activeEnergy") // API: active_energy
         heartRate   = hr?.value.map { Int($0) } ?? 0
         bloodOxygen = ox?.value ?? 0
         steps       = st?.value.map { Int($0) } ?? 0
+        activeEnergy = ae?.value ?? 0
         // Backend HealthData has no blood pressure / sugar / temperature types in current schema
         bloodPressureSystolic = 0
         bloodPressureDiastolic = 0
         bloodSugar  = 0
         temperature = 0
-        timestamp   = hr?.recordedAt ?? ox?.recordedAt ?? st?.recordedAt ?? Date()
-        id          = hr?.id ?? ox?.id ?? st?.id ?? UUID().uuidString
+        timestamp   = hr?.recordedAt ?? ox?.recordedAt ?? st?.recordedAt ?? ae?.recordedAt ?? Date()
+        id          = hr?.id ?? ox?.id ?? st?.id ?? ae?.id ?? UUID().uuidString
         isAbnormal  = false
     }
 
@@ -825,6 +829,21 @@ class TodoStore {
                 _ = try await service.updateTodo(todo)
             } catch {
                 print("[TodoStore] update failed: \(error)")
+            }
+        }
+    }
+
+    func deleteTodo(_ todo: TodoItem) {
+        let originalTodos = todos
+        state.updateValue { todos in
+            todos.removeAll { $0.id == todo.id }
+        }
+        Task { @MainActor in
+            do {
+                try await service.deleteTodo(id: todo.id)
+            } catch {
+                print("[TodoStore] delete failed: \(error)")
+                state.finish(with: originalTodos)
             }
         }
     }
@@ -1612,17 +1631,20 @@ struct AppDocument: Identifiable, Codable {
     var fileSize: String    // derived from API file_size (Int bytes)
     var uploadDate: Date    // API: created_at
     var localURL: URL?      // 本地暫存路徑，供 QuickLook 預覽用（非 API 欄位）
+    var remoteURL: URL?
     var deidStatus: String?
 
     private enum CodingKeys: String, CodingKey {
         case id, title, category, deidStatus
+        case remoteURL = "fileUrl"
         case fileSizeBytes = "fileSize"    // API: file_size → convertFromSnakeCase → fileSize
         case uploadDate    = "createdAt"   // API: created_at → createdAt
     }
 
-    init(id: String, title: String, category: String, fileSize: String, uploadDate: Date, localURL: URL? = nil, deidStatus: String? = nil) {
+    init(id: String, title: String, category: String, fileSize: String, uploadDate: Date, localURL: URL? = nil, remoteURL: URL? = nil, deidStatus: String? = nil) {
         self.id = id; self.title = title; self.category = category
         self.fileSize = fileSize; self.uploadDate = uploadDate; self.localURL = localURL
+        self.remoteURL = remoteURL
         self.deidStatus = deidStatus
     }
 
@@ -1634,6 +1656,7 @@ struct AppDocument: Identifiable, Codable {
         deidStatus = try c.decodeIfPresent(String.self, forKey: .deidStatus)
         uploadDate = try c.decode(Date.self, forKey: .uploadDate)
         localURL   = nil
+        remoteURL  = try c.decodeIfPresent(URL.self, forKey: .remoteURL)
         let bytes  = (try? c.decodeIfPresent(Int.self, forKey: .fileSizeBytes)) ?? 0
         let mb     = Double(bytes) / 1_048_576
         fileSize   = mb >= 1 ? String(format: "%.1f MB", mb) : String(format: "%.0f KB", Double(bytes) / 1024)
@@ -1645,6 +1668,8 @@ struct AppDocument: Identifiable, Codable {
         try c.encode(title, forKey: .title)
         try c.encode(category, forKey: .category)
     }
+
+    var previewURL: URL? { localURL ?? remoteURL }
 
     var categoryIcon: String {
         switch category {

@@ -618,6 +618,107 @@ class AIChatStreamingContractTests(TestCase):
         self.assertNotIn("-", streamed)
 
 
+class AIReportEndpointContractTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            email="ai-report@example.com",
+            password="password123",
+            name="AI Report User",
+            role=User.Role.FAMILY_MEMBER,
+        )
+        self.family = Family.objects.create(
+            name="AI Report Family",
+            elder_name="Grandpa Lin",
+            invite_code="321654",
+            created_by=self.user,
+        )
+        self.user.family = self.family
+        self.user.save(update_fields=["family"])
+        self.client.force_authenticate(self.user)
+
+        today = timezone.localdate()
+        Medication.objects.create(
+            family=self.family,
+            created_by=self.user,
+            name="Amlodipine",
+            dosage="5mg",
+            frequency=Medication.Frequency.DAILY,
+            times=["08:00"],
+            start_date=today,
+        )
+        CareLog.objects.create(
+            family=self.family,
+            recorder=self.user,
+            type=CareLog.Type.VITAL,
+            content={"blood_pressure_systolic": 128, "blood_pressure_diastolic": 82},
+            timestamp=timezone.now(),
+        )
+        Expense.objects.create(
+            family=self.family,
+            recorder=self.user,
+            store_name="Pharmacy",
+            date=today,
+            items=[{"name": "Medicine", "category": "medical"}],
+            total_amount=Decimal("350.00"),
+            status=Expense.Status.COMPLETED,
+        )
+
+    def _mock_client(self, content):
+        mock_client = Mock()
+        mock_client.chat.completions.create.return_value = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content=content),
+                )
+            ],
+            usage=SimpleNamespace(total_tokens=7),
+        )
+        return mock_client
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_care_analysis_uses_current_medication_schema(self, mock_get_client):
+        mock_get_client.return_value = self._mock_client("care analysis")
+
+        response = self.client.post(
+            "/api/v1/ai/care-analysis/",
+            {"days": 7},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["analysis"], "care analysis")
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_handover_report_uses_current_medication_schema(self, mock_get_client):
+        mock_get_client.return_value = self._mock_client("handover report")
+
+        response = self.client.post(
+            "/api/v1/ai/handover-report/",
+            {"date": timezone.localdate().isoformat()},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["data"]["report"], "handover report")
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_subsidy_form_uses_current_aggregate_fields(self, mock_get_client):
+        mock_get_client.return_value = self._mock_client('{"monthly_expense_total": 350}')
+
+        response = self.client.post(
+            "/api/v1/ai/subsidy-form/",
+            {"form_type": "long_term_care"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["data"]["form_fields"],
+            {"monthly_expense_total": 350},
+        )
+
+
 class FirstAidScenarioEndpointTests(TestCase):
     def setUp(self):
         self.client = APIClient()

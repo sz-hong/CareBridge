@@ -68,6 +68,12 @@ class MockDataService: DataService {
         HealthBindingState(isBound: false, isOwner: false, userId: nil, userName: nil,
                            deviceId: nil, deviceLabel: nil, claimedAt: nil)
     }
+    func fetchHealthThresholds() async throws -> HealthAlertThresholdSettings {
+        HealthAlertThresholdSettings(heartRateHigh: 100, heartRateLow: 50, bloodOxygenLow: 93)
+    }
+    func updateHealthThresholds(_ thresholds: HealthAlertThresholdSettings) async throws -> HealthAlertThresholdSettings {
+        thresholds
+    }
 
     // MARK: - Chat
     func fetchChatRooms() async throws -> [ChatRoom] { ChatRoom.samples }
@@ -117,6 +123,7 @@ class MockDataService: DataService {
     func fetchTodos() async throws -> [TodoItem] { TodoItem.samples }
     func createTodo(_ todo: TodoItem) async throws -> TodoItem { todo }
     func updateTodo(_ todo: TodoItem) async throws -> TodoItem { todo }
+    func deleteTodo(id: String) async throws { }
 
     // MARK: - Calendar
     func fetchCalendarEvents(month: Date) async throws -> [CalendarEvent] { CalendarEvent.samples }

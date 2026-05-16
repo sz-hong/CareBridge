@@ -251,8 +251,14 @@ class HealthDataViewSet(FamilyScopedQuerySetMixin, ViewSet):
     @action(detail=False, methods=['get'], url_path='dashboard')
     def dashboard(self, request):
         """GET /health-data/dashboard/ — latest value for each health type."""
+        dashboard_types = [
+            HealthData.Type.HEART_RATE,
+            HealthData.Type.BLOOD_OXYGEN,
+            HealthData.Type.STEP_COUNT,
+            HealthData.Type.ACTIVE_ENERGY,
+        ]
         latest = {}
-        for type_choice in HealthData.Type.values:
+        for type_choice in dashboard_types:
             entry = (
                 self.scope_queryset_to_family(HealthData.objects.all())
                 .filter(type=type_choice)
