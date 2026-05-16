@@ -45,14 +45,6 @@ final class HealthKitSyncManager {
                    backendType: "active_energy",
                    unit: .kilocalorie(), backendUnit: "kcal",
                    scale: 1.0),
-        SyncedType(hkIdentifier: .bloodPressureSystolic,
-                   backendType: "blood_pressure_systolic",
-                   unit: .millimeterOfMercury(), backendUnit: "mmHg",
-                   scale: 1.0),
-        SyncedType(hkIdentifier: .bloodPressureDiastolic,
-                   backendType: "blood_pressure_diastolic",
-                   unit: .millimeterOfMercury(), backendUnit: "mmHg",
-                   scale: 1.0),
     ]
 
     // MARK: - State

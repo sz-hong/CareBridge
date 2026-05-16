@@ -33,6 +33,16 @@ class SyncHealthDataItemSerializer(serializers.Serializer):
         required=False, default=HealthData.Source.OTHER,
     )
 
+    def validate_type(self, value):
+        if value in {
+            HealthData.Type.BLOOD_PRESSURE_SYSTOLIC,
+            HealthData.Type.BLOOD_PRESSURE_DIASTOLIC,
+        }:
+            raise serializers.ValidationError(
+                'Blood pressure must be recorded manually in care logs.'
+            )
+        return value
+
     def validate_value(self, value):
         from decimal import Decimal, ROUND_HALF_UP
         # Coerce any precision to 2 dp matching the DecimalField(max_digits=10,

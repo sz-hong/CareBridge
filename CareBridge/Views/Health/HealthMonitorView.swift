@@ -10,8 +10,6 @@ class HealthKitManager {
 
     var heartRate: Double = 72
     var bloodOxygen: Double = 97.5
-    var bloodPressureSystolic: Double = 118
-    var bloodPressureDiastolic: Double = 75
     var bloodSugar: Double = 5.8
     var isAuthorized = false
 
@@ -33,8 +31,6 @@ class HealthKitManager {
             HKObjectType.quantityType(forIdentifier: .heartRate)!,
             HKObjectType.quantityType(forIdentifier: .oxygenSaturation)!,
             HKObjectType.quantityType(forIdentifier: .bloodGlucose)!,
-            HKObjectType.quantityType(forIdentifier: .bloodPressureSystolic)!,
-            HKObjectType.quantityType(forIdentifier: .bloodPressureDiastolic)!,
         ]
         do {
             try await store.requestAuthorization(toShare: [], read: readTypes)
@@ -46,14 +42,10 @@ class HealthKitManager {
     func loadLatestValues() async {
         async let hr   = fetchLatest(.heartRate, unit: HKUnit(from: "count/min"))
         async let spo2 = fetchLatest(.oxygenSaturation, unit: .percent())
-        async let sys  = fetchLatest(.bloodPressureSystolic, unit: .millimeterOfMercury())
-        async let dia  = fetchLatest(.bloodPressureDiastolic, unit: .millimeterOfMercury())
         async let bg   = fetchLatest(.bloodGlucose, unit: HKUnit(from: "mmol/L"))
-        let (hrV, spo2V, sysV, diaV, bgV) = await (hr, spo2, sys, dia, bg)
+        let (hrV, spo2V, bgV) = await (hr, spo2, bg)
         if let v = hrV   { heartRate = v }
         if let v = spo2V { bloodOxygen = v * 100 }
-        if let v = sysV  { bloodPressureSystolic = v }
-        if let v = diaV  { bloodPressureDiastolic = v }
         if let v = bgV   { bloodSugar = v }
 
         if let hist = await fetchWeekly(.heartRate, unit: HKUnit(from: "count/min")) {
@@ -369,8 +361,6 @@ struct HealthMonitorView: View {
             switch point.type {
             case "heart_rate":             healthKit.heartRate = point.value
             case "blood_oxygen":           healthKit.bloodOxygen = point.value
-            case "blood_pressure_systolic":  healthKit.bloodPressureSystolic = point.value
-            case "blood_pressure_diastolic": healthKit.bloodPressureDiastolic = point.value
             default: break
             }
         }
@@ -386,8 +376,6 @@ struct HealthMonitorView: View {
         switch type {
         case "heart_rate":               return "心率"
         case "blood_oxygen":             return "血氧"
-        case "blood_pressure_systolic":  return "收縮壓"
-        case "blood_pressure_diastolic": return "舒張壓"
         case "step_count":               return "步數"
         case "active_energy":            return "活動熱量"
         default: return type

@@ -119,18 +119,20 @@ struct HealthData: Identifiable, Codable {
     var bloodSugar: Double
     var temperature: Double
     var steps: Int
+    var activeEnergy: Double
     var timestamp: Date
     var isAbnormal: Bool
 
     init(id: String, heartRate: Int, bloodOxygen: Double,
          bloodPressureSystolic: Int, bloodPressureDiastolic: Int,
-         bloodSugar: Double, temperature: Double, steps: Int,
+         bloodSugar: Double, temperature: Double, steps: Int, activeEnergy: Double = 0,
          timestamp: Date, isAbnormal: Bool) {
         self.id = id; self.heartRate = heartRate; self.bloodOxygen = bloodOxygen
         self.bloodPressureSystolic = bloodPressureSystolic
         self.bloodPressureDiastolic = bloodPressureDiastolic
         self.bloodSugar = bloodSugar; self.temperature = temperature
-        self.steps = steps; self.timestamp = timestamp; self.isAbnormal = isAbnormal
+        self.steps = steps; self.activeEnergy = activeEnergy
+        self.timestamp = timestamp; self.isAbnormal = isAbnormal
     }
 
     private struct Entry: Codable {
@@ -158,16 +160,18 @@ struct HealthData: Identifiable, Codable {
         let hr = entry("heartRate")    // API: heart_rate → convertFromSnakeCase → heartRate
         let ox = entry("bloodOxygen")  // API: blood_oxygen
         let st = entry("stepCount")    // API: step_count
+        let ae = entry("activeEnergy") // API: active_energy
         heartRate   = hr?.value.map { Int($0) } ?? 0
         bloodOxygen = ox?.value ?? 0
         steps       = st?.value.map { Int($0) } ?? 0
+        activeEnergy = ae?.value ?? 0
         // Backend HealthData has no blood pressure / sugar / temperature types in current schema
         bloodPressureSystolic = 0
         bloodPressureDiastolic = 0
         bloodSugar  = 0
         temperature = 0
-        timestamp   = hr?.recordedAt ?? ox?.recordedAt ?? st?.recordedAt ?? Date()
-        id          = hr?.id ?? ox?.id ?? st?.id ?? UUID().uuidString
+        timestamp   = hr?.recordedAt ?? ox?.recordedAt ?? st?.recordedAt ?? ae?.recordedAt ?? Date()
+        id          = hr?.id ?? ox?.id ?? st?.id ?? ae?.id ?? UUID().uuidString
         isAbnormal  = false
     }
 
