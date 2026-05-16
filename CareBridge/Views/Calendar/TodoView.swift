@@ -104,7 +104,7 @@ struct TodoView: View {
     private func deleteTodo(at indexSet: IndexSet) {
         let toDelete = indexSet.map { filteredTodos[$0] }
         withAnimation {
-            todoStore.todos.removeAll { todo in toDelete.contains { $0.id == todo.id } }
+            toDelete.forEach { todoStore.deleteTodo($0) }
         }
     }
 }
@@ -185,9 +185,14 @@ struct AddTodoView: View {
     @State private var hasDueDate = false
     @State private var dueDate = Date().addingTimeInterval(86400)
 
-    private var selectedMemberName: String {
-        userStore.familyMembers.first(where: { $0.id == selectedMemberId })?.name ?? "未指派"
+    private var selectedAssignee: UserProfile? {
+        userStore.familyMembers.first(where: { $0.id == selectedMemberId })
+            ?? userStore.familyMembers.first
     }
+
+    private var selectedAssigneeName: String { selectedAssignee?.name ?? "" }
+    private var selectedAssigneeId: String? { selectedAssignee?.id }
+    private var canSave: Bool { !title.isEmpty && selectedAssigneeId != nil }
 
     var body: some View {
         NavigationStack {
@@ -202,7 +207,6 @@ struct AddTodoView: View {
                         Text("載入成員中...").foregroundStyle(.secondary)
                     } else {
                         Picker("指派給誰？", selection: $selectedMemberId) {
-                            Text("未指派").tag(nil as String?)
                             ForEach(userStore.familyMembers) { member in
                                 HStack(spacing: 6) {
                                     Image(systemName: member.role == .caregiver ? "cross.case.fill" : "person.fill")
@@ -247,21 +251,26 @@ struct AddTodoView: View {
                         let todo = TodoItem(
                             id: UUID().uuidString,
                             title: title.isEmpty ? "新代辦事項" : title,
-                            assignee: selectedMemberName,
+                            assignee: selectedAssigneeName,
                             priority: priority,
                             dueDate: hasDueDate ? dueDate : nil,
                             isCompleted: false,
-                            assigneeId: selectedMemberId
+                            assigneeId: selectedAssigneeId
                         )
                         onAdd(todo)
                         dismiss()
                     }
                     .bold()
-                    .foregroundStyle(title.isEmpty ? Color.secondary : Color.brandTeal)
-                    .disabled(title.isEmpty)
+                    .foregroundStyle(canSave ? Color.brandTeal : Color.secondary)
+                    .disabled(!canSave)
                 }
             }
-            .task { userStore.load() }
+            .task {
+                await userStore.reload()
+                if selectedMemberId == nil {
+                    selectedMemberId = userStore.familyMembers.first?.id
+                }
+            }
         }
     }
 }

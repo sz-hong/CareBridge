@@ -159,6 +159,7 @@ protocol DataService {
     func fetchTodos() async throws -> [TodoItem]
     func createTodo(_ todo: TodoItem) async throws -> TodoItem
     func updateTodo(_ todo: TodoItem) async throws -> TodoItem
+    func deleteTodo(id: String) async throws
 
     // Calendar
     func fetchCalendarEvents(month: Date) async throws -> [CalendarEvent]

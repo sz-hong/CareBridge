@@ -117,6 +117,7 @@ class MockDataService: DataService {
     func fetchTodos() async throws -> [TodoItem] { TodoItem.samples }
     func createTodo(_ todo: TodoItem) async throws -> TodoItem { todo }
     func updateTodo(_ todo: TodoItem) async throws -> TodoItem { todo }
+    func deleteTodo(id: String) async throws { }
 
     // MARK: - Calendar
     func fetchCalendarEvents(month: Date) async throws -> [CalendarEvent] { CalendarEvent.samples }

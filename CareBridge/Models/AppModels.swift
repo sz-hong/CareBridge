@@ -828,6 +828,21 @@ class TodoStore {
             }
         }
     }
+
+    func deleteTodo(_ todo: TodoItem) {
+        let originalTodos = todos
+        state.updateValue { todos in
+            todos.removeAll { $0.id == todo.id }
+        }
+        Task { @MainActor in
+            do {
+                try await service.deleteTodo(id: todo.id)
+            } catch {
+                print("[TodoStore] delete failed: \(error)")
+                state.finish(with: originalTodos)
+            }
+        }
+    }
 }
 
 // MARK: - Calendar Store (shared state → API synced)
