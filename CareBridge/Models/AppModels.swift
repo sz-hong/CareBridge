@@ -1612,17 +1612,20 @@ struct AppDocument: Identifiable, Codable {
     var fileSize: String    // derived from API file_size (Int bytes)
     var uploadDate: Date    // API: created_at
     var localURL: URL?      // 本地暫存路徑，供 QuickLook 預覽用（非 API 欄位）
+    var remoteURL: URL?
     var deidStatus: String?
 
     private enum CodingKeys: String, CodingKey {
         case id, title, category, deidStatus
+        case remoteURL = "fileUrl"
         case fileSizeBytes = "fileSize"    // API: file_size → convertFromSnakeCase → fileSize
         case uploadDate    = "createdAt"   // API: created_at → createdAt
     }
 
-    init(id: String, title: String, category: String, fileSize: String, uploadDate: Date, localURL: URL? = nil, deidStatus: String? = nil) {
+    init(id: String, title: String, category: String, fileSize: String, uploadDate: Date, localURL: URL? = nil, remoteURL: URL? = nil, deidStatus: String? = nil) {
         self.id = id; self.title = title; self.category = category
         self.fileSize = fileSize; self.uploadDate = uploadDate; self.localURL = localURL
+        self.remoteURL = remoteURL
         self.deidStatus = deidStatus
     }
 
@@ -1634,6 +1637,7 @@ struct AppDocument: Identifiable, Codable {
         deidStatus = try c.decodeIfPresent(String.self, forKey: .deidStatus)
         uploadDate = try c.decode(Date.self, forKey: .uploadDate)
         localURL   = nil
+        remoteURL  = try c.decodeIfPresent(URL.self, forKey: .remoteURL)
         let bytes  = (try? c.decodeIfPresent(Int.self, forKey: .fileSizeBytes)) ?? 0
         let mb     = Double(bytes) / 1_048_576
         fileSize   = mb >= 1 ? String(format: "%.1f MB", mb) : String(format: "%.0f KB", Double(bytes) / 1024)
@@ -1645,6 +1649,8 @@ struct AppDocument: Identifiable, Codable {
         try c.encode(title, forKey: .title)
         try c.encode(category, forKey: .category)
     }
+
+    var previewURL: URL? { localURL ?? remoteURL }
 
     var categoryIcon: String {
         switch category {
