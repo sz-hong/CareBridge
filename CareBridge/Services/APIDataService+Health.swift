@@ -41,4 +41,12 @@ extension APIDataService {
             throw HealthBindingError.notOwner
         }
     }
+
+    func fetchHealthThresholds() async throws -> HealthAlertThresholdSettings {
+        try await get(path: APIEndpoint.healthThresholds)
+    }
+
+    func updateHealthThresholds(_ thresholds: HealthAlertThresholdSettings) async throws -> HealthAlertThresholdSettings {
+        try await put(path: APIEndpoint.healthThresholds, body: thresholds)
+    }
 }

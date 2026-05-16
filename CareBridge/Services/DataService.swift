@@ -62,6 +62,30 @@ struct HealthSyncResult: Codable {
     var duplicates: Int
 }
 
+struct HealthAlertThresholdSettings: Codable, Equatable {
+    var heartRateHigh: Int
+    var heartRateLow: Int
+    var bloodOxygenLow: Double
+
+    init(heartRateHigh: Int, heartRateLow: Int, bloodOxygenLow: Double) {
+        self.heartRateHigh = heartRateHigh
+        self.heartRateLow = heartRateLow
+        self.bloodOxygenLow = bloodOxygenLow
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        heartRateHigh = try c.decode(Int.self, forKey: .heartRateHigh)
+        heartRateLow = try c.decode(Int.self, forKey: .heartRateLow)
+        if let value = try? c.decode(Double.self, forKey: .bloodOxygenLow) {
+            bloodOxygenLow = value
+        } else {
+            let value = try c.decode(String.self, forKey: .bloodOxygenLow)
+            bloodOxygenLow = Double(value) ?? 93
+        }
+    }
+}
+
 /// 「目前是誰在同步這個家庭的健康資料」—— 對應後端
 /// `/families/me/health-binding/` 的回應。`isOwner` 是以呼叫者為觀點判斷
 /// 的，UI 用這個欄位決定 toggle 顯示打開 vs 顯示「目前由 X 同步」。
@@ -129,6 +153,8 @@ protocol DataService {
     func fetchHealthBinding() async throws -> HealthBindingState
     func claimHealthBinding(deviceId: String, deviceLabel: String?) async throws -> HealthBindingState
     func releaseHealthBinding() async throws -> HealthBindingState
+    func fetchHealthThresholds() async throws -> HealthAlertThresholdSettings
+    func updateHealthThresholds(_ thresholds: HealthAlertThresholdSettings) async throws -> HealthAlertThresholdSettings
 
     // Chat
     func fetchChatRooms() async throws -> [ChatRoom]

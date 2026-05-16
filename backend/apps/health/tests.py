@@ -37,6 +37,12 @@ class HealthAPIEndpointTests(TestCase):
         )
         self.user.family = self.family
         self.user.save(update_fields=['family'])
+        self.family.health_binding_user = self.user
+        self.family.health_binding_device_id = 'watch-1'
+        self.family.save(update_fields=[
+            'health_binding_user',
+            'health_binding_device_id',
+        ])
         self.other_user.family = self.other_family
         self.other_user.save(update_fields=['family'])
         self.client.force_authenticate(self.user)

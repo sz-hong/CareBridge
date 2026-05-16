@@ -68,6 +68,12 @@ class MockDataService: DataService {
         HealthBindingState(isBound: false, isOwner: false, userId: nil, userName: nil,
                            deviceId: nil, deviceLabel: nil, claimedAt: nil)
     }
+    func fetchHealthThresholds() async throws -> HealthAlertThresholdSettings {
+        HealthAlertThresholdSettings(heartRateHigh: 100, heartRateLow: 50, bloodOxygenLow: 93)
+    }
+    func updateHealthThresholds(_ thresholds: HealthAlertThresholdSettings) async throws -> HealthAlertThresholdSettings {
+        thresholds
+    }
 
     // MARK: - Chat
     func fetchChatRooms() async throws -> [ChatRoom] { ChatRoom.samples }
