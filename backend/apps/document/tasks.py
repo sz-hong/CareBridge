@@ -50,7 +50,10 @@ def delete_expired_document_quarantine_files_task():
         hours=getattr(settings, 'DLP_DELETE_RAW_AFTER_HOURS', 24)
     )
     qs = Document.objects.filter(
-        deid_status=Document.DeidentificationStatus.COMPLETED,
+        deid_status__in=[
+            Document.DeidentificationStatus.COMPLETED,
+            Document.DeidentificationStatus.NEEDS_REVIEW,
+        ],
         deid_processed_at__lt=cutoff,
         raw_file_key__isnull=False,
     ).exclude(raw_file_key='')

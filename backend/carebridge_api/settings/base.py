@@ -210,6 +210,16 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Asia/Taipei'
+CELERY_BEAT_SCHEDULE = {
+    'delete-expired-document-quarantine-files-hourly': {
+        'task': 'apps.document.tasks.delete_expired_document_quarantine_files_task',
+        'schedule': 3600.0,
+    },
+    'delete-expired-receipt-quarantine-files-hourly': {
+        'task': 'apps.expense.tasks.delete_expired_receipt_quarantine_files_task',
+        'schedule': 3600.0,
+    },
+}
 
 # ==============================================================================
 # Cache (Redis)

@@ -26,4 +26,37 @@ struct AppDocumentTests {
         #expect(document.localURL == nil)
         #expect(document.fileSize == "2 KB")
     }
+
+    @Test func processingDocumentDoesNotExposeLocalRawPreview() {
+        let localURL = URL(fileURLWithPath: "/tmp/raw-report.pdf")
+        let document = AppDocument(
+            id: "doc-processing",
+            title: "Processing report",
+            category: "medical",
+            fileSize: "2 KB",
+            uploadDate: Date(),
+            localURL: localURL,
+            remoteURL: nil,
+            deidStatus: "processing"
+        )
+
+        #expect(document.previewURL == nil)
+        #expect(document.isAwaitingDeidentification)
+    }
+
+    @Test func reviewedProcessedDocumentCanPreviewRemoteURL() {
+        let remoteURL = URL(string: "https://api.carebridge-lab.com/processed.pdf")
+        let document = AppDocument(
+            id: "doc-reviewed",
+            title: "Reviewed report",
+            category: "medical",
+            fileSize: "2 KB",
+            uploadDate: Date(),
+            remoteURL: remoteURL,
+            deidStatus: "needs_review"
+        )
+
+        #expect(document.previewURL == remoteURL)
+        #expect(!document.isAwaitingDeidentification)
+    }
 }

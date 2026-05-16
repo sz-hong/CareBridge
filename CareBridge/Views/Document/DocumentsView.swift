@@ -8,6 +8,10 @@ struct DocumentsView: View {
     @State private var selectedCategory = "全部"
     @State private var showUpload = false
     @State private var previewURL: URL? = nil
+    @State private var pollingToken = UUID()
+
+    private let pollIntervalNanoseconds: UInt64 = 5_000_000_000
+    private let maxPollAttempts = 60
 
     private let categories = ["全部", "保險", "醫療", "證件", "合約", "其他"]
 
@@ -86,10 +90,14 @@ struct DocumentsView: View {
         .sheet(isPresented: $showUpload) {
             UploadDocumentView { newDoc in
                 documents.insert(newDoc, at: 0)
+                schedulePollingIfNeeded()
             }
         }
         .task {
-            documents = (try? await service.fetchDocuments()) ?? []
+            await refreshDocuments()
+        }
+        .task(id: pollingToken) {
+            await pollDocumentsUntilProcessed()
         }
     }
 
@@ -105,6 +113,45 @@ struct DocumentsView: View {
                         documents.insert(doc, at: 0)
                     }
                 }
+            }
+        }
+    }
+
+    @MainActor
+    private func refreshDocuments(schedulePolling: Bool = true) async {
+        do {
+            documents = try await service.fetchDocuments()
+            if schedulePolling {
+                schedulePollingIfNeeded()
+            }
+        } catch {
+            // Keep the existing list visible if a background refresh fails.
+        }
+    }
+
+    @MainActor
+    private func schedulePollingIfNeeded() {
+        if documents.contains(where: \.isAwaitingDeidentification) {
+            pollingToken = UUID()
+        }
+    }
+
+    @MainActor
+    private func pollDocumentsUntilProcessed() async {
+        guard documents.contains(where: \.isAwaitingDeidentification) else { return }
+
+        for _ in 0..<maxPollAttempts {
+            do {
+                try await Task.sleep(nanoseconds: pollIntervalNanoseconds)
+            } catch {
+                return
+            }
+
+            if Task.isCancelled { return }
+            await refreshDocuments(schedulePolling: false)
+
+            if !documents.contains(where: \.isAwaitingDeidentification) {
+                return
             }
         }
     }
@@ -139,6 +186,7 @@ struct DocumentRow: View {
                     Text(document.fileSize)
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
+                    DocumentDeidStatusBadge(document: document)
                 }
             }
 
@@ -163,6 +211,67 @@ struct DocumentRow: View {
     }
 }
 
+private struct DocumentDeidStatusBadge: View {
+    let document: AppDocument
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if document.isAwaitingDeidentification {
+                ProgressView()
+                    .controlSize(.mini)
+                    .scaleEffect(0.7)
+            } else {
+                Image(systemName: iconName)
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(color.opacity(0.12)))
+        .foregroundStyle(color)
+    }
+
+    private var label: String {
+        switch document.normalizedDeidStatus {
+        case "pending", "processing":
+            return "Processing"
+        case "needs_review":
+            return "Needs review"
+        case "failed":
+            return "Failed"
+        default:
+            return "Ready"
+        }
+    }
+
+    private var iconName: String {
+        switch document.normalizedDeidStatus {
+        case "needs_review":
+            return "exclamationmark.triangle.fill"
+        case "failed":
+            return "xmark.circle.fill"
+        default:
+            return "checkmark.circle.fill"
+        }
+    }
+
+    private var color: Color {
+        switch document.normalizedDeidStatus {
+        case "pending", "processing":
+            return .orange
+        case "needs_review":
+            return .yellow
+        case "failed":
+            return .red
+        default:
+            return .green
+        }
+    }
+}
+
 // MARK: - Upload Document View
 struct UploadDocumentView: View {
     @Environment(\.dismiss) private var dismiss
@@ -174,7 +283,6 @@ struct UploadDocumentView: View {
     @State private var showFilePicker = false
     @State private var selectedFileName: String? = nil
     @State private var selectedFileSize: String? = nil
-    @State private var selectedFileURL: URL? = nil
     @State private var selectedFileData: Data? = nil
     @State private var isUploading = false
     @State private var uploadError: String? = nil
@@ -272,7 +380,6 @@ struct UploadDocumentView: View {
                 case .success(let urls):
                     if let url = urls.first {
                         selectedFileName = url.lastPathComponent
-                        selectedFileURL = url
                         if let fileSize = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize {
                             let mb = Double(fileSize) / 1_048_576
                             selectedFileSize = mb < 1 ? "\(Int(mb * 1024)) KB" : String(format: "%.1f MB", mb)
@@ -295,12 +402,11 @@ struct UploadDocumentView: View {
         isUploading = true
         uploadError = nil
         do {
-            var document = try await service.uploadDocument(
+            let document = try await service.uploadDocument(
                 title: title.isEmpty ? (selectedFileName ?? "document") : title,
                 category: category,
                 fileData: fileData
             )
-            document.localURL = selectedFileURL
             onUpload(document)
             dismiss()
         } catch {
