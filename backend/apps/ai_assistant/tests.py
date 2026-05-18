@@ -688,7 +688,112 @@ class AIReportEndpointContractTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["data"]["analysis"], "care analysis")
+        self.assertIn("care analysis", response.json()["data"]["analysis"])
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_care_analysis_always_includes_health_data_numbers(self, mock_get_client):
+        mock_get_client.return_value = self._mock_client("care analysis")
+        now = timezone.now()
+        HealthData.objects.create(
+            family=self.family,
+            type=HealthData.Type.HEART_RATE,
+            value=70,
+            unit=HealthData.Unit.BPM,
+            recorded_at=now - timezone.timedelta(days=2),
+        )
+        HealthData.objects.create(
+            family=self.family,
+            type=HealthData.Type.HEART_RATE,
+            value=80,
+            unit=HealthData.Unit.BPM,
+            recorded_at=now - timezone.timedelta(days=1),
+        )
+        HealthData.objects.create(
+            family=self.family,
+            type=HealthData.Type.HEART_RATE,
+            value=90,
+            unit=HealthData.Unit.BPM,
+            recorded_at=now,
+        )
+        HealthData.objects.create(
+            family=self.family,
+            type=HealthData.Type.BLOOD_OXYGEN,
+            value=95,
+            unit=HealthData.Unit.PERCENT,
+            recorded_at=now,
+        )
+
+        response = self.client.post(
+            "/api/v1/ai/care-analysis/",
+            {"days": 7},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        analysis = response.json()["data"]["analysis"]
+        self.assertIn("身體數據摘要", analysis)
+        self.assertIn("心率", analysis)
+        self.assertIn("筆數 3", analysis)
+        self.assertIn("最新值 90 bpm", analysis)
+        self.assertIn("最高值 90 bpm", analysis)
+        self.assertIn("最低值 70 bpm", analysis)
+        self.assertIn("平均值 80 bpm", analysis)
+        self.assertIn("變化量 +20 bpm", analysis)
+        self.assertIn("趨勢 上升", analysis)
+        self.assertIn("血氧", analysis)
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_care_analysis_includes_vital_care_log_numbers(self, mock_get_client):
+        mock_get_client.return_value = self._mock_client("care analysis")
+        CareLog.objects.create(
+            family=self.family,
+            recorder=self.user,
+            type=CareLog.Type.VITAL,
+            content={
+                "blood_sugar": 6.2,
+                "temperature": 37.1,
+                "weight": 62.5,
+            },
+            timestamp=timezone.now(),
+        )
+
+        response = self.client.post(
+            "/api/v1/ai/care-analysis/",
+            {"days": 7},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        analysis = response.json()["data"]["analysis"]
+        self.assertIn("收縮壓", analysis)
+        self.assertIn("最新值 128 mmHg", analysis)
+        self.assertIn("舒張壓", analysis)
+        self.assertIn("最新值 82 mmHg", analysis)
+        self.assertIn("血糖", analysis)
+        self.assertIn("最新值 6.2 mmol/L", analysis)
+        self.assertIn("體溫", analysis)
+        self.assertIn("最新值 37.1 °C", analysis)
+        self.assertIn("體重", analysis)
+        self.assertIn("最新值 62.5 kg", analysis)
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_care_analysis_states_when_no_health_numbers_exist(self, mock_get_client):
+        mock_get_client.return_value = self._mock_client("care analysis")
+        CareLog.objects.filter(family=self.family).delete()
+        HealthData.objects.filter(family=self.family).delete()
+
+        response = self.client.post(
+            "/api/v1/ai/care-analysis/",
+            {"days": 7},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        analysis = response.json()["data"]["analysis"]
+        self.assertIn("身體數據摘要", analysis)
+        self.assertIn("本期間無可用身體數據", analysis)
+        self.assertIn("已檢查來源：HealthData、照護紀錄生命徵象", analysis)
+        self.assertIn("care analysis", analysis)
 
     @patch("apps.ai_assistant.views._get_client")
     def test_care_analysis_prompt_targets_doctor_visit_health_trends(self, mock_get_client):
