@@ -25,6 +25,7 @@ from rest_framework.views import APIView
 
 from core.permissions import CaregiverCannotDelete
 from core.responses import error_response, success_response
+from .care_analysis_metrics import build_health_metrics_summary
 from .form_templates import (
     FormTemplateError,
     load_subsidy_form_template,
@@ -370,6 +371,11 @@ class CareAnalysisView(APIView):
             .order_by('-timestamp')[:100]
         )
 
+        vital_care_logs = [
+            log for log in care_logs
+            if log.get('type') == CareLog.Type.VITAL
+        ]
+
         health_data = list(
             HealthData.objects.filter(family=family, recorded_at__gte=since)
             .values('type', 'value', 'unit', 'recorded_at')
@@ -386,10 +392,16 @@ class CareAnalysisView(APIView):
             .values('name', 'dosage', 'frequency', 'times')
         )
 
+        health_metrics_summary = build_health_metrics_summary(
+            health_data,
+            vital_care_logs,
+        )
+
         # Build prompt
         data_summary = json.dumps({
             "care_logs": care_logs,
             "health_data": health_data,
+            "health_metrics_summary": health_metrics_summary["metrics"],
             "alerts": alerts,
             "medications": medications,
             "analysis_period_days": days,
@@ -407,6 +419,8 @@ class CareAnalysisView(APIView):
             f"3. 異常警示與風險：列出警示、臨界值與可能需要回診討論的問題。\n"
             f"4. 用藥與照護紀錄：摘要目前用藥、照護活動與可能影響身體狀況的事件。\n"
             f"5. 建議回診詢問事項：整理家屬可以詢問醫師的問題，不要直接下診斷。\n\n"
+            f"數據規則：只能基於 health_metrics_summary 與 Data 中存在的數值分析；"
+            f"不得編造未出現在資料中的數值。若資料不足，請明確說明不足。\n\n"
             f"Data:\n{data_summary}"
         )
 
@@ -427,10 +441,11 @@ class CareAnalysisView(APIView):
         )
 
         reply = _plain_text_from_markdown(response.choices[0].message.content)
+        analysis = f"{health_metrics_summary['text']}\n\n{reply}".strip()
         tokens_used = response.usage.total_tokens if response.usage else 0
 
         return success_response(data={
-            "analysis": reply,
+            "analysis": analysis,
             "period_days": days,
             "tokens_used": tokens_used,
         })
