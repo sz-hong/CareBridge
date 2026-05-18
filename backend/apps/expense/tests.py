@@ -99,6 +99,29 @@ class ExpenseAPIEndpointTests(TestCase):
         self.assertEqual(expense.recorder, self.user)
         self.assertEqual(expense.status, Expense.Status.COMPLETED)
 
+    def test_create_normalizes_legacy_expense_item_category_codes(self):
+        response = self.client.post(
+            '/api/v1/expenses/',
+            {
+                'store_name': 'Pharmacy',
+                'date': timezone.localdate().isoformat(),
+                'items': [
+                    {'name': 'Medicine', 'category': '醫療保健', 'total': 350},
+                    {'name': 'Uncategorized', 'total': 50},
+                ],
+                'total_amount': '400.00',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        data = response.json()['data']
+        self.assertEqual(data['items'][0]['category'], 'medical')
+        self.assertEqual(data['items'][1]['category'], 'other')
+        expense = Expense.objects.get(id=data['id'])
+        self.assertEqual(expense.items[0]['category'], 'medical')
+        self.assertEqual(expense.items[1]['category'], 'other')
+
     def test_scan_rejects_direct_image_url_upload_path(self):
         response = self.client.post(
             '/api/v1/expenses/scan/',
@@ -236,6 +259,29 @@ class ExpenseAPIEndpointTests(TestCase):
             [
                 {'category': 'medical', 'percentage': 66.7},
                 {'category': 'food', 'percentage': 33.3},
+            ],
+        )
+
+    def test_monthly_summary_normalizes_legacy_and_missing_categories(self):
+        today = timezone.localdate()
+        self.create_expense(
+            date=today,
+            total_amount=150,
+            items=[
+                {'name': 'Legacy medical', 'category': '醫療保健', 'total': 100},
+                {'name': 'Missing category', 'total': 50},
+            ],
+        )
+
+        response = self.client.get('/api/v1/expenses/monthly/')
+
+        data = response.json()['data']
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            data['category_breakdown'],
+            [
+                {'category': 'medical', 'percentage': 66.7},
+                {'category': 'other', 'percentage': 33.3},
             ],
         )
 
