@@ -16,6 +16,7 @@ from core.upload_paths import (
     processed_key_for_raw_key,
 )
 from core.viewsets import FamilyScopedQuerySetMixin
+from .categories import normalize_expense_category
 from .models import Expense
 from .serializers import (
     CreateExpenseSerializer,
@@ -187,7 +188,7 @@ class ExpenseViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         for expense in qs:
             monthly_total += float(expense.total_amount or 0)
             for item in (expense.items or []):
-                cat = item.get('category') or '其他'
+                cat = normalize_expense_category(item.get('category'))
                 amount = float(item.get('total') or 0)
                 category_totals[cat] = category_totals.get(cat, 0.0) + amount
 

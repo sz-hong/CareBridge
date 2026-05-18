@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from core.storage import extract_key_from_url, generate_download_url
+from .categories import normalize_expense_items
 from .models import Expense
 
 
@@ -42,6 +43,11 @@ class ExpenseSerializer(serializers.ModelSerializer):
         except Exception:
             return obj.image_url
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['items'] = normalize_expense_items(data.get('items'))
+        return data
+
 
 class CreateExpenseSerializer(serializers.ModelSerializer):
     class Meta:
@@ -60,6 +66,8 @@ class CreateExpenseSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 'image_url': 'Direct receipt image URLs are disabled. Upload to quarantine storage and send raw_image_key.'
             })
+        if 'items' in attrs:
+            attrs['items'] = normalize_expense_items(attrs.get('items'))
         return attrs
 
 
