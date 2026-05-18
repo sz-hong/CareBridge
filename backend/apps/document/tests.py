@@ -4,7 +4,7 @@ from django.utils import timezone
 from unittest.mock import patch
 from rest_framework.test import APIClient
 
-from core.deidentification import DeidentificationResult
+from core.deidentification import DeidentificationResult, PIIFinding
 from apps.auth_account.models import User
 from apps.document.models import Document
 from apps.document.tasks import (
@@ -144,6 +144,30 @@ class DocumentAPIContractTests(TestCase):
         self.assertFalse(document.file_url)
         delay.assert_called_once_with(document.id)
 
+    @patch('apps.document.views.deidentify_document_task.delay')
+    def test_create_with_pdf_raw_file_key_uses_text_processed_key(self, delay):
+        raw_key = f'quarantine/{self.family.id}/documents/upload.pdf'
+
+        response = self.client.post(
+            '/api/v1/documents/',
+            {
+                'title': 'Medical Report',
+                'category': Document.Category.MEDICAL,
+                'raw_file_key': raw_key,
+                'file_size': 128,
+                'mime_type': 'application/pdf',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        document = Document.objects.get(id=response.json()['data']['id'])
+        self.assertEqual(
+            document.redacted_file_key,
+            f'processed/{self.family.id}/documents/upload.txt',
+        )
+        delay.assert_called_once_with(document.id)
+
     def test_create_rejects_document_key_outside_request_family_quarantine(self):
         other_family = Family.objects.create(
             name='Other Docs Family',
@@ -209,6 +233,71 @@ class DocumentAPIContractTests(TestCase):
             'text/plain',
         )
         build_url.assert_called_once_with(redacted_key)
+
+    @patch('apps.document.tasks.put_bytes')
+    @patch('apps.document.tasks.download_bytes', return_value=b'%PDF-1.7 raw pdf bytes')
+    @patch('apps.document.tasks.build_public_url', return_value='https://storage.example/processed.txt')
+    @patch('apps.document.tasks.get_deidentification_client')
+    def test_document_task_inspects_pdf_and_publishes_safe_text_preview(
+        self,
+        get_client,
+        build_url,
+        download_bytes,
+        put_bytes,
+    ):
+        raw_key = f'quarantine/{self.family.id}/documents/report.pdf'
+        redacted_key = f'processed/{self.family.id}/documents/report.pdf'
+        document = Document.objects.create(
+            family=self.family,
+            uploaded_by=self.user,
+            title='Medical Report',
+            category=Document.Category.MEDICAL,
+            file_url=None,
+            file_size=128,
+            mime_type='application/pdf',
+            raw_file_key=raw_key,
+            redacted_file_key=redacted_key,
+            deid_status=Document.DeidentificationStatus.PROCESSING,
+        )
+        get_client.return_value.inspect_file_bytes.return_value = [
+            PIIFinding(
+                info_type='EMAIL_ADDRESS',
+                quote='amy@example.com',
+                likelihood='LIKELY',
+            )
+        ]
+
+        deidentify_document_task(document.id)
+
+        document.refresh_from_db()
+        expected_key = f'processed/{self.family.id}/documents/report.txt'
+        self.assertEqual(document.redacted_file_key, expected_key)
+        self.assertEqual(document.file_url, 'https://storage.example/processed.txt')
+        self.assertEqual(
+            document.deid_status,
+            Document.DeidentificationStatus.NEEDS_REVIEW,
+        )
+        self.assertEqual(document.deid_findings, [
+            {
+                'info_type': 'EMAIL_ADDRESS',
+                'likelihood': 'LIKELY',
+                'quote_length': len('amy@example.com'),
+            }
+        ])
+        download_bytes.assert_called_once_with(raw_key)
+        get_client.return_value.inspect_file_bytes.assert_called_once_with(
+            b'%PDF-1.7 raw pdf bytes',
+            mime_type='application/pdf',
+        )
+        get_client.return_value.redact_image.assert_not_called()
+        put_bytes.assert_called_once()
+        put_key, body, content_type = put_bytes.call_args.args
+        self.assertEqual(put_key, expected_key)
+        self.assertEqual(content_type, 'text/plain')
+        self.assertIn(b'Processed PDF preview', body)
+        self.assertIn(b'EMAIL_ADDRESS', body)
+        self.assertNotIn(b'amy@example.com', body)
+        build_url.assert_called_once_with(expected_key)
 
     @patch('apps.document.tasks.delete_object')
     def test_cleanup_deletes_completed_and_reviewed_document_raw_files_only(

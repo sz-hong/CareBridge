@@ -6,6 +6,7 @@ from django.test import SimpleTestCase, override_settings
 
 from core.deidentification import (
     GoogleDLPDeidentificationClient,
+    PIIFinding,
     get_deidentification_client,
     prepare_text_for_gpt,
 )
@@ -159,3 +160,39 @@ class GoogleDLPDeidentificationClientTests(SimpleTestCase):
         self.assertIn('EMAIL_ADDRESS', names)
         self.assertIn('CREDIT_CARD_NUMBER', names)
         self.assertIn('TAIWAN_PHONE_NUMBER', names)
+
+    @override_settings(
+        GOOGLE_CLOUD_PROJECT='carebridge-test',
+        DLP_PROVIDER='google_dlp',
+    )
+    def test_inspect_file_bytes_sends_pdf_as_binary_content_item(self):
+        class FakeDLPClient:
+            request = None
+
+            def inspect_content(self, request):
+                self.request = request
+                return SimpleNamespace(
+                    result=SimpleNamespace(findings=[
+                        SimpleNamespace(
+                            info_type=SimpleNamespace(name='EMAIL_ADDRESS'),
+                            quote='amy@example.com',
+                            likelihood='LIKELY',
+                        )
+                    ])
+                )
+
+        client = GoogleDLPDeidentificationClient()
+        fake_client = FakeDLPClient()
+        client._client = lambda: fake_client
+
+        findings = client.inspect_file_bytes(b'%PDF-1.7', 'application/pdf')
+
+        self.assertEqual(fake_client.request['item']['byte_item']['type_'], 8)
+        self.assertEqual(fake_client.request['item']['byte_item']['data'], b'%PDF-1.7')
+        self.assertEqual(findings, [
+            PIIFinding(
+                info_type='EMAIL_ADDRESS',
+                quote='amy@example.com',
+                likelihood='LIKELY',
+            )
+        ])
