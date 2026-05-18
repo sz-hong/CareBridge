@@ -1,0 +1,26 @@
+{
+  "form_type": "long_term_care",
+  "display_name": "長期照顧服務申請表",
+  "official_source": "衛生福利部及地方長期照顧管理中心長期照顧服務申請欄位格式",
+  "purpose": "申請長期照顧服務、居家服務、喘息服務或相關補助前的資料整理",
+  "sections": [
+    {
+      "title": "申請人基本資料",
+      "fields": [
+        {"key": "applicant_name", "label": "申請人姓名", "instructions": "填入長者或申請人的姓名；若資料不足留空。"},
+        {"key": "id_number", "label": "身分證字號", "instructions": "文件號碼屬 protected entity；不得猜測。"},
+        {"key": "birth_date", "label": "出生日期", "instructions": "使用 yyyy-MM-dd；資料不足留空。"},
+        {"key": "contact_phone", "label": "聯絡電話", "instructions": "電話號碼不得翻譯或改寫。"},
+        {"key": "address", "label": "戶籍或居住地址", "instructions": "地址不得翻譯或改寫；資料不足留空。"}
+      ]
+    },
+    {
+      "title": "照顧需求",
+      "fields": [
+        {"key": "care_needs_summary", "label": "照顧需求摘要", "instructions": "根據照護紀錄摘要日常協助需求。"},
+        {"key": "health_status_summary", "label": "健康狀況摘要", "instructions": "摘要近期身體數據、警示與用藥狀況。"},
+        {"key": "service_items_requested", "label": "擬申請服務項目", "instructions": "可依資料建議居家服務、喘息服務或照顧支持；不確定則標示待社工評估。"}
+      ]
+    }
+  ]
+}

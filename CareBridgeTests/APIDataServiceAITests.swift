@@ -102,6 +102,22 @@ struct APIDataServiceAITests {
         #expect(subsidy["form_type"] == "long_term_care")
     }
 
+    @Test func encodesSubsidyFormMultipartBodyWithTemplateFile() throws {
+        let body = APIDataService.subsidyFormMultipartBody(
+            formType: "uploaded_template",
+            fileName: "custom-form.txt",
+            fileData: Data("欄位：custom_field".utf8),
+            boundary: "Boundary-Test"
+        )
+        let payload = try #require(String(data: body, encoding: .utf8))
+
+        #expect(payload.contains("name=\"form_type\""))
+        #expect(payload.contains("uploaded_template"))
+        #expect(payload.contains("name=\"template_file\"; filename=\"custom-form.txt\""))
+        #expect(payload.contains("欄位：custom_field"))
+        #expect(payload.contains("--Boundary-Test--"))
+    }
+
     @Test func decodesAIReportAndSubsidyResponses() throws {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -116,13 +132,15 @@ struct APIDataServiceAITests {
         )
         let subsidy = try decoder.decode(
             AISubsidyFormResponse.self,
-            from: Data(#"{"form_type":"long_term_care","form_fields":{"applicant":"Grandma Wu","days":30},"tokens_used":30}"#.utf8)
+            from: Data(#"{"form_type":"long_term_care","template_name":"長期照顧服務申請表","template_source":"official","form_fields":{"applicant":"Grandma Wu","days":30},"tokens_used":30}"#.utf8)
         )
 
         #expect(care.analysis == "care summary")
         #expect(care.periodDays == 7)
         #expect(handover.report == "handover report")
         #expect(handover.date == "2026-05-15")
+        #expect(subsidy.templateName == "長期照顧服務申請表")
+        #expect(subsidy.templateSource == "official")
         #expect(subsidy.formFields["applicant"] == "Grandma Wu")
         #expect(subsidy.formFields["days"] == "30")
     }

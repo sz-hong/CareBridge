@@ -18,12 +18,18 @@ from django.http import StreamingHttpResponse
 from django.utils import timezone
 from openai import OpenAI
 from rest_framework import status
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.renderers import JSONRenderer
 from rest_framework.views import APIView
 
 from core.permissions import CaregiverCannotDelete
 from core.responses import error_response, success_response
+from .form_templates import (
+    FormTemplateError,
+    load_subsidy_form_template,
+    uploaded_subsidy_form_template,
+)
 from .models import AIConversation, FirstAidDocument
 from .renderers import EventStreamRenderer
 from .serializers import (
@@ -390,14 +396,17 @@ class CareAnalysisView(APIView):
         }, default=str, ensure_ascii=False)
 
         prompt = (
-            f"Based on the following {days}-day care data, provide a comprehensive "
-            f"care analysis report in Traditional Chinese with English section headers.\n\n"
-            f"Include:\n"
-            f"1. Overall Health Summary (整體健康摘要)\n"
-            f"2. Key Observations (重要觀察)\n"
-            f"3. Medication Compliance (用藥遵從度)\n"
-            f"4. Risk Factors & Alerts (風險因素與警示)\n"
-            f"5. Recommendations (建議事項)\n\n"
+            f"請根據以下 {days} 天照護資料，產生給醫師回診前閱讀的照護分析報告。"
+            f"報告要使用繁體中文、純文字，不要使用 Markdown 語法。\n\n"
+            f"這份檔案的目的：讓醫師快速理解最近身體狀況、身體數據變化、"
+            f"異常警示、照護紀錄與用藥狀況。\n\n"
+            f"必須包含：\n"
+            f"1. 回診重點摘要：用 3 到 5 句說明最需要醫師知道的變化。\n"
+            f"2. 身體數據變化與趨勢：逐項整理血壓、心率、血糖、體溫、血氧等資料；"
+            f"寫出最高值、最低值、平均或明顯上升/下降趨勢，資料不足也要明確寫出。\n"
+            f"3. 異常警示與風險：列出警示、臨界值與可能需要回診討論的問題。\n"
+            f"4. 用藥與照護紀錄：摘要目前用藥、照護活動與可能影響身體狀況的事件。\n"
+            f"5. 建議回診詢問事項：整理家屬可以詢問醫師的問題，不要直接下診斷。\n\n"
             f"Data:\n{data_summary}"
         )
 
@@ -407,8 +416,9 @@ class CareAnalysisView(APIView):
             messages=[
                 {"role": "system", "content": (
                     "You are a senior geriatric care analyst. "
-                    "Provide detailed, actionable care analysis reports in "
-                    "Traditional Chinese (繁體中文) with English section headers."
+                    "Provide clinic-visit care analysis reports in Traditional Chinese. "
+                    "Focus on health metric trends and facts from the data. "
+                    "Use plain text only and do not use Markdown syntax."
                 )},
                 {"role": "user", "content": prompt},
             ],
@@ -416,7 +426,7 @@ class CareAnalysisView(APIView):
             max_tokens=3000,
         )
 
-        reply = response.choices[0].message.content
+        reply = _plain_text_from_markdown(response.choices[0].message.content)
         tokens_used = response.usage.total_tokens if response.usage else 0
 
         return success_response(data={
@@ -478,9 +488,28 @@ class HandoverReportView(APIView):
             .order_by('recorded_at')
         )
 
+        todo_values = Todo.objects.filter(
+            family=family, status=Todo.Status.PENDING,
+        ).values('title', 'priority', 'due_date')
+
+        today_todos = list(
+            todo_values.filter(due_date__lte=report_date)
+            .order_by('due_date', '-priority', 'title')
+        )
+
+        future_todos = list(
+            todo_values.filter(due_date__gt=report_date)
+            .order_by('due_date', '-priority', 'title')
+        )
+
+        unscheduled_todos = list(
+            todo_values.filter(due_date__isnull=True)
+            .order_by('-priority', 'title')
+        )
+
         pending_todos = list(
             Todo.objects.filter(
-                family=family, status__in=['pending', 'in_progress'],
+                family=family, status=Todo.Status.PENDING,
             ).values('title', 'priority', 'due_date')
         )
 
@@ -491,18 +520,23 @@ class HandoverReportView(APIView):
             "medication_confirmations": confirmations,
             "health_data": health,
             "pending_todos": pending_todos,
+            "today_todos": today_todos,
+            "future_todos": future_todos,
+            "unscheduled_todos": unscheduled_todos,
         }, default=str, ensure_ascii=False)
 
         prompt = (
-            f"Generate a bilingual caregiver handover report for {report_date}.\n\n"
-            f"Format: Each section should have BOTH Traditional Chinese and English.\n\n"
-            f"Sections:\n"
-            f"1. Date & Shift Summary (日期與班次摘要)\n"
-            f"2. Health Status Overview (健康狀態概覽)\n"
-            f"3. Medication Record (用藥紀錄)\n"
-            f"4. Care Activities (照護活動)\n"
-            f"5. Pending Tasks (待辦事項)\n"
-            f"6. Special Notes & Reminders (特別注意事項)\n\n"
+            f"請產生 {report_date} 的看護交接報告。這份文件是給下一位看護接手時使用，"
+            f"重點不是長篇分析，而是清楚交代今天需要做什麼、已經做了什麼、"
+            f"未來需要做什麼，以及哪些事項必須注意。\n\n"
+            f"格式要求：使用繁體中文純文字，不要使用 Markdown 語法。每個項目要具體可執行。\n\n"
+            f"必須包含：\n"
+            f"1. 今日交接摘要：一句話說明今天整體狀況。\n"
+            f"2. 今天需要做什麼：依 today_todos、用藥時間、照護安排列出下一班要完成的事。\n"
+            f"3. 已完成事項：依 medication_confirmations 與 care_logs 整理已完成照護。\n"
+            f"4. 未來需要做什麼：依 future_todos 與後續回診/用藥/照護提醒列出。\n"
+            f"5. 注意事項：列出安全、身體數據異常、飲食、移位、用藥等交接重點。\n"
+            f"6. 資料不足：如果資料不足，明確寫出需要下一班補確認的事項。\n\n"
             f"Data:\n{data_summary}"
         )
 
@@ -512,8 +546,9 @@ class HandoverReportView(APIView):
             messages=[
                 {"role": "system", "content": (
                     "You are a caregiving documentation specialist. "
-                    "Generate professional bilingual (繁體中文 / English) "
-                    "handover reports that are clear, concise, and actionable."
+                    "Generate caregiver-to-caregiver handover reports that focus on "
+                    "specific tasks, future follow-up, and safety notes. "
+                    "Use Traditional Chinese plain text only. Do not use Markdown syntax."
                 )},
                 {"role": "user", "content": prompt},
             ],
@@ -521,7 +556,7 @@ class HandoverReportView(APIView):
             max_tokens=3000,
         )
 
-        reply = response.choices[0].message.content
+        reply = _plain_text_from_markdown(response.choices[0].message.content)
         tokens_used = response.usage.total_tokens if response.usage else 0
 
         return success_response(data={
@@ -537,11 +572,25 @@ class SubsidyFormView(APIView):
     Auto-fills subsidy application form fields based on the elder's data.
     """
     permission_classes = [IsAuthenticated, CaregiverCannotDelete]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def post(self, request):
         serializer = SubsidyFormSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         form_type = serializer.validated_data['form_type']
+        uploaded_template = serializer.validated_data.get('template_file')
+
+        try:
+            if uploaded_template:
+                form_template = uploaded_subsidy_form_template(uploaded_template)
+            else:
+                form_template = load_subsidy_form_template(form_type)
+        except FormTemplateError as exc:
+            return error_response(
+                code='invalid_form_template',
+                message=str(exc),
+                status=400,
+            )
 
         user = request.user
         family = user.family
@@ -574,6 +623,7 @@ class SubsidyFormView(APIView):
 
         data_summary = json.dumps({
             "form_type": form_type,
+            "form_template": form_template,
             "care_activity_summary": care_summary,
             "monthly_expense_total": float(expense_total),
             "average_health_metrics": avg_health,
@@ -583,13 +633,17 @@ class SubsidyFormView(APIView):
             'long_term_care': 'Long-term Care Subsidy (長照補助)',
             'disability': 'Disability Subsidy (身心障礙補助)',
             'respite_care': 'Respite Care Subsidy (喘息服務補助)',
+            'uploaded_template': form_template.get('display_name', 'Uploaded Template'),
         }
 
         prompt = (
-            f"Based on the following care data, generate pre-filled form fields "
-            f"for a {form_type_labels[form_type]} application in Taiwan.\n\n"
-            f"Return a JSON object with field names as keys and suggested values.\n"
-            f"Include both the field label (in Chinese) and the suggested value.\n\n"
+            f"根據以下照護資料，為 {form_type_labels[form_type]} 產生預填欄位。\n\n"
+            f"重要規則：\n"
+            f"1. 只依照表單模板欄位產生 JSON，不要產生模板以外的欄位。\n"
+            f"2. form_template 可能來自後台官方表單格式或使用者上傳的 uploaded_template。\n"
+            f"3. 若欄位資料不足，值填入空字串或「待補」，不得捏造身分證、電話、地址、文件號碼或診斷。\n"
+            f"4. protected entity（姓名、電話、地址、文件號碼、藥名、劑量）必須原樣保留。\n"
+            f"5. Return valid JSON only. Do not use Markdown syntax or code fences.\n\n"
             f"Data:\n{data_summary}"
         )
 
@@ -599,8 +653,9 @@ class SubsidyFormView(APIView):
             messages=[
                 {"role": "system", "content": (
                     "You are a Taiwan social welfare specialist. "
-                    "Help auto-fill government subsidy application forms "
-                    "based on the provided care data. Return valid JSON only."
+                    "Help auto-fill government subsidy application forms using the "
+                    "provided official form template or uploaded form template. "
+                    "Return valid JSON only and do not use Markdown syntax."
                 )},
                 {"role": "user", "content": prompt},
             ],
@@ -609,7 +664,7 @@ class SubsidyFormView(APIView):
             response_format={"type": "json_object"},
         )
 
-        reply_text = response.choices[0].message.content
+        reply_text = _plain_text_from_markdown(response.choices[0].message.content)
         tokens_used = response.usage.total_tokens if response.usage else 0
 
         try:
@@ -619,6 +674,8 @@ class SubsidyFormView(APIView):
 
         return success_response(data={
             "form_type": form_type,
+            "template_name": form_template.get('display_name', form_type),
+            "template_source": form_template.get('official_source', ''),
             "form_fields": form_fields,
             "tokens_used": tokens_used,
         })

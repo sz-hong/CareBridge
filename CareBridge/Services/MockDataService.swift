@@ -188,9 +188,14 @@ class MockDataService: DataService {
         )
     }
 
-    func generateSubsidyForm(formType: String) async throws -> AISubsidyFormResponse {
+    func generateSubsidyForm(
+        formType: String,
+        templateFileName: String?,
+        templateFileData: Data?
+    ) async throws -> AISubsidyFormResponse {
         AISubsidyFormResponse(
             formType: formType,
+            templateName: templateFileName ?? "Mock subsidy form",
             formFields: [
                 "applicant": "Mock elder",
                 "care_need": "Daily assistance"
