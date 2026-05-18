@@ -1,4 +1,5 @@
 import SwiftUI
+import QuickLook
 
 struct AIAgentView: View {
     var isModal: Bool = false
@@ -10,18 +11,20 @@ struct AIAgentView: View {
     @State private var conversationID: String?
     @State private var responseTask: Task<Void, Never>?
     @State private var selectedTool: AIToolKind?
+    @State private var documentPreviewURL: URL?
     @FocusState private var isInputFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            aiQuickActions
-
             // Messages
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 20) {
                         ForEach(messages) { msg in
-                            AIMessageBubble(message: msg)
+                            AIMessageBubble(
+                                message: msg,
+                                onDocumentPreview: previewDocument
+                            )
                                 .id(msg.id)
                         }
                         if isLoading {
@@ -74,8 +77,11 @@ struct AIAgentView: View {
             resetChatContext()
         }
         .sheet(item: $selectedTool) { tool in
-            AIToolSheet(tool: tool)
+            AIToolSheet(tool: tool) { document in
+                appendGeneratedDocument(document)
+            }
         }
+        .quickLookPreview($documentPreviewURL)
     }
 
     // MARK: - Typing Indicator
@@ -100,41 +106,23 @@ struct AIAgentView: View {
         .background(RoundedRectangle(cornerRadius: 16).fill(Color(red: 0.93, green: 0.90, blue: 0.98)))
     }
 
-    // MARK: - Quick Actions
-    private var aiQuickActions: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
+    // MARK: - Input Bar
+    private var aiInputBar: some View {
+        HStack(spacing: 12) {
+            Menu {
                 ForEach(AIToolKind.allCases) { tool in
                     Button {
                         selectedTool = tool
                     } label: {
                         Label(tool.title, systemImage: tool.icon)
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color.brandTeal)
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.brandTeal.opacity(0.10))
-                            )
                     }
-                    .buttonStyle(.plain)
                 }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-        }
-        .background(Color.brandBackground)
-    }
-
-    // MARK: - Input Bar
-    private var aiInputBar: some View {
-        HStack(spacing: 12) {
-            Button { } label: {
+            } label: {
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 28))
                     .foregroundStyle(Color.brandTeal)
             }
+            .disabled(isLoading)
 
             TextField("輸入您的問題...", text: $inputText, axis: .vertical)
                 .padding(.horizontal, 14)
@@ -249,6 +237,35 @@ struct AIAgentView: View {
         }
     }
 
+    @MainActor
+    private func appendGeneratedDocument(_ document: AIGeneratedDocument) {
+        messages.append(
+            AIMessage(
+                id: UUID().uuidString,
+                content: "\(document.title) 已產生，點擊文件預覽。",
+                isUser: false,
+                timestamp: Date(),
+                document: document
+            )
+        )
+    }
+
+    @MainActor
+    private func previewDocument(_ document: AIGeneratedDocument) {
+        do {
+            documentPreviewURL = try document.writeTemporaryFile()
+        } catch {
+            messages.append(
+                AIMessage(
+                    id: UUID().uuidString,
+                    content: "文件預覽失敗：\(error.localizedDescription)",
+                    isUser: false,
+                    timestamp: Date()
+                )
+            )
+        }
+    }
+
     private func resetChatContext() {
         responseTask?.cancel()
         responseTask = nil
@@ -256,6 +273,7 @@ struct AIAgentView: View {
         conversationID = nil
         inputText = ""
         isLoading = false
+        documentPreviewURL = nil
     }
 
 }
@@ -269,8 +287,8 @@ private enum AIToolKind: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .careAnalysis: return "照護分析"
-        case .handoverReport: return "交班報告"
+        case .careAnalysis: return "照護報告"
+        case .handoverReport: return "交接報告"
         case .subsidyForm: return "補助表單"
         }
     }
@@ -285,8 +303,8 @@ private enum AIToolKind: String, CaseIterable, Identifiable {
 
     var actionTitle: String {
         switch self {
-        case .careAnalysis: return "產生分析"
-        case .handoverReport: return "產生報告"
+        case .careAnalysis: return "產生照護報告"
+        case .handoverReport: return "產生交接報告"
         case .subsidyForm: return "產生表單"
         }
     }
@@ -294,6 +312,7 @@ private enum AIToolKind: String, CaseIterable, Identifiable {
 
 private struct AIToolSheet: View {
     let tool: AIToolKind
+    let onDocumentGenerated: (AIGeneratedDocument) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dataService) private var dataService
     @State private var days = 7
@@ -301,8 +320,6 @@ private struct AIToolSheet: View {
     @State private var subsidyFormType = "long_term_care"
     @State private var isLoading = false
     @State private var errorMessage: String?
-    @State private var resultText: String?
-    @State private var formFields: [String: String] = [:]
 
     private static let requestDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -339,28 +356,6 @@ private struct AIToolSheet: View {
                             .foregroundStyle(.red)
                     }
                 }
-
-                if let resultText {
-                    Section("結果") {
-                        Text(resultText)
-                            .textSelection(.enabled)
-                    }
-                }
-
-                if !formFields.isEmpty {
-                    Section("表單欄位") {
-                        ForEach(formFields.keys.sorted(), id: \.self) { key in
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(key)
-                                    .font(.system(size: 13, weight: .semibold))
-                                Text(formFields[key] ?? "")
-                                    .font(.system(size: 14))
-                                    .textSelection(.enabled)
-                            }
-                            .padding(.vertical, 4)
-                        }
-                    }
-                }
             }
             .navigationTitle(tool.title)
             .navigationBarTitleDisplayMode(.inline)
@@ -381,7 +376,7 @@ private struct AIToolSheet: View {
             }
         case .handoverReport:
             DatePicker(
-                "交班日期",
+                "交接日期",
                 selection: $reportDate,
                 displayedComponents: .date
             )
@@ -399,24 +394,25 @@ private struct AIToolSheet: View {
         guard !isLoading else { return }
         isLoading = true
         errorMessage = nil
-        resultText = nil
-        formFields = [:]
 
         do {
+            let document: AIGeneratedDocument
             switch tool {
             case .careAnalysis:
                 let response = try await dataService.fetchCareAnalysis(days: days)
-                resultText = response.analysis
+                document = AIGeneratedDocument.careAnalysis(response)
             case .handoverReport:
                 let date = Self.requestDateFormatter.string(from: reportDate)
                 let response = try await dataService.generateHandoverReport(date: date)
-                resultText = response.report
+                document = AIGeneratedDocument.handoverReport(response)
             case .subsidyForm:
                 let response = try await dataService.generateSubsidyForm(
                     formType: subsidyFormType
                 )
-                formFields = response.formFields
+                document = AIGeneratedDocument.subsidyForm(response)
             }
+            onDocumentGenerated(document)
+            dismiss()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -428,6 +424,7 @@ private struct AIToolSheet: View {
 // MARK: - AI Message Bubble
 struct AIMessageBubble: View {
     let message: AIMessage
+    let onDocumentPreview: (AIGeneratedDocument) -> Void
 
     var body: some View {
         HStack(alignment: .top) {
@@ -452,9 +449,19 @@ struct AIMessageBubble: View {
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(Color(red: 0.4, green: 0.2, blue: 0.8))
                     }
-                    Text(message.content)
-                        .font(.system(size: 15))
-                        .foregroundStyle(.primary)
+                    if let document = message.document {
+                        AIGeneratedDocumentBubbleContent(
+                            message: message,
+                            document: document,
+                            onPreview: {
+                                onDocumentPreview(document)
+                            }
+                        )
+                    } else {
+                        Text(message.content)
+                            .font(.system(size: 15))
+                            .foregroundStyle(.primary)
+                    }
                     Text(message.timestamp.formatted(date: .omitted, time: .shortened))
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -468,6 +475,62 @@ struct AIMessageBubble: View {
             }
         }
         .padding(.horizontal, 16)
+    }
+}
+
+private struct AIGeneratedDocumentBubbleContent: View {
+    let message: AIMessage
+    let document: AIGeneratedDocument
+    let onPreview: () -> Void
+
+    var body: some View {
+        Button(action: onPreview) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: iconName)
+                        .font(.system(size: 28))
+                        .foregroundStyle(Color.brandTeal)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(document.title)
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(.primary)
+                        Text(message.content)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+
+                Text(document.body)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.primary)
+                    .lineLimit(6)
+                    .multilineTextAlignment(.leading)
+
+                HStack(spacing: 6) {
+                    Image(systemName: "doc.viewfinder")
+                    Text("預覽文件")
+                }
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.brandTeal)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var iconName: String {
+        switch document.kind {
+        case .careAnalysis:
+            return "chart.line.uptrend.xyaxis"
+        case .handoverReport:
+            return "doc.text"
+        case .subsidyForm:
+            return "square.and.pencil"
+        }
     }
 }
 

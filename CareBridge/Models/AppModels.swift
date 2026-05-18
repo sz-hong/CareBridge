@@ -1959,11 +1959,130 @@ enum DynamicTranslation {
 }
 
 // MARK: - AI Message
+struct AIGeneratedDocument: Identifiable, Codable, Equatable {
+    enum Kind: String, Codable, Equatable {
+        case careAnalysis = "care-analysis"
+        case handoverReport = "handover-report"
+        case subsidyForm = "subsidy-form"
+    }
+
+    var id: String
+    var title: String
+    var kind: Kind
+    var body: String
+    var createdAt: Date
+
+    init(
+        id: String = UUID().uuidString,
+        title: String,
+        kind: Kind,
+        body: String,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.title = title
+        self.kind = kind
+        self.body = Self.plainTextBody(from: body)
+        self.createdAt = createdAt
+    }
+
+    var plainText: String {
+        "\(title)\n\n\(body)"
+    }
+
+    var fileName: String {
+        let safeTitle = title
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined(separator: "-")
+            .lowercased()
+        let baseName = safeTitle.isEmpty ? kind.rawValue : safeTitle
+        return "\(baseName)-\(id).txt"
+    }
+
+    func writeTemporaryFile(fileManager: FileManager = .default) throws -> URL {
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("CareBridgeAIDocuments", isDirectory: true)
+        if !fileManager.fileExists(atPath: directory.path) {
+            try fileManager.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+        }
+        let url = directory.appendingPathComponent(fileName)
+        try Data(plainText.utf8).write(to: url, options: .atomic)
+        return url
+    }
+
+    static func careAnalysis(_ response: AICareAnalysisResponse) -> AIGeneratedDocument {
+        AIGeneratedDocument(
+            title: "照護報告",
+            kind: .careAnalysis,
+            body: response.analysis
+        )
+    }
+
+    static func handoverReport(_ response: AIHandoverReportResponse) -> AIGeneratedDocument {
+        let title = response.date.isEmpty ? "交接報告" : "交接報告 \(response.date)"
+        return AIGeneratedDocument(
+            title: title,
+            kind: .handoverReport,
+            body: response.report
+        )
+    }
+
+    static func subsidyForm(_ response: AISubsidyFormResponse) -> AIGeneratedDocument {
+        let body = response.formFields
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key): \($0.value)" }
+            .joined(separator: "\n")
+        return AIGeneratedDocument(
+            title: "補助表單",
+            kind: .subsidyForm,
+            body: body
+        )
+    }
+
+    private static func plainTextBody(from source: String) -> String {
+        var output = source.replacingOccurrences(of: "\r\n", with: "\n")
+        output = replace(output, pattern: #"(?m)^\s*#{1,6}\s*"#, with: "")
+        output = replace(output, pattern: #"(?m)^\s*[-*+]\s+"#, with: "• ")
+        output = replace(output, pattern: #"(?m)^\s*>\s?"#, with: "")
+        output = replace(output, pattern: #"```[a-zA-Z0-9_-]*\n?"#, with: "")
+        output = output.replacingOccurrences(of: "```", with: "")
+        output = replace(output, pattern: #"`([^`]*)`"#, with: "$1")
+        output = replace(output, pattern: #"\*\*([^*]+)\*\*"#, with: "$1")
+        output = replace(output, pattern: #"\*([^*\n]+)\*"#, with: "$1")
+        output = replace(output, pattern: #"\[([^\]]+)\]\([^)]+\)"#, with: "$1")
+        output = replace(output, pattern: #"(?m)^\s*[-=]{3,}\s*$\n?"#, with: "")
+        output = replace(output, pattern: #"\n{3,}"#, with: "\n\n")
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func replace(
+        _ source: String,
+        pattern: String,
+        with template: String
+    ) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return source
+        }
+        let range = NSRange(source.startIndex..<source.endIndex, in: source)
+        return regex.stringByReplacingMatches(
+            in: source,
+            options: [],
+            range: range,
+            withTemplate: template
+        )
+    }
+}
+
 struct AIMessage: Identifiable, Codable {
     var id: String
     var content: String
     var isUser: Bool
     var timestamp: Date
+    var document: AIGeneratedDocument? = nil
 
     static var samples: [AIMessage] {
         [
