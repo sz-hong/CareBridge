@@ -34,8 +34,16 @@ def build_quarantine_key(family_id, object_type, content_type, filename=None):
     return f'quarantine/{family_id}/{object_type}/{uuid.uuid4().hex}.{ext}'
 
 
-def processed_key_for_raw_key(raw_key):
-    return raw_key.replace('quarantine/', 'processed/', 1)
+def processed_key_for_raw_key(raw_key, content_type=None):
+    key = raw_key.replace('quarantine/', 'processed/', 1)
+    if not content_type:
+        return key
+
+    ext = extension_for_upload(content_type)
+    if '.' not in key.rsplit('/', 1)[-1]:
+        return f'{key}.{ext}'
+    stem = key.rsplit('.', 1)[0]
+    return f'{stem}.{ext}'
 
 
 def is_valid_quarantine_key(raw_key, family_id, object_type):

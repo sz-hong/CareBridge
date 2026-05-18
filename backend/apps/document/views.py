@@ -64,7 +64,15 @@ class DocumentViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         if raw_file_key:
             doc.file_url = None
             doc.raw_file_key = raw_file_key
-            doc.redacted_file_key = processed_key_for_raw_key(raw_file_key)
+            processed_content_type = (
+                'text/plain'
+                if doc.mime_type == 'application/pdf'
+                else doc.mime_type
+            )
+            doc.redacted_file_key = processed_key_for_raw_key(
+                raw_file_key,
+                content_type=processed_content_type,
+            )
             doc.deid_status = Document.DeidentificationStatus.PROCESSING
             doc.save(update_fields=[
                 'file_url',

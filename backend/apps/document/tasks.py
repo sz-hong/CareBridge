@@ -2,8 +2,9 @@ from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
 
-from core.deidentification import get_deidentification_client
+from core.deidentification import HIGH_RISK_LIKELIHOODS, get_deidentification_client
 from core.storage import build_public_url, delete_object, download_bytes, put_bytes
+from core.upload_paths import processed_key_for_raw_key
 
 from .models import Document
 
@@ -22,6 +23,10 @@ def deidentify_document_task(document_id):
         result_bytes, result_mime_type, findings, high_risk = _redact_document_bytes(
             raw_bytes,
             document.mime_type,
+        )
+        document.redacted_file_key = processed_key_for_raw_key(
+            document.raw_file_key,
+            content_type=result_mime_type,
         )
         put_bytes(document.redacted_file_key, result_bytes, result_mime_type)
 
@@ -69,7 +74,16 @@ def delete_expired_document_quarantine_files_task():
 
 def _redact_document_bytes(raw_bytes, mime_type):
     client = get_deidentification_client()
-    if mime_type.startswith('image/') or mime_type == 'application/pdf':
+    if mime_type == 'application/pdf':
+        findings = client.inspect_file_bytes(raw_bytes, mime_type=mime_type)
+        return (
+            _build_pdf_processed_preview(findings),
+            'text/plain',
+            [finding.to_dict() for finding in findings],
+            _has_high_risk_findings(findings),
+        )
+
+    if mime_type.startswith('image/'):
         redacted = client.redact_image(raw_bytes, mime_type=mime_type)
         return (
             redacted.bytes,
@@ -89,3 +103,24 @@ def _redact_document_bytes(raw_bytes, mime_type):
         result.findings_as_dicts(),
         result.high_risk,
     )
+
+
+def _has_high_risk_findings(findings):
+    return any(finding.likelihood in HIGH_RISK_LIKELIHOODS for finding in findings)
+
+
+def _build_pdf_processed_preview(findings):
+    lines = [
+        'Processed PDF preview',
+        '',
+        (
+            'The original PDF was inspected by the DLP provider. Redacted PDF '
+            'output is not supported by this DLP path, so this preview contains '
+            'metadata only and does not expose raw document text.'
+        ),
+        '',
+        f'Findings: {len(findings)}',
+    ]
+    for finding in findings:
+        lines.append(f'- {finding.info_type} ({finding.likelihood})')
+    return ('\n'.join(lines) + '\n').encode('utf-8')

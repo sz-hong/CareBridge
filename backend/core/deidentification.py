@@ -57,6 +57,9 @@ class DeidentificationClient(Protocol):
     def deidentify_text(self, text: str) -> DeidentificationResult:
         ...
 
+    def inspect_file_bytes(self, file_bytes: bytes, mime_type: str) -> list[PIIFinding]:
+        ...
+
     def redact_image(self, image_bytes: bytes, mime_type: str) -> RedactedFile:
         ...
 
@@ -81,6 +84,13 @@ class MockDeidentificationClient:
                 findings.append(PIIFinding(info_type=info_type, quote=match.group(0)))
             redacted = compiled.sub(f'[{info_type}]', redacted)
         return DeidentificationResult(text=redacted, findings=findings)
+
+    def inspect_file_bytes(self, file_bytes: bytes, mime_type: str) -> list[PIIFinding]:
+        try:
+            text = file_bytes.decode('utf-8')
+        except UnicodeDecodeError:
+            text = file_bytes.decode('utf-8', errors='ignore')
+        return self.inspect_text(text)
 
     def redact_image(self, image_bytes: bytes, mime_type: str) -> RedactedFile:
         return RedactedFile(bytes=image_bytes, mime_type=mime_type, findings=[])
@@ -151,6 +161,21 @@ class GoogleDLPDeidentificationClient:
         )
         return _findings_from_google_response(response.result.findings)
 
+    def inspect_file_bytes(self, file_bytes: bytes, mime_type: str) -> list[PIIFinding]:
+        response = self._client().inspect_content(
+            request={
+                'parent': self.parent,
+                'inspect_config': self._inspect_config(),
+                'item': {
+                    'byte_item': {
+                        'type_': _byte_content_type_for_mime_type(mime_type),
+                        'data': file_bytes,
+                    },
+                },
+            }
+        )
+        return _findings_from_google_response(response.result.findings)
+
     def deidentify_text(self, text: str) -> DeidentificationResult:
         findings = self.inspect_text(text)
         response = self._client().deidentify_content(
@@ -177,14 +202,16 @@ class GoogleDLPDeidentificationClient:
         )
 
     def redact_image(self, image_bytes: bytes, mime_type: str) -> RedactedFile:
+        mime_type = mime_type or ''
         content_type_index = {
             'image/jpeg': 1,
             'image/jpg': 1,
             'image/bmp': 2,
             'image/png': 3,
             'image/svg+xml': 4,
-            'application/pdf': 8,
         }.get(mime_type, 6 if mime_type.startswith('image/') else 0)
+        if content_type_index == 0:
+            raise ValueError(f'{mime_type} is not supported by DLP image redaction.')
 
         response = self._client().redact_image(
             request={
@@ -205,6 +232,26 @@ class GoogleDLPDeidentificationClient:
             mime_type=mime_type,
             findings=findings,
         )
+
+
+def _byte_content_type_for_mime_type(mime_type):
+    return {
+        'image/jpeg': 1,
+        'image/jpg': 1,
+        'image/bmp': 2,
+        'image/png': 3,
+        'image/svg+xml': 4,
+        'text/plain': 5,
+        'application/msword': 7,
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 7,
+        'application/pdf': 8,
+        'application/vnd.ms-powerpoint': 9,
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation': 9,
+        'application/vnd.ms-excel': 10,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 10,
+        'text/csv': 12,
+        'text/tab-separated-values': 13,
+    }.get(mime_type, 6 if (mime_type or '').startswith('image/') else 0)
 
 
 def _findings_from_google_response(findings):
