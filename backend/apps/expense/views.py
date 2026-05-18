@@ -95,7 +95,7 @@ class ExpenseViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        serializer = ExpenseSerializer(instance)
+        serializer = self.get_serializer(instance)
         return success_response(data=serializer.data)
 
     def update(self, request, *args, **kwargs):

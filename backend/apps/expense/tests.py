@@ -1,4 +1,4 @@
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from unittest.mock import patch
 from rest_framework.test import APIClient
@@ -80,6 +80,43 @@ class ExpenseAPIEndpointTests(TestCase):
         self.assertEqual(response.status_code, 200)
         ids = {item['id'] for item in response.json()['data']}
         self.assertEqual(ids, {str(own.id)})
+
+    @override_settings(AWS_STORAGE_BUCKET_NAME='carebridge-storage')
+    @patch(
+        'apps.expense.serializers.generate_download_url',
+        return_value='https://download.example/receipt.jpg',
+    )
+    def test_retrieve_returns_presigned_receipt_image_url(self, generate_download_url):
+        image_key = f'processed/{self.family.id}/receipts/receipt.jpg'
+        expense = self.create_expense(
+            image_url=f'https://storage.example/carebridge-storage/{image_key}',
+        )
+
+        response = self.client.get(f'/api/v1/expenses/{expense.id}/')
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()['data']
+        self.assertEqual(data['image_url'], 'https://download.example/receipt.jpg')
+        self.assertTrue(data['has_image'])
+        generate_download_url.assert_called_once_with(image_key)
+
+    @override_settings(AWS_STORAGE_BUCKET_NAME='carebridge-storage')
+    @patch('apps.expense.serializers.generate_download_url')
+    def test_list_keeps_receipt_image_url_unresolved(self, generate_download_url):
+        image_key = f'processed/{self.family.id}/receipts/receipt.jpg'
+        expense = self.create_expense(
+            image_url=f'https://storage.example/carebridge-storage/{image_key}',
+        )
+
+        response = self.client.get('/api/v1/expenses/')
+
+        self.assertEqual(response.status_code, 200)
+        item = next(
+            item for item in response.json()['data'] if item['id'] == str(expense.id)
+        )
+        self.assertIsNone(item['image_url'])
+        self.assertTrue(item['has_image'])
+        generate_download_url.assert_not_called()
 
     def test_create_assigns_family_recorder_and_completed_status(self):
         response = self.client.post(
