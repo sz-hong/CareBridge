@@ -299,6 +299,69 @@ class DocumentAPIContractTests(TestCase):
         self.assertNotIn(b'amy@example.com', body)
         build_url.assert_called_once_with(expected_key)
 
+    @patch('apps.document.tasks.put_bytes')
+    @patch('apps.document.tasks.download_bytes', return_value=b'%PDF-1.7 large pdf bytes')
+    @patch('apps.document.tasks.build_public_url', return_value='https://storage.example/processed.txt')
+    @patch('apps.document.tasks.get_deidentification_client')
+    def test_document_task_marks_large_pdf_for_review_when_dlp_size_limit_is_hit(
+        self,
+        get_client,
+        build_url,
+        download_bytes,
+        put_bytes,
+    ):
+        raw_key = f'quarantine/{self.family.id}/documents/large-report.pdf'
+        document = Document.objects.create(
+            family=self.family,
+            uploaded_by=self.user,
+            title='Large Medical Report',
+            category=Document.Category.MEDICAL,
+            file_url=None,
+            file_size=531732,
+            mime_type='application/pdf',
+            raw_file_key=raw_key,
+            redacted_file_key=f'processed/{self.family.id}/documents/large-report.txt',
+            deid_status=Document.DeidentificationStatus.PROCESSING,
+        )
+        get_client.return_value.inspect_file_bytes.side_effect = RuntimeError(
+            '400 Content size 531732 exceeds limit of 524288 [reason: "3" '
+            'domain: "dlp.googleapis.com"]'
+        )
+
+        result = deidentify_document_task(document.id)
+
+        document.refresh_from_db()
+        expected_key = f'processed/{self.family.id}/documents/large-report.txt'
+        self.assertEqual(result['status'], Document.DeidentificationStatus.NEEDS_REVIEW)
+        self.assertEqual(
+            document.deid_status,
+            Document.DeidentificationStatus.NEEDS_REVIEW,
+        )
+        self.assertEqual(document.redacted_file_key, expected_key)
+        self.assertEqual(document.file_url, 'https://storage.example/processed.txt')
+        self.assertEqual(document.deid_findings, [
+            {
+                'info_type': 'DLP_CONTENT_SIZE_LIMIT',
+                'likelihood': 'LIKELY',
+                'quote_length': 0,
+            }
+        ])
+        self.assertEqual(document.raw_file_key, raw_key)
+        download_bytes.assert_called_once_with(raw_key)
+        get_client.return_value.inspect_file_bytes.assert_called_once_with(
+            b'%PDF-1.7 large pdf bytes',
+            mime_type='application/pdf',
+        )
+        get_client.return_value.redact_image.assert_not_called()
+        put_bytes.assert_called_once()
+        put_key, body, content_type = put_bytes.call_args.args
+        self.assertEqual(put_key, expected_key)
+        self.assertEqual(content_type, 'text/plain')
+        self.assertIn(b'Content size exceeded the DLP inline limit.', body)
+        self.assertIn(b'DLP_CONTENT_SIZE_LIMIT', body)
+        self.assertNotIn(b'large pdf bytes', body)
+        build_url.assert_called_once_with(expected_key)
+
     @patch('apps.document.tasks.delete_object')
     def test_cleanup_deletes_completed_and_reviewed_document_raw_files_only(
         self,

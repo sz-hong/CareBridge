@@ -9,6 +9,13 @@ from core.upload_paths import processed_key_for_raw_key
 from .models import Document
 
 
+PDF_SIZE_LIMIT_FINDING = {
+    'info_type': 'DLP_CONTENT_SIZE_LIMIT',
+    'likelihood': 'LIKELY',
+    'quote_length': 0,
+}
+
+
 @shared_task
 def deidentify_document_task(document_id):
     try:
@@ -75,7 +82,17 @@ def delete_expired_document_quarantine_files_task():
 def _redact_document_bytes(raw_bytes, mime_type):
     client = get_deidentification_client()
     if mime_type == 'application/pdf':
-        findings = client.inspect_file_bytes(raw_bytes, mime_type=mime_type)
+        try:
+            findings = client.inspect_file_bytes(raw_bytes, mime_type=mime_type)
+        except Exception as exc:
+            if not _is_dlp_content_size_limit(exc):
+                raise
+            return (
+                _build_pdf_size_limit_preview(),
+                'text/plain',
+                [PDF_SIZE_LIMIT_FINDING.copy()],
+                True,
+            )
         return (
             _build_pdf_processed_preview(findings),
             'text/plain',
@@ -109,6 +126,11 @@ def _has_high_risk_findings(findings):
     return any(finding.likelihood in HIGH_RISK_LIKELIHOODS for finding in findings)
 
 
+def _is_dlp_content_size_limit(exc):
+    message = str(exc).lower()
+    return 'content size' in message and 'exceeds limit' in message
+
+
 def _build_pdf_processed_preview(findings):
     lines = [
         'Processed PDF preview',
@@ -123,4 +145,19 @@ def _build_pdf_processed_preview(findings):
     ]
     for finding in findings:
         lines.append(f'- {finding.info_type} ({finding.likelihood})')
+    return ('\n'.join(lines) + '\n').encode('utf-8')
+
+
+def _build_pdf_size_limit_preview():
+    lines = [
+        'Processed PDF preview',
+        '',
+        (
+            'Content size exceeded the DLP inline limit. The original PDF was '
+            'not included in this preview and requires manual review.'
+        ),
+        '',
+        'Findings: 1',
+        '- DLP_CONTENT_SIZE_LIMIT (LIKELY)',
+    ]
     return ('\n'.join(lines) + '\n').encode('utf-8')
