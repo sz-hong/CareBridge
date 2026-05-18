@@ -26,8 +26,17 @@ class SubsidyFormSerializer(serializers.Serializer):
             ('long_term_care', 'Long-term Care Subsidy'),
             ('disability', 'Disability Subsidy'),
             ('respite_care', 'Respite Care Subsidy'),
+            ('uploaded_template', 'Uploaded Form Template'),
         ]
     )
+    template_file = serializers.FileField(required=False, allow_empty_file=False)
+
+    def validate(self, attrs):
+        if attrs.get('form_type') == 'uploaded_template' and not attrs.get('template_file'):
+            raise serializers.ValidationError({
+                'template_file': 'A template file is required for uploaded_template.',
+            })
+        return attrs
 
 
 class FirstAidQuerySerializer(serializers.Serializer):

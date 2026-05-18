@@ -1,5 +1,6 @@
 import SwiftUI
 import QuickLook
+import UniformTypeIdentifiers
 
 struct AIAgentView: View {
     var isModal: Bool = false
@@ -318,6 +319,9 @@ private struct AIToolSheet: View {
     @State private var days = 7
     @State private var reportDate = Date()
     @State private var subsidyFormType = "long_term_care"
+    @State private var showTemplateImporter = false
+    @State private var selectedTemplateFileName: String?
+    @State private var selectedTemplateFileData: Data?
     @State private var isLoading = false
     @State private var errorMessage: String?
 
@@ -364,6 +368,13 @@ private struct AIToolSheet: View {
                     Button("完成") { dismiss() }
                 }
             }
+            .fileImporter(
+                isPresented: $showTemplateImporter,
+                allowedContentTypes: [.json, .plainText, .text],
+                allowsMultipleSelection: false
+            ) { result in
+                handleTemplateImport(result)
+            }
         }
     }
 
@@ -381,10 +392,29 @@ private struct AIToolSheet: View {
                 displayedComponents: .date
             )
         case .subsidyForm:
-            Picker("表單類型", selection: $subsidyFormType) {
-                Text("長照補助").tag("long_term_care")
-                Text("身障補助").tag("disability")
-                Text("喘息服務").tag("respite_care")
+            VStack(alignment: .leading, spacing: 12) {
+                Picker("表單類型", selection: $subsidyFormType) {
+                    Text("長照補助").tag("long_term_care")
+                    Text("身障補助").tag("disability")
+                    Text("喘息服務").tag("respite_care")
+                    Text("上傳表單").tag("uploaded_template")
+                }
+
+                Button {
+                    showTemplateImporter = true
+                } label: {
+                    Label(
+                        selectedTemplateFileName ?? "選擇表單格式檔",
+                        systemImage: "doc.badge.plus"
+                    )
+                }
+                .disabled(isLoading)
+
+                if subsidyFormType == "uploaded_template" {
+                    Text("請上傳純文字或 JSON 表單格式；系統會依欄位產生預填內容。")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
@@ -392,6 +422,12 @@ private struct AIToolSheet: View {
     @MainActor
     private func runTool() async {
         guard !isLoading else { return }
+        if tool == .subsidyForm,
+           subsidyFormType == "uploaded_template",
+           selectedTemplateFileData == nil {
+            errorMessage = "請先選擇表單格式檔。"
+            return
+        }
         isLoading = true
         errorMessage = nil
 
@@ -406,8 +442,11 @@ private struct AIToolSheet: View {
                 let response = try await dataService.generateHandoverReport(date: date)
                 document = AIGeneratedDocument.handoverReport(response)
             case .subsidyForm:
+                let usesUploadedTemplate = subsidyFormType == "uploaded_template"
                 let response = try await dataService.generateSubsidyForm(
-                    formType: subsidyFormType
+                    formType: subsidyFormType,
+                    templateFileName: usesUploadedTemplate ? selectedTemplateFileName : nil,
+                    templateFileData: usesUploadedTemplate ? selectedTemplateFileData : nil
                 )
                 document = AIGeneratedDocument.subsidyForm(response)
             }
@@ -418,6 +457,26 @@ private struct AIToolSheet: View {
         }
 
         isLoading = false
+    }
+
+    private func handleTemplateImport(_ result: Result<[URL], Error>) {
+        do {
+            guard let url = try result.get().first else { return }
+            let hasAccess = url.startAccessingSecurityScopedResource()
+            defer {
+                if hasAccess {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+            selectedTemplateFileData = try Data(contentsOf: url)
+            selectedTemplateFileName = url.lastPathComponent
+            subsidyFormType = "uploaded_template"
+            errorMessage = nil
+        } catch {
+            selectedTemplateFileData = nil
+            selectedTemplateFileName = nil
+            errorMessage = error.localizedDescription
+        }
     }
 }
 

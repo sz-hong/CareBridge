@@ -3,6 +3,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -690,6 +691,25 @@ class AIReportEndpointContractTests(TestCase):
         self.assertEqual(response.json()["data"]["analysis"], "care analysis")
 
     @patch("apps.ai_assistant.views._get_client")
+    def test_care_analysis_prompt_targets_doctor_visit_health_trends(self, mock_get_client):
+        mock_client = self._mock_client("care analysis")
+        mock_get_client.return_value = mock_client
+
+        response = self.client.post(
+            "/api/v1/ai/care-analysis/",
+            {"days": 14},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        user_prompt = mock_client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
+        self.assertIn("回診", user_prompt)
+        self.assertIn("醫師", user_prompt)
+        self.assertIn("身體數據變化", user_prompt)
+        self.assertIn("趨勢", user_prompt)
+        self.assertIn("blood_pressure_systolic", user_prompt)
+
+    @patch("apps.ai_assistant.views._get_client")
     def test_handover_report_uses_current_medication_schema(self, mock_get_client):
         mock_get_client.return_value = self._mock_client("handover report")
 
@@ -701,6 +721,44 @@ class AIReportEndpointContractTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["data"]["report"], "handover report")
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_handover_report_prompt_focuses_on_daily_and_future_work(self, mock_get_client):
+        mock_client = self._mock_client("handover report")
+        mock_get_client.return_value = mock_client
+        today = timezone.localdate()
+        Todo.objects.create(
+            family=self.family,
+            title="協助量血壓",
+            assignee=self.user,
+            priority=Todo.Priority.HIGH,
+            due_date=today,
+            created_by=self.user,
+        )
+        Todo.objects.create(
+            family=self.family,
+            title="下週回診準備",
+            assignee=self.user,
+            priority=Todo.Priority.MEDIUM,
+            due_date=today + timezone.timedelta(days=5),
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            "/api/v1/ai/handover-report/",
+            {"date": today.isoformat()},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        user_prompt = mock_client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
+        self.assertIn("看護交接", user_prompt)
+        self.assertIn("今天需要做什麼", user_prompt)
+        self.assertIn("未來需要做什麼", user_prompt)
+        self.assertIn("today_todos", user_prompt)
+        self.assertIn("future_todos", user_prompt)
+        self.assertIn("協助量血壓", user_prompt)
+        self.assertIn("下週回診準備", user_prompt)
 
     @patch("apps.ai_assistant.views._get_client")
     def test_subsidy_form_uses_current_aggregate_fields(self, mock_get_client):
@@ -717,6 +775,49 @@ class AIReportEndpointContractTests(TestCase):
             response.json()["data"]["form_fields"],
             {"monthly_expense_total": 350},
         )
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_subsidy_form_prompt_uses_backend_template_fields(self, mock_get_client):
+        mock_client = self._mock_client('{"applicant_name": "Grandpa Lin"}')
+        mock_get_client.return_value = mock_client
+
+        response = self.client.post(
+            "/api/v1/ai/subsidy-form/",
+            {"form_type": "long_term_care"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(data["template_name"], "長期照顧服務申請表")
+        user_prompt = mock_client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
+        self.assertIn("form_template", user_prompt)
+        self.assertIn("official_source", user_prompt)
+        self.assertIn("applicant_name", user_prompt)
+        self.assertIn("只依照表單模板欄位", user_prompt)
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_subsidy_form_accepts_uploaded_template_file(self, mock_get_client):
+        mock_client = self._mock_client('{"custom_field": "Grandpa Lin"}')
+        mock_get_client.return_value = mock_client
+        uploaded = SimpleUploadedFile(
+            "custom-form.txt",
+            "欄位：custom_field\n說明：自訂申請欄位".encode("utf-8"),
+            content_type="text/plain",
+        )
+
+        response = self.client.post(
+            "/api/v1/ai/subsidy-form/",
+            {"form_type": "uploaded_template", "template_file": uploaded},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(data["template_name"], "custom-form.txt")
+        user_prompt = mock_client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
+        self.assertIn("uploaded_template", user_prompt)
+        self.assertIn("custom_field", user_prompt)
 
 
 class FirstAidScenarioEndpointTests(TestCase):

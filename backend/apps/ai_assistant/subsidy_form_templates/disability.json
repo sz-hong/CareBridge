@@ -1,0 +1,25 @@
+{
+  "form_type": "disability",
+  "display_name": "身心障礙相關補助申請表",
+  "official_source": "地方政府社會局處身心障礙福利補助申請欄位格式",
+  "purpose": "整理身心障礙福利、生活補助或照顧相關補助申請所需資料",
+  "sections": [
+    {
+      "title": "申請人資料",
+      "fields": [
+        {"key": "applicant_name", "label": "申請人姓名", "instructions": "填入申請人姓名；不得臆測。"},
+        {"key": "id_number", "label": "身分證字號", "instructions": "文件號碼屬 protected entity；不得猜測或改寫。"},
+        {"key": "contact_phone", "label": "聯絡電話", "instructions": "電話號碼不得翻譯或改寫。"},
+        {"key": "address", "label": "通訊地址", "instructions": "地址不得翻譯或改寫；資料不足留空。"}
+      ]
+    },
+    {
+      "title": "障礙與照顧狀況",
+      "fields": [
+        {"key": "disability_status", "label": "身心障礙狀況", "instructions": "若系統沒有證明文件或等級資料，填入待補。"},
+        {"key": "daily_living_limitations", "label": "日常生活限制", "instructions": "根據照護紀錄摘要需要協助的活動。"},
+        {"key": "care_expense_summary", "label": "照顧支出摘要", "instructions": "根據近期費用資料整理，不得捏造金額。"}
+      ]
+    }
+  ]
+}

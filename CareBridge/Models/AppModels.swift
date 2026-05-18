@@ -2032,12 +2032,13 @@ struct AIGeneratedDocument: Identifiable, Codable, Equatable {
     }
 
     static func subsidyForm(_ response: AISubsidyFormResponse) -> AIGeneratedDocument {
+        let title = response.templateName.flatMap { $0.isEmpty ? nil : $0 } ?? "補助表單"
         let body = response.formFields
             .sorted { $0.key < $1.key }
             .map { "\($0.key): \($0.value)" }
             .joined(separator: "\n")
         return AIGeneratedDocument(
-            title: "補助表單",
+            title: title,
             kind: .subsidyForm,
             body: body
         )
@@ -2175,15 +2176,25 @@ private enum DynamicFormValue: Decodable {
 
 struct AISubsidyFormResponse: Codable {
     var formType: String
+    var templateName: String?
+    var templateSource: String?
     var formFields: [String: String]
     var tokensUsed: Int
 
     private enum CodingKeys: String, CodingKey {
-        case formType, formFields, tokensUsed
+        case formType, templateName, templateSource, formFields, tokensUsed
     }
 
-    init(formType: String, formFields: [String: String], tokensUsed: Int) {
+    init(
+        formType: String,
+        templateName: String? = nil,
+        templateSource: String? = nil,
+        formFields: [String: String],
+        tokensUsed: Int
+    ) {
         self.formType = formType
+        self.templateName = templateName
+        self.templateSource = templateSource
         self.formFields = formFields
         self.tokensUsed = tokensUsed
     }
@@ -2191,6 +2202,8 @@ struct AISubsidyFormResponse: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         formType = (try? container.decode(String.self, forKey: .formType)) ?? ""
+        templateName = try? container.decodeIfPresent(String.self, forKey: .templateName)
+        templateSource = try? container.decodeIfPresent(String.self, forKey: .templateSource)
         tokensUsed = (try? container.decode(Int.self, forKey: .tokensUsed)) ?? 0
         let rawFields = (try? container.decode([String: DynamicFormValue].self, forKey: .formFields)) ?? [:]
         formFields = rawFields.mapValues(\.stringValue)

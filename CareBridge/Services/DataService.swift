@@ -216,7 +216,11 @@ protocol DataService {
     func sendAIMessage(content: String) async throws -> AIMessage
     func fetchCareAnalysis(days: Int) async throws -> AICareAnalysisResponse
     func generateHandoverReport(date: String) async throws -> AIHandoverReportResponse
-    func generateSubsidyForm(formType: String) async throws -> AISubsidyFormResponse
+    func generateSubsidyForm(
+        formType: String,
+        templateFileName: String?,
+        templateFileData: Data?
+    ) async throws -> AISubsidyFormResponse
     func streamAIResponse(
         prompt: String,
         conversationID: String?
@@ -231,6 +235,16 @@ protocol DataService {
 
     // Push Notifications
     func registerPushToken(_ token: String) async throws
+}
+
+extension DataService {
+    func generateSubsidyForm(formType: String) async throws -> AISubsidyFormResponse {
+        try await generateSubsidyForm(
+            formType: formType,
+            templateFileName: nil,
+            templateFileData: nil
+        )
+    }
 }
 
 // MARK: - Environment Key

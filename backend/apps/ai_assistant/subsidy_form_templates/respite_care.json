@@ -1,0 +1,25 @@
+{
+  "form_type": "respite_care",
+  "display_name": "喘息服務申請表",
+  "official_source": "衛生福利部及地方長期照顧管理中心喘息服務申請欄位格式",
+  "purpose": "整理主要照顧者喘息服務申請所需的照顧負荷與服務需求",
+  "sections": [
+    {
+      "title": "申請與聯絡資料",
+      "fields": [
+        {"key": "applicant_name", "label": "申請人姓名", "instructions": "填入申請人或長者姓名；資料不足留空。"},
+        {"key": "primary_caregiver", "label": "主要照顧者", "instructions": "若系統可判斷主要照顧者則填入姓名；姓名不得翻譯。"},
+        {"key": "contact_phone", "label": "聯絡電話", "instructions": "電話號碼不得翻譯或改寫。"},
+        {"key": "service_address", "label": "服務地址", "instructions": "地址不得翻譯或改寫；資料不足留空。"}
+      ]
+    },
+    {
+      "title": "喘息服務需求",
+      "fields": [
+        {"key": "caregiver_burden_summary", "label": "照顧負荷摘要", "instructions": "根據近期照護紀錄摘要照顧密度與壓力來源。"},
+        {"key": "requested_respite_period", "label": "希望服務時段", "instructions": "系統沒有明確日期時填入待討論。"},
+        {"key": "special_care_notes", "label": "特殊照護注意事項", "instructions": "整理用藥、移位、飲食或安全注意事項。"}
+      ]
+    }
+  ]
+}
