@@ -72,7 +72,7 @@ extension APIDataService {
             )
         }
 
-        try await post(
+        return try await post(
             path: APIEndpoint.aiSubsidyForm,
             body: SubsidyFormRequestBody(formType: formType)
         )
