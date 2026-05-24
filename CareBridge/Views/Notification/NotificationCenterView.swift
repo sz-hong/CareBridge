@@ -106,6 +106,7 @@ struct NotificationCenterView: View {
 // MARK: - Notification Row
 struct NotificationRow: View {
     let notification: AppNotification
+    @Environment(LocaleStore.self) private var localeStore
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
@@ -121,7 +122,7 @@ struct NotificationRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text(notification.title)
+                    Text(notification.displayTitle(language: localeStore.code))
                         .font(.system(size: 15, weight: notification.isRead ? .regular : .semibold))
                     Spacer()
                     if !notification.isRead {
@@ -130,7 +131,7 @@ struct NotificationRow: View {
                             .frame(width: 8, height: 8)
                     }
                 }
-                Text(notification.body)
+                Text(notification.displayBody(language: localeStore.code))
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
