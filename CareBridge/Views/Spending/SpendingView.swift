@@ -160,7 +160,7 @@ struct SpendingView: View {
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd"
         for exp in expenses {
-            csv += "\(fmt.string(from: exp.date)),\(exp.title),\(exp.category),\(Int(exp.amount))\n"
+            csv += "\(fmt.string(from: exp.date)),\(exp.title),\(Expense.localizedCategoryName(exp.category)),\(Int(exp.amount))\n"
         }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("CareBridge_消費記錄.csv")
         try? csv.write(to: url, atomically: true, encoding: .utf8)
@@ -186,22 +186,23 @@ struct SpendingView: View {
 
     // MARK: - Chart Helpers
 
-    private struct LegendItem { let name: String; let percentage: Double; let color: Color }
-
-    /// Maps backend enum keys (food/medical/…) to the UI's Chinese labels so
-    /// summary data from `/expenses/monthly/` matches the picker's category names.
-    private func normalizeCategory(_ cat: String) -> String {
-        Expense.wireToCategory[cat] ?? cat
+    private struct LegendItem: Identifiable {
+        let id = UUID()
+        let key: LocalizedStringKey
+        let percentage: Double
+        let color: Color
     }
 
-    private func colorForCategory(_ cat: String) -> Color {
-        switch normalizeCategory(cat) {
-        case "醫療保健": return .brandTeal
-        case "日常飲食": return .orange
-        case "生活用品": return .purple
-        case "交通":    return .blue
-        case "其他":    return .pink
-        default:        return Color(.systemGray4)
+    /// Backend 已正規化分類成 wire codes（medical / food / daily / transport /
+    /// other），這裡只負責決定顏色。顯示名稱統一交給 LocalizedStringKey。
+    private func colorForCategory(_ wireCode: String) -> Color {
+        switch wireCode {
+        case "medical":   return .brandTeal
+        case "food":      return .orange
+        case "daily":     return .purple
+        case "transport": return .blue
+        case "other":     return .pink
+        default:          return Color(.systemGray4)
         }
     }
 
@@ -222,11 +223,16 @@ struct SpendingView: View {
 
     private func legendItems() -> [LegendItem] {
         guard let items = summary?.categoryBreakdown, !items.isEmpty else {
-            return Expense.categoryBreakdown.map { LegendItem(name: $0.0, percentage: $0.1, color: $0.2) }
+            return Expense.categoryBreakdown.map {
+                LegendItem(key: Expense.localizedCategoryKey($0.0),
+                           percentage: $0.1, color: $0.2)
+            }
         }
-        return items.map { LegendItem(name: normalizeCategory($0.category),
-                                       percentage: $0.percentage,
-                                       color: colorForCategory($0.category)) }
+        return items.map {
+            LegendItem(key: Expense.localizedCategoryKey($0.category),
+                       percentage: $0.percentage,
+                       color: colorForCategory($0.category))
+        }
     }
 
     // MARK: - Monthly Card
@@ -277,11 +283,11 @@ struct SpendingView: View {
 
             // Legend
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                ForEach(legendItems(), id: \.name) { item in
+                ForEach(legendItems()) { item in
                     HStack(spacing: 8) {
                         Circle().fill(item.color).frame(width: 8, height: 8)
                         VStack(alignment: .leading, spacing: 0) {
-                            Text(item.name)
+                            Text(item.key)
                                 .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
                             Text("\(Int(item.percentage))%")
@@ -837,13 +843,13 @@ struct OCRConfirmationView: View {
     @State private var storeName: String
     @State private var totalAmount: String
     @State private var receiptDate: Date
-    @State private var category = "日常飲食"
+    @State private var category = "food"
     @State private var note = ""
     @State private var showRawText = false
     @State private var isSaving = false
     @State private var saveError: String?
 
-    private let categories = ["醫療保健", "日常飲食", "生活用品", "交通", "其他"]
+    private let categories: [String] = Expense.allCategoryCodes
 
     init(ocrResult: OCRResult, onSave: @escaping (Expense) -> Void) {
         self.ocrResult = ocrResult
@@ -901,7 +907,9 @@ struct OCRConfirmationView: View {
 
                 Section("分類與備註") {
                     Picker("分類", selection: $category) {
-                        ForEach(categories, id: \.self) { Text($0).tag($0) }
+                        ForEach(categories, id: \.self) { code in
+                            Text(Expense.localizedCategoryKey(code)).tag(code)
+                        }
                     }
                     TextField("備註（選填）", text: $note)
                 }
@@ -1034,7 +1042,10 @@ struct ExpenseDetailView: View {
                     Divider()
                     detailRow(label: "金額", value: "NT$ \(Int(expense.amount).formatted())")
                     Divider()
-                    detailRow(label: "分類", value: expense.category.isEmpty ? "—" : expense.category)
+                    detailRow(
+                        label: "分類",
+                        value: expense.category.isEmpty ? "—" : Expense.localizedCategoryName(expense.category),
+                    )
                     Divider()
                     detailRow(label: "日期", value: expense.date.formatted(date: .long, time: .shortened))
                 }

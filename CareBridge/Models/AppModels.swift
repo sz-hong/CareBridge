@@ -1207,32 +1207,40 @@ struct Expense: Identifiable, Codable {
         self.receiptImage = receiptImage
     }
 
-    // Backend stores per-item category as enum keys inside `items` JSONB.
-    // UI uses Chinese labels from OCRConfirmationView's picker; translate both ways.
-    static let categoryToWire: [String: String] = [
-        "醫療保健": "medical",
-        "日常飲食": "food",
-        "生活用品": "daily",
-        "交通":    "transport",
-        "其他":    "other",
-    ]
-    static let wireToCategory: [String: String] = [
-        "medical":   "醫療保健",
-        "food":      "日常飲食",
-        "daily":     "生活用品",
-        "transport": "交通",
-        "other":     "其他",
-    ]
+    /// 五個正規分類 wire code —— UI 顯示名稱透過 `localizedDisplayName`
+    /// 翻譯，所以 picker、summary、breakdown 全部都帶 code，不再夾帶
+    /// 中文字串。zhTW/vi/id/tl 對應放在 Localizable.xcstrings。
+    static let allCategoryCodes: [String] = ["medical", "food", "daily", "transport", "other"]
+
+    static func localizedCategoryKey(_ code: String) -> LocalizedStringKey {
+        switch code {
+        case "medical":   return "category.medical"
+        case "food":      return "category.food"
+        case "daily":     return "category.daily"
+        case "transport": return "category.transport"
+        case "other":     return "category.other"
+        default:          return LocalizedStringKey(code)
+        }
+    }
+
+    /// 純 String 用途（CSV 匯出、無法吃 LocalizedStringKey 的 Text）。
+    static func localizedCategoryName(_ code: String, locale: Locale = .current) -> String {
+        let key = "category.\(code)"
+        let bundle = Bundle.main
+        let value = bundle.localizedString(forKey: key, value: code, table: nil)
+        return value
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id       = try c.decode(String.self, forKey: .id)
         title    = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
-        // Backend has no top-level `category`; category is a per-item field inside items JSONB.
-        // Read first item's category and normalize backend enum keys to UI labels.
+        // Backend stores per-item category as enum keys inside `items` JSONB
+        // (medical / food / daily / transport / other). 直接收 wire code，
+        // 顯示時才透過 localizedCategoryKey 轉成當前語言。
         if let items = try? c.decodeIfPresent([[String: String]].self, forKey: .items),
            let raw = items.first?["category"], !raw.isEmpty {
-            category = Expense.wireToCategory[raw] ?? raw
+            category = raw
         } else {
             category = ""
         }
@@ -1263,10 +1271,11 @@ struct Expense: Identifiable, Codable {
         try c.encode(amount, forKey: .amount)
         let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
         try c.encode(df.string(from: date), forKey: .date)
-        let wireCat = Expense.categoryToWire[category] ?? category
+        // category 已經是 wire code（medical / food / daily / transport / other），
+        // 直接帶出去；舊資料若仍是中文，留原樣讓後端驗證再拋錯比較好抓到。
         let item: [String: String] = [
             "name": title,
-            "category": wireCat,
+            "category": category,
         ]
         try c.encode([item], forKey: .items)
         if let rawImageKey {
@@ -1278,27 +1287,30 @@ struct Expense: Identifiable, Codable {
 
     var categoryIcon: String {
         switch category {
-        case "醫療保健": return "cross.fill"
-        case "日常飲食": return "fork.knife"
-        case "生活用品": return "shippingbox.fill"
-        case "交通":    return "car.fill"
-        case "其他":    return "bag.fill"
-        default:        return "bag.fill"
+        case "medical":   return "cross.fill"
+        case "food":      return "fork.knife"
+        case "daily":     return "shippingbox.fill"
+        case "transport": return "car.fill"
+        case "other":     return "bag.fill"
+        default:          return "bag.fill"
         }
     }
 
     var categoryColor: Color {
         switch category {
-        case "醫療保健": return Color(red: 0.0, green: 0.55, blue: 0.6)
-        case "日常飲食": return .orange
-        case "生活用品": return .purple
-        case "交通":    return .blue
-        case "其他":    return .pink
-        default:        return .gray
+        case "medical":   return Color(red: 0.0, green: 0.55, blue: 0.6)
+        case "food":      return .orange
+        case "daily":     return .purple
+        case "transport": return .blue
+        case "other":     return .pink
+        default:          return .gray
         }
     }
 
-    var categoryDisplayName: String { category }
+    /// SwiftUI `Text` 用：吃 LocalizedStringKey，會走 Localizable.xcstrings。
+    var categoryDisplayKey: LocalizedStringKey { Expense.localizedCategoryKey(category) }
+    /// Backward-compat：CSV / 純字串拼接才用，不再回傳 wire code。
+    var categoryDisplayName: String { Expense.localizedCategoryName(category) }
 
     static var samples: [Expense] {
         [
@@ -1315,12 +1327,14 @@ struct Expense: Identifiable, Codable {
 
     static var monthlyTotal: Double { 24850 }
 
+    /// Fallback breakdown 用 wire codes，跟 backend `categoryBreakdown[].category`
+    /// 對齊；UI 拿去 `Expense.localizedCategoryKey` 轉成顯示字。
     static var categoryBreakdown: [(String, Double, Color)] {
         [
-            ("醫療保健", 45, Color(red: 0.0, green: 0.55, blue: 0.6)),
-            ("日常飲食", 25, .orange),
-            ("生活用品", 20, .purple),
-            ("其他支出", 10, .gray),
+            ("medical", 45, Color(red: 0.0, green: 0.55, blue: 0.6)),
+            ("food",    25, .orange),
+            ("daily",   20, .purple),
+            ("other",   10, .gray),
         ]
     }
 }
@@ -1351,6 +1365,10 @@ enum Priority: String, CaseIterable, Codable {
 struct TodoItem: Identifiable, Codable {
     var id: String
     var title: String
+    /// API: `title_translated` — { "zh-TW": "...", "vi": "...", ... }
+    /// 後端會把建立者填的 title 翻成所有支援語言。UI 透過
+    /// `displayTitle(language:)` 取對應翻譯，缺則回原文。
+    var titleTranslations: [String: String]?
     var assignee: String    // API: assignee.name (read-only display)
     var assigneeId: String? // API: assignee.id — required by CreateTodoSerializer as `assignee_id`
     var priority: Priority
@@ -1360,21 +1378,28 @@ struct TodoItem: Identifiable, Codable {
     private enum CodingKeys: String, CodingKey {
         // All snake_case keys auto-converted by .convertFromSnakeCase
         case id, title, priority, assignee, status
-        case dueDate, assigneeId
+        case dueDate, assigneeId, titleTranslated
     }
     private enum AssigneeKeys: String, CodingKey { case id, name }
 
     init(id: String, title: String, assignee: String, priority: Priority,
-         dueDate: Date?, isCompleted: Bool, assigneeId: String? = nil) {
+         dueDate: Date?, isCompleted: Bool, assigneeId: String? = nil,
+         titleTranslations: [String: String]? = nil) {
         self.id = id; self.title = title; self.assignee = assignee
         self.assigneeId = assigneeId
         self.priority = priority; self.dueDate = dueDate; self.isCompleted = isCompleted
+        self.titleTranslations = titleTranslations
+    }
+
+    func displayTitle(language: String?) -> String {
+        translatedText(original: title, translations: titleTranslations, language: language)
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id       = try c.decode(String.self, forKey: .id)
         title    = try c.decode(String.self, forKey: .title)
+        titleTranslations = try c.decodeIfPresent([String: String].self, forKey: .titleTranslated)
         priority = try c.decode(Priority.self, forKey: .priority)
         if let dateStr = try? c.decodeIfPresent(String.self, forKey: .dueDate) {
             let fmt = DateFormatter()
@@ -1427,24 +1452,47 @@ struct TodoItem: Identifiable, Codable {
 struct CalendarEvent: Identifiable, Codable {
     var id: String
     var title: String
+    /// API: title_translated — UI 透過 displayTitle(language:) 取對應翻譯。
+    var titleTranslations: [String: String]?
+    var note: String?
+    var noteTranslations: [String: String]?
     var date: Date      // API: start_time
     var location: String?
     var type: String    // API types: "medical" / "medication" / "rehab" / "leave" / "personal" / "other"
 
     private enum CodingKeys: String, CodingKey {
-        case id, title, location, type
+        case id, title, location, type, note
         case date = "startTime"   // API: start_time → convertFromSnakeCase → startTime
+        case titleTranslated, noteTranslated
     }
 
-    init(id: String, title: String, date: Date, location: String?, type: String) {
+    init(id: String, title: String, date: Date, location: String?, type: String,
+         note: String? = nil,
+         titleTranslations: [String: String]? = nil,
+         noteTranslations: [String: String]? = nil) {
         self.id = id; self.title = title; self.date = date
         self.location = location; self.type = type
+        self.note = note
+        self.titleTranslations = titleTranslations
+        self.noteTranslations = noteTranslations
+    }
+
+    func displayTitle(language: String?) -> String {
+        translatedText(original: title, translations: titleTranslations, language: language)
+    }
+
+    func displayNote(language: String?) -> String? {
+        guard let note else { return nil }
+        return translatedText(original: note, translations: noteTranslations, language: language)
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id       = try c.decode(String.self, forKey: .id)
         title    = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? ""
+        titleTranslations = try? c.decodeIfPresent([String: String].self, forKey: .titleTranslated)
+        note     = try? c.decodeIfPresent(String.self, forKey: .note)
+        noteTranslations = try? c.decodeIfPresent([String: String].self, forKey: .noteTranslated)
         date     = (try? c.decodeIfPresent(Date.self, forKey: .date)) ?? Date()
         location = try? c.decodeIfPresent(String.self, forKey: .location)
         type     = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? "other"
@@ -1551,17 +1599,27 @@ struct LeaveRequest: Identifiable, Codable {
     var status: LeaveStatus
     var applicantName: String?  // 申請人姓名
     var votes: [LeaveVote]?     // 家屬投票
+    /// API: reason_translations — 多語言版本的 reason。
+    var reasonTranslations: [String: String]?
 
     private enum CodingKeys: String, CodingKey {
         // All snake_case keys auto-converted by .convertFromSnakeCase
         case id, type, reason, status, startDate, endDate, applicantName, votes
+        case reasonTranslations
     }
 
     init(id: String, type: String, startDate: Date, endDate: Date,
-         reason: String, status: LeaveStatus, applicantName: String? = nil, votes: [LeaveVote]? = nil) {
+         reason: String, status: LeaveStatus,
+         applicantName: String? = nil, votes: [LeaveVote]? = nil,
+         reasonTranslations: [String: String]? = nil) {
         self.id = id; self.type = type; self.startDate = startDate
         self.endDate = endDate; self.reason = reason; self.status = status
         self.applicantName = applicantName; self.votes = votes
+        self.reasonTranslations = reasonTranslations
+    }
+
+    func displayReason(language: String?) -> String {
+        translatedText(original: reason, translations: reasonTranslations, language: language)
     }
 
     init(from decoder: Decoder) throws {
@@ -1569,6 +1627,7 @@ struct LeaveRequest: Identifiable, Codable {
         id     = try c.decode(String.self, forKey: .id)
         type   = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? "personal"
         reason = (try? c.decodeIfPresent(String.self, forKey: .reason)) ?? ""
+        reasonTranslations = try? c.decodeIfPresent([String: String].self, forKey: .reasonTranslations)
         status = (try? c.decodeIfPresent(LeaveStatus.self, forKey: .status)) ?? .pending
         let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
         let s1 = (try? c.decodeIfPresent(String.self, forKey: .startDate)) ?? ""

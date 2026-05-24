@@ -3,6 +3,7 @@ import SwiftUI
 struct SharedCalendarView: View {
     @Environment(CalendarStore.self) private var calendarStore
     @Environment(TodoStore.self) private var todoStore
+    @Environment(LocaleStore.self) private var localeStore
     @State private var selectedDate = Date()
     @State private var showAddSheet = false
     @State private var addType: AddType = .event
@@ -10,12 +11,9 @@ struct SharedCalendarView: View {
     private enum AddType { case event, todo }
 
     private let calendar = Calendar.current
-    private let monthFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy年M月"
-        f.locale = Locale(identifier: "zh-TW")
-        return f
-    }()
+    private var monthFormatter: DateFormatter {
+        LocalizedFormatters.monthYear(for: localeStore.locale)
+    }
 
     private var daysInMonth: [Date?] {
         guard let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: selectedDate)),
@@ -203,6 +201,7 @@ struct SharedCalendarView: View {
 struct CalendarTodoRow: View {
     let todo: TodoItem
     let onToggle: () -> Void
+    @Environment(LocaleStore.self) private var localeStore
 
     var body: some View {
         HStack(spacing: 14) {
@@ -214,7 +213,7 @@ struct CalendarTodoRow: View {
             .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(todo.title)
+                Text(todo.displayTitle(language: localeStore.code))
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(todo.isCompleted ? .secondary : .primary)
                     .strikethrough(todo.isCompleted)
@@ -343,6 +342,7 @@ struct DayCell: View {
 
 // MARK: - Event Row
 struct EventRow: View {
+    @Environment(LocaleStore.self) private var localeStore
     let event: CalendarEvent
 
     var body: some View {
@@ -356,7 +356,7 @@ struct EventRow: View {
                     .foregroundStyle(event.typeColor)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(event.title)
+                Text(event.displayTitle(language: localeStore.code))
                     .font(.system(size: 15, weight: .medium))
                 if let location = event.location {
                     Text(location)

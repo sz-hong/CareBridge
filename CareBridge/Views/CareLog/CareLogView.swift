@@ -4,6 +4,7 @@ struct CareLogView: View {
     @Binding var showProfile: Bool
     let userRole: UserRole
     @Environment(CareLogStore.self) private var careLogStore
+    @Environment(LocaleStore.self) private var localeStore
     @State private var selectedFilter: CareLogType? = nil
     @State private var showAddEntry = false
     @State private var showNotifications = false
@@ -12,12 +13,12 @@ struct CareLogView: View {
 
     private let calendar = Calendar.current
 
-    private let dateFormatter: DateFormatter = {
+    private var dateFormatter: DateFormatter {
         let f = DateFormatter()
-        f.dateFormat = "MM月dd日 EEEE"
-        f.locale = Locale(identifier: "zh-TW")
+        f.locale = localeStore.locale
+        f.setLocalizedDateFormatFromTemplate("MMMMdEEEE")
         return f
-    }()
+    }
 
     var filteredEntries: [CareLogEntry] {
         let sameDayEntries = careLogStore.entries.filter {
@@ -248,8 +249,8 @@ struct CareLogView: View {
 
     private var calendarTitle: String {
         let fmt = DateFormatter()
-        fmt.locale = Locale(identifier: "zh-TW")
-        fmt.dateFormat = calendarMode == 0 ? "M月" : "yyyy年M月"
+        fmt.locale = localeStore.locale
+        fmt.setLocalizedDateFormatFromTemplate(calendarMode == 0 ? "MMMM" : "yMMMM")
         return fmt.string(from: selectedDate)
     }
 

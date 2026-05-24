@@ -7,7 +7,11 @@ struct DocumentsView: View {
     @State private var documents: [AppDocument] = []
     @State private var selectedCategory = "全部"
     @State private var showUpload = false
-    @State private var previewURL: URL? = nil
+    // QuickLook 在 iOS 上對 remote presigned URL 不穩定（常常只顯示檔名），
+    // 一律先把 processed 檔下載到 caches 再交本機 file:// 給它。
+    @State private var previewLocalURL: URL? = nil
+    @State private var previewLoadingDocumentID: String?
+    @State private var previewError: String?
     @State private var pollingToken = UUID()
 
     private let pollIntervalNanoseconds: UInt64 = 5_000_000_000
@@ -56,18 +60,18 @@ struct DocumentsView: View {
             } else {
                 List {
                     ForEach(filteredDocuments) { doc in
-                        DocumentRow(document: doc) {
-                            // Open document preview
-                            if let url = doc.previewURL {
-                                previewURL = url
-                            }
+                        DocumentRow(
+                            document: doc,
+                            isLoadingPreview: previewLoadingDocumentID == doc.id,
+                        ) {
+                            Task { await preparePreview(for: doc) }
                         }
                         .listRowBackground(Color.white)
                     }
                     .onDelete(perform: deleteDocuments)
                 }
                 .listStyle(.plain)
-                .quickLookPreview($previewURL)
+                .quickLookPreview($previewLocalURL)
             }
         }
         .background(Color.brandBackground)
@@ -98,6 +102,68 @@ struct DocumentsView: View {
         }
         .task(id: pollingToken) {
             await pollDocumentsUntilProcessed()
+        }
+        .alert("無法載入預覽", isPresented: Binding(
+            get: { previewError != nil },
+            set: { if !$0 { previewError = nil } }
+        )) {
+            Button("確定", role: .cancel) { previewError = nil }
+        } message: {
+            Text(previewError ?? "")
+        }
+    }
+
+    // MARK: - Preview
+
+    @MainActor
+    private func preparePreview(for document: AppDocument) async {
+        guard let remoteURL = document.previewURL else { return }
+        previewLoadingDocumentID = document.id
+        previewError = nil
+        defer { previewLoadingDocumentID = nil }
+
+        do {
+            previewLocalURL = try await downloadPreviewFile(
+                remoteURL: remoteURL,
+                documentID: document.id,
+            )
+        } catch {
+            previewError = "Unable to load preview. Please try again."
+        }
+    }
+
+    private func downloadPreviewFile(remoteURL: URL, documentID: String) async throws -> URL {
+        let (temporaryURL, response) = try await URLSession.shared.download(from: remoteURL)
+        guard let http = response as? HTTPURLResponse, 200...299 ~= http.statusCode else {
+            throw URLError(.badServerResponse)
+        }
+
+        let contentType = http.value(forHTTPHeaderField: "Content-Type")
+        let ext = Self.previewFileExtension(remoteURL: remoteURL, contentType: contentType)
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CareBridgePreviews", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let destination = directory.appendingPathComponent("\(documentID).\(ext)")
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+        try FileManager.default.moveItem(at: temporaryURL, to: destination)
+        return destination
+    }
+
+    static func previewFileExtension(remoteURL: URL, contentType: String?) -> String {
+        let pathExtension = remoteURL.pathExtension.lowercased()
+        if ["png", "jpg", "jpeg", "pdf", "txt"].contains(pathExtension) {
+            return pathExtension
+        }
+        switch contentType?.lowercased().split(separator: ";").first.map(String.init) {
+        case "image/png":       return "png"
+        case "image/jpeg":      return "jpg"
+        case "application/pdf": return "pdf"
+        case "text/plain":      return "txt"
+        default:                return "dat"
         }
     }
 
@@ -160,6 +226,7 @@ struct DocumentsView: View {
 // MARK: - Document Row
 struct DocumentRow: View {
     let document: AppDocument
+    var isLoadingPreview: Bool = false
     let onPreview: () -> Void
 
     var body: some View {
@@ -199,12 +266,17 @@ struct DocumentRow: View {
                 Button {
                     onPreview()
                 } label: {
-                    Image(systemName: "eye.circle")
-                        .foregroundStyle(document.previewURL == nil ? .secondary : Color.brandTeal)
-                        .font(.system(size: 20))
+                    if isLoadingPreview {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "eye.circle")
+                            .foregroundStyle(document.previewURL == nil ? .secondary : Color.brandTeal)
+                            .font(.system(size: 20))
+                    }
                 }
                 .buttonStyle(.plain)
-                .disabled(document.previewURL == nil)
+                .disabled(document.previewURL == nil || isLoadingPreview)
             }
         }
         .padding(.vertical, 6)

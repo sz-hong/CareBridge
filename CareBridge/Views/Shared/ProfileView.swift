@@ -331,7 +331,10 @@ struct ProfileView: View {
         return newId
     }
 
-    private func profileRow(icon: String, label: String, value: String) -> some View {
+    /// `label` 是 UI 字串（會走 Localizable.xcstrings），`value` 是後端帶下來
+    /// 的個資（姓名/電話/email 等），故意保留原始 String 不過 LocalizedStringKey
+    /// —— 個資不能被當成 key 去查翻譯表。
+    private func profileRow(icon: String, label: LocalizedStringKey, value: String) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .foregroundStyle(Color.brandTeal)
