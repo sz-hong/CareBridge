@@ -113,6 +113,7 @@ struct TodoView: View {
 struct TodoRow: View {
     let todo: TodoItem
     let onToggle: () -> Void
+    @Environment(LocaleStore.self) private var localeStore
 
     var body: some View {
         HStack(spacing: 14) {
@@ -124,7 +125,7 @@ struct TodoRow: View {
             .buttonStyle(.plain)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(todo.title)
+                Text(todo.displayTitle(language: localeStore.code))
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(todo.isCompleted ? .secondary : .primary)
                     .strikethrough(todo.isCompleted)

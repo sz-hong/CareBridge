@@ -9,13 +9,14 @@ struct LeaveRequestDetailView: View {
     let userRole: UserRole
     @Environment(\.dataService) private var service
     @Environment(UserStore.self) private var userStore
+    @Environment(LocaleStore.self) private var localeStore
     @State private var request: LeaveRequest?
     @State private var isLoading = true
     @State private var hasVoted = false
 
-    private let dateFmt: DateFormatter = {
-        let f = DateFormatter(); f.dateFormat = "yyyy/M/d（E）"; f.locale = Locale(identifier: "zh-TW"); return f
-    }()
+    private var dateFmt: DateFormatter {
+        LocalizedFormatters.shortDateWithWeekday(for: localeStore.locale)
+    }
 
     var body: some View {
         Group {
@@ -97,7 +98,7 @@ struct LeaveRequestDetailView: View {
                     Text("請假原因")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.secondary)
-                    Text(req.reason)
+                    Text(req.displayReason(language: localeStore.code))
                         .font(.system(size: 14))
                         .foregroundStyle(.primary)
                 }

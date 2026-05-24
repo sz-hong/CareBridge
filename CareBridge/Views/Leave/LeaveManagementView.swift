@@ -131,6 +131,7 @@ struct LeaveRequestRow: View {
     let userRole: UserRole
     let onApprove: () -> Void
     let onReject: () -> Void
+    @Environment(LocaleStore.self) private var localeStore
 
     private let dateFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -173,7 +174,7 @@ struct LeaveRequestRow: View {
                     Image(systemName: "text.quote")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
-                    Text(request.reason)
+                    Text(request.displayReason(language: localeStore.code))
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                 }

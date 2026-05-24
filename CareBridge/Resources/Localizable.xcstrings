@@ -5871,6 +5871,51 @@
           }
         }
       }
+    },
+    "category.daily" : {
+      "comment" : "Expense category: daily-life goods (household, toiletries, etc.).",
+      "localizations" : {
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "生活用品" } },
+        "vi"      : { "stringUnit" : { "state" : "translated", "value" : "Đồ dùng hằng ngày" } },
+        "id"      : { "stringUnit" : { "state" : "translated", "value" : "Kebutuhan harian" } },
+        "tl"      : { "stringUnit" : { "state" : "translated", "value" : "Pang-araw-araw" } }
+      }
+    },
+    "category.food" : {
+      "comment" : "Expense category: food and meals.",
+      "localizations" : {
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "日常飲食" } },
+        "vi"      : { "stringUnit" : { "state" : "translated", "value" : "Ăn uống" } },
+        "id"      : { "stringUnit" : { "state" : "translated", "value" : "Makanan" } },
+        "tl"      : { "stringUnit" : { "state" : "translated", "value" : "Pagkain" } }
+      }
+    },
+    "category.medical" : {
+      "comment" : "Expense category: medical & healthcare spending.",
+      "localizations" : {
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "醫療保健" } },
+        "vi"      : { "stringUnit" : { "state" : "translated", "value" : "Y tế" } },
+        "id"      : { "stringUnit" : { "state" : "translated", "value" : "Kesehatan" } },
+        "tl"      : { "stringUnit" : { "state" : "translated", "value" : "Medikal" } }
+      }
+    },
+    "category.other" : {
+      "comment" : "Expense category: other / miscellaneous.",
+      "localizations" : {
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "其他" } },
+        "vi"      : { "stringUnit" : { "state" : "translated", "value" : "Khác" } },
+        "id"      : { "stringUnit" : { "state" : "translated", "value" : "Lainnya" } },
+        "tl"      : { "stringUnit" : { "state" : "translated", "value" : "Iba pa" } }
+      }
+    },
+    "category.transport" : {
+      "comment" : "Expense category: transportation.",
+      "localizations" : {
+        "zh-Hant" : { "stringUnit" : { "state" : "translated", "value" : "交通" } },
+        "vi"      : { "stringUnit" : { "state" : "translated", "value" : "Di chuyển" } },
+        "id"      : { "stringUnit" : { "state" : "translated", "value" : "Transportasi" } },
+        "tl"      : { "stringUnit" : { "state" : "translated", "value" : "Transportasyon" } }
+      }
     }
   },
   "version" : "1.1"
