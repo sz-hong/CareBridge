@@ -180,6 +180,7 @@ struct MedicationView: View {
 struct MedicationRow: View {
     let medication: Medication
     @State private var isExpanded = false
+    @Environment(LocaleStore.self) private var localeStore
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -245,7 +246,7 @@ struct MedicationRow: View {
                             Image(systemName: "info.circle.fill")
                                 .foregroundStyle(.orange)
                                 .font(.system(size: 14))
-                            Text(medication.instructions)
+                            Text(medication.displayInstructions(language: localeStore.code))
                                 .font(.system(size: 13))
                                 .foregroundStyle(.secondary)
                         }

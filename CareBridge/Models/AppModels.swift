@@ -502,15 +502,22 @@ struct CareLogEntry: Identifiable, Codable {
     var bloodSugar: Double? = nil
     var temperature: Double? = nil
     var weight: Double? = nil
+    /// API: content_translated — dict-of-dicts `{ fieldName: { lang: text } }`，
+    /// 後端只翻譯 free-text 欄位（text / note / description / medication_name 等），
+    /// 結構化數值（血壓、體溫）原樣保留。`displayDetail(language:)` 會用這個
+    /// 字典覆寫對應欄位後重新拼成 detail 字串。
+    var contentTranslations: [String: [String: String]]?
+    /// 保留原始 raw content 給 display* 重新拼譯文用（避免重複解析 JSON）。
+    fileprivate var rawContent: Content = Content()
 
     // MARK: Custom Coding
     private enum CodingKeys: String, CodingKey {
-        case id, type, content, timestamp
+        case id, type, content, timestamp, contentTranslated
         case photoUrl   // API: photo_url → convertFromSnakeCase → photoUrl
     }
 
     // Nested content fields (covers all care log types)
-    private struct Content: Codable {
+    fileprivate struct Content: Codable {
         var medicationName: String?
         var dosage: String?
         var bloodPressureSystolic: Double?
@@ -559,41 +566,84 @@ struct CareLogEntry: Identifiable, Codable {
         hasPhoto  = (try? c.decodeIfPresent(String.self, forKey: .photoUrl)) != nil
 
         let content = (try? c.decode(Content.self, forKey: .content)) ?? Content()
+        // content_translated 是後端 keyDecodingStrategy 之外的特殊形狀
+        // `{ field: { lang: text } }`，內層 lang key 帶連字號（zh-TW），
+        // 不能再做 snake_case 轉換 —— 用 String 直接 decode 即可。
+        contentTranslations = try? c.decodeIfPresent([String: [String: String]].self, forKey: .contentTranslated)
+        rawContent = content
+
+        // 設定 vital 結構化欄位（給 dashboard 直接讀）
+        if let s = content.bloodPressureSystolic { bloodPressureSystolic = Int(s) }
+        if let d = content.bloodPressureDiastolic { bloodPressureDiastolic = Int(d) }
+        if let w = content.weight       { weight = w }
+        if let bs = content.bloodSugar  { bloodSugar = bs }
+        if let t = content.temperature  { temperature = t }
+
+        // 原文版 title/detail —— 顯示時 view 呼叫 displayTitle/displayDetail
+        // 取對應語言；沒翻譯就 fallback 到這裡。
+        let built = CareLogEntry.build(type: type, content: content)
+        title  = built.title
+        detail = built.detail
+    }
+
+    /// 取對應語言的 title（用藥紀錄會翻 medication_name）。
+    func displayTitle(language: String?) -> String {
+        let translated = translatedContent(language: language)
+        return CareLogEntry.build(type: type, content: translated).title
+    }
+
+    /// 取對應語言的 detail（meal description / activity note / vital note / text 都會翻）。
+    func displayDetail(language: String?) -> String {
+        let translated = translatedContent(language: language)
+        return CareLogEntry.build(type: type, content: translated).detail
+    }
+
+    private func translatedContent(language: String?) -> Content {
+        var copy = rawContent
+        guard let language, let map = contentTranslations else { return copy }
+        func pick(_ field: String, _ original: String?) -> String? {
+            guard let original else { return nil }
+            if let translated = map[field]?[language], !translated.isEmpty {
+                return translated
+            }
+            return original
+        }
+        copy.medicationName = pick("medication_name", copy.medicationName)
+        copy.note           = pick("note", copy.note)
+        copy.description    = pick("description", copy.description)
+        copy.text           = pick("text", copy.text)
+        return copy
+    }
+
+    private static func build(type: CareLogType, content: Content) -> (title: String, detail: String) {
         switch type {
         case .medication:
-            title  = content.medicationName ?? "用藥紀錄"
-            detail = [content.dosage, content.note].compactMap { $0 }.joined(separator: "｜")
+            return (
+                title:  content.medicationName ?? "用藥紀錄",
+                detail: [content.dosage, content.note].compactMap { $0 }.joined(separator: "｜")
+            )
         case .vital:
-            title  = "生理指標測量"
             var parts: [String] = []
             if let s = content.bloodPressureSystolic, let d = content.bloodPressureDiastolic {
                 parts.append("血壓 \(Int(s))/\(Int(d)) mmHg")
-                bloodPressureSystolic  = Int(s)
-                bloodPressureDiastolic = Int(d)
             }
-            if let w = content.weight {
-                parts.append("體重 \(String(format: "%.1f", w)) kg")
-                weight = w
-            }
-            if let bs = content.bloodSugar {
-                parts.append("血糖 \(String(format: "%.1f", bs)) mmol/L")
-                bloodSugar = bs
-            }
-            if let t  = content.temperature {
-                parts.append("體溫 \(String(format: "%.1f", t))°C")
-                temperature = t
-            }
-            if let n  = content.note { parts.append(n) }
-            detail = parts.joined(separator: "｜")
+            if let w = content.weight { parts.append("體重 \(String(format: "%.1f", w)) kg") }
+            if let bs = content.bloodSugar { parts.append("血糖 \(String(format: "%.1f", bs)) mmol/L") }
+            if let t = content.temperature { parts.append("體溫 \(String(format: "%.1f", t))°C") }
+            if let n = content.note { parts.append(n) }
+            return (title: "生理指標測量", detail: parts.joined(separator: "｜"))
         case .meal:
-            title  = "飲食紀錄"
-            detail = [content.description, content.appetite.map { "食慾：\($0)" }].compactMap { $0 }.joined(separator: "｜")
+            return (
+                title: "飲食紀錄",
+                detail: [content.description, content.appetite.map { "食慾：\($0)" }].compactMap { $0 }.joined(separator: "｜")
+            )
         case .activity:
-            title  = content.activityType ?? "活動紀錄"
-            detail = content.durationMinutes.map { "持續 \($0) 分鐘" } ?? (content.note ?? "")
+            return (
+                title: content.activityType ?? "活動紀錄",
+                detail: content.durationMinutes.map { "持續 \($0) 分鐘" } ?? (content.note ?? "")
+            )
         case .note:
-            title  = "備註"
-            detail = content.text ?? content.textTranslated ?? ""
+            return (title: "備註", detail: content.text ?? content.textTranslated ?? "")
         }
     }
 
@@ -1075,6 +1125,49 @@ struct MedicationConfirmation: Identifiable, Codable {
     let confirmedAt: Date
     let photoUrl: String?
     let note: String?
+    /// API: note_translated — 照護者填的確認 note 多語版本。
+    var noteTranslations: [String: String]?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, medication, scheduledTime, confirmedAt, photoUrl, note
+        case noteTranslated
+    }
+
+    init(id: String, medication: String, scheduledTime: String, confirmedAt: Date,
+         photoUrl: String?, note: String?, noteTranslations: [String: String]? = nil) {
+        self.id = id; self.medication = medication; self.scheduledTime = scheduledTime
+        self.confirmedAt = confirmedAt; self.photoUrl = photoUrl; self.note = note
+        self.noteTranslations = noteTranslations
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        medication = (try? c.decodeIfPresent(String.self, forKey: .medication)) ?? ""
+        scheduledTime = (try? c.decodeIfPresent(String.self, forKey: .scheduledTime)) ?? ""
+        confirmedAt = (try? c.decodeIfPresent(Date.self, forKey: .confirmedAt)) ?? Date()
+        photoUrl = try? c.decodeIfPresent(String.self, forKey: .photoUrl)
+        note = try? c.decodeIfPresent(String.self, forKey: .note)
+        noteTranslations = try? c.decodeIfPresent([String: String].self, forKey: .noteTranslated)
+    }
+
+    func displayNote(language: String?) -> String? {
+        guard let note else { return nil }
+        return translatedText(original: note, translations: noteTranslations, language: language)
+    }
+
+    // Encode only the fields we ever send back (currently never — confirmations
+    // are server-created), but Codable conformance needs an explicit encode
+    // because we declared CodingKeys with decode-only keys (noteTranslated).
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(medication, forKey: .medication)
+        try c.encode(scheduledTime, forKey: .scheduledTime)
+        try c.encode(confirmedAt, forKey: .confirmedAt)
+        try c.encodeIfPresent(photoUrl, forKey: .photoUrl)
+        try c.encodeIfPresent(note, forKey: .note)
+    }
 }
 
 struct ConfirmMedicationRequest: Codable {
@@ -1092,6 +1185,9 @@ struct Medication: Identifiable, Codable {
     var frequency: String            // "daily" / "twice_daily" / "weekly" / "as_needed"
     var times: [String]
     var instructions: String         // API: instructions (was previously `notes`)
+    /// API: instructions_translated — 注意事項是自由文字，要翻譯。藥品名稱
+    /// 屬於 medical entity，依 handoff 規範刻意保留原文不翻。
+    var instructionsTranslations: [String: String]?
     var isActive: Bool               // API: is_active
     var startDate: Date              // API: start_date (yyyy-MM-dd)
     var endDate: Date?               // API: end_date
@@ -1100,17 +1196,24 @@ struct Medication: Identifiable, Codable {
     private enum CodingKeys: String, CodingKey {
         // All snake_case keys auto-converted by .convertFromSnakeCase
         case id, name, dosage, frequency, times, instructions
-        case nameTranslated, isActive, startDate, endDate, reminderEnabled
+        case nameTranslated, instructionsTranslated
+        case isActive, startDate, endDate, reminderEnabled
     }
 
     init(id: String = UUID().uuidString, name: String, nameTranslated: String,
          dosage: String, frequency: String, times: [String], instructions: String,
          isActive: Bool = true, startDate: Date = Date(), endDate: Date? = nil,
-         reminderEnabled: Bool = true) {
+         reminderEnabled: Bool = true,
+         instructionsTranslations: [String: String]? = nil) {
         self.id = id; self.name = name; self.nameTranslated = nameTranslated
         self.dosage = dosage; self.frequency = frequency; self.times = times
         self.instructions = instructions; self.isActive = isActive
         self.startDate = startDate; self.endDate = endDate; self.reminderEnabled = reminderEnabled
+        self.instructionsTranslations = instructionsTranslations
+    }
+
+    func displayInstructions(language: String?) -> String {
+        translatedText(original: instructions, translations: instructionsTranslations, language: language)
     }
 
     init(from decoder: Decoder) throws {
@@ -1121,6 +1224,7 @@ struct Medication: Identifiable, Codable {
         frequency      = (try? c.decodeIfPresent(String.self, forKey: .frequency)) ?? "daily"
         times          = (try? c.decodeIfPresent([String].self, forKey: .times)) ?? []
         instructions   = (try? c.decodeIfPresent(String.self, forKey: .instructions)) ?? ""
+        instructionsTranslations = try? c.decodeIfPresent([String: String].self, forKey: .instructionsTranslated)
         isActive       = (try? c.decodeIfPresent(Bool.self, forKey: .isActive)) ?? true
         reminderEnabled = (try? c.decodeIfPresent(Bool.self, forKey: .reminderEnabled)) ?? true
         // name_translated is JSONB {lang: text} on backend — pick first non-empty value
@@ -1845,12 +1949,58 @@ struct AppNotification: Identifiable, Codable {
     var body: String
     var timestamp: Date
     var isRead: Bool
+    /// API: title_translated / body_translated — dict 形式的多語版本，
+    /// 推播時後端會挑當前 user.language 推；但歷史通知列表可能跨語言混雜，
+    /// 所以 UI 仍依 LocaleStore 選對應翻譯。
+    var titleTranslations: [String: String]?
+    var bodyTranslations: [String: String]?
 
     enum CodingKeys: String, CodingKey {
         case id, title, body
         case category = "type"    // API: "type" field → renamed to category in Swift
         case isRead               // API: is_read → convertFromSnakeCase → isRead
         case timestamp = "createdAt"  // API: created_at → createdAt
+        case titleTranslated, bodyTranslated
+    }
+
+    init(id: String, category: NotificationCategory, title: String, body: String,
+         timestamp: Date, isRead: Bool,
+         titleTranslations: [String: String]? = nil,
+         bodyTranslations: [String: String]? = nil) {
+        self.id = id; self.category = category; self.title = title; self.body = body
+        self.timestamp = timestamp; self.isRead = isRead
+        self.titleTranslations = titleTranslations
+        self.bodyTranslations = bodyTranslations
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id        = try c.decode(String.self, forKey: .id)
+        category  = (try? c.decodeIfPresent(NotificationCategory.self, forKey: .category)) ?? .chat
+        title     = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? ""
+        body      = (try? c.decodeIfPresent(String.self, forKey: .body)) ?? ""
+        timestamp = (try? c.decodeIfPresent(Date.self, forKey: .timestamp)) ?? Date()
+        isRead    = (try? c.decodeIfPresent(Bool.self, forKey: .isRead)) ?? false
+        titleTranslations = try? c.decodeIfPresent([String: String].self, forKey: .titleTranslated)
+        bodyTranslations  = try? c.decodeIfPresent([String: String].self, forKey: .bodyTranslated)
+    }
+
+    func displayTitle(language: String?) -> String {
+        translatedText(original: title, translations: titleTranslations, language: language)
+    }
+
+    func displayBody(language: String?) -> String {
+        translatedText(original: body, translations: bodyTranslations, language: language)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(category, forKey: .category)
+        try c.encode(title, forKey: .title)
+        try c.encode(body, forKey: .body)
+        try c.encode(timestamp, forKey: .timestamp)
+        try c.encode(isRead, forKey: .isRead)
     }
 
     static var samples: [AppNotification] {
@@ -1884,32 +2034,90 @@ struct PurchaseRequest: Identifiable, Codable {
     var createdAt: Date         // API: created_at
     var requester: String       // API: requester.name
     var notes: String           // API: note
+    var noteTranslations: [String: String]?  // API: note_translations
+    var reply: String?           // API: reply（家屬回覆）
+    var replyTranslations: [String: String]?  // API: reply_translations
     var items: [PurchaseItem]   // API: items JSONB
 
     struct PurchaseItem: Codable, Hashable {
         var name: String
-        var nameTranslated: String?
+        /// API: items[].name_translated — 後端是 dict { lang: text }；舊欄位
+        /// 也曾經是 String，做向下相容 decode。
+        var nameTranslations: [String: String]?
         var quantity: String?
 
         enum CodingKeys: String, CodingKey {
-            // name_translated → convertFromSnakeCase → nameTranslated
             case name, quantity, nameTranslated
+        }
+
+        init(name: String, nameTranslations: [String: String]? = nil, quantity: String? = nil) {
+            self.name = name; self.nameTranslations = nameTranslations; self.quantity = quantity
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            name     = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+            quantity = try? c.decodeIfPresent(String.self, forKey: .quantity)
+            if let dict = try? c.decodeIfPresent([String: String].self, forKey: .nameTranslated) {
+                nameTranslations = dict
+            } else if let single = try? c.decodeIfPresent(String.self, forKey: .nameTranslated),
+                      !single.isEmpty {
+                nameTranslations = ["zh-TW": single]
+            } else {
+                nameTranslations = nil
+            }
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var c = encoder.container(keyedBy: CodingKeys.self)
+            try c.encode(name, forKey: .name)
+            try c.encodeIfPresent(quantity, forKey: .quantity)
+        }
+
+        func displayName(language: String?) -> String {
+            translatedText(original: name, translations: nameTranslations, language: language)
         }
     }
 
     private enum CodingKeys: String, CodingKey {
         // created_at → convertFromSnakeCase → createdAt
         case id, category, status, items, requester, createdAt, note
+        case noteTranslations, reply, replyTranslations
     }
     private enum RequesterKeys: String, CodingKey { case name }
 
     init(id: String, title: String, category: String, description: String,
          estimatedCost: Double?, status: String, createdAt: Date,
-         requester: String, notes: String, items: [PurchaseItem] = []) {
+         requester: String, notes: String, items: [PurchaseItem] = [],
+         noteTranslations: [String: String]? = nil,
+         reply: String? = nil,
+         replyTranslations: [String: String]? = nil) {
         self.id = id; self.title = title; self.category = category
         self.description = description; self.estimatedCost = estimatedCost
         self.status = status; self.createdAt = createdAt
         self.requester = requester; self.notes = notes; self.items = items
+        self.noteTranslations = noteTranslations
+        self.reply = reply
+        self.replyTranslations = replyTranslations
+    }
+
+    func displayNotes(language: String?) -> String {
+        translatedText(original: notes, translations: noteTranslations, language: language)
+    }
+
+    func displayReply(language: String?) -> String? {
+        guard let reply else { return nil }
+        return translatedText(original: reply, translations: replyTranslations, language: language)
+    }
+
+    func displayTitle(language: String?) -> String {
+        items.first?.displayName(language: language) ?? title
+    }
+
+    func displayDescription(language: String?) -> String {
+        items
+            .map { [$0.displayName(language: language), $0.quantity].compactMap { $0 }.joined(separator: " × ") }
+            .joined(separator: "，")
     }
 
     // Backend only accepts enum keys: food | daily | medical | other.
@@ -1929,6 +2137,9 @@ struct PurchaseRequest: Identifiable, Codable {
         status    = (try? c.decodeIfPresent(String.self, forKey: .status)) ?? "pending"
         createdAt = (try? c.decodeIfPresent(Date.self, forKey: .createdAt)) ?? Date()
         notes     = (try? c.decodeIfPresent(String.self, forKey: .note)) ?? ""
+        noteTranslations = try? c.decodeIfPresent([String: String].self, forKey: .noteTranslations)
+        reply     = try? c.decodeIfPresent(String.self, forKey: .reply)
+        replyTranslations = try? c.decodeIfPresent([String: String].self, forKey: .replyTranslations)
         items     = (try? c.decodeIfPresent([PurchaseItem].self, forKey: .items)) ?? []
         estimatedCost = nil
         // requester nested object → extract name
@@ -1947,7 +2158,7 @@ struct PurchaseRequest: Identifiable, Codable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         let wireCat = PurchaseRequest.categoryToWire[category] ?? category
         try c.encode(wireCat, forKey: .category)
-        try c.encode(items.isEmpty ? [PurchaseItem(name: title, nameTranslated: nil, quantity: nil)] : items,
+        try c.encode(items.isEmpty ? [PurchaseItem(name: title)] : items,
                      forKey: .items)
         try c.encode(notes, forKey: .note)
     }
@@ -1989,14 +2200,14 @@ struct PurchaseRequest: Identifiable, Codable {
                             status: "待確認", createdAt: Date().addingTimeInterval(-3600),
                             requester: "Rita Santos",
                             notes: "奶奶最近血壓帶有漏氣現象，本的血壓計較腕式比比方便，適合居家日常監測，已來在藥局被認適合格醫療器材。",
-                            items: [PurchaseItem(name: "電子血壓計（腕式）", nameTranslated: nil, quantity: "1")]),
+                            items: [PurchaseItem(name: "電子血壓計（腕式）", quantity: "1")]),
             PurchaseRequest(id: UUID().uuidString, title: "購買優格和香蕉", category: "食品",
                             description: "爺爺喜歡的零食，一週份量",
                             estimatedCost: nil,
                             status: "已核准", createdAt: Date().addingTimeInterval(-86400),
                             requester: "Rita Santos", notes: "",
-                            items: [PurchaseItem(name: "優格", nameTranslated: nil, quantity: "6 杯"),
-                                    PurchaseItem(name: "香蕉", nameTranslated: nil, quantity: "1 串")]),
+                            items: [PurchaseItem(name: "優格", quantity: "6 杯"),
+                                    PurchaseItem(name: "香蕉", quantity: "1 串")]),
         ]
     }
 }

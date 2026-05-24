@@ -413,6 +413,7 @@ struct FilterChip: View {
 // MARK: - Timeline Entry Row
 struct TimelineEntryRow: View {
     let entry: CareLogEntry
+    @Environment(LocaleStore.self) private var localeStore
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -467,7 +468,7 @@ struct TimelineEntryRow: View {
                     .foregroundStyle(.secondary)
             }
 
-            Text(entry.title)
+            Text(entry.displayTitle(language: localeStore.code))
                 .font(.system(size: 15, weight: .semibold))
 
             // Detail grid for vital signs
@@ -507,7 +508,7 @@ struct TimelineEntryRow: View {
                         .foregroundStyle(.secondary)
                 }
             } else {
-                Text(entry.detail)
+                Text(entry.displayDetail(language: localeStore.code))
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)

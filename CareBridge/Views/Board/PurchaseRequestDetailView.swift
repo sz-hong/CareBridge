@@ -7,6 +7,7 @@ struct PurchaseRequestDetailView: View {
     let requestId: String
     let userRole: UserRole
     @Environment(\.dataService) private var service
+    @Environment(LocaleStore.self) private var localeStore
     @State private var request: PurchaseRequest?
     @State private var isLoading = true
     @State private var replyText = ""
@@ -56,7 +57,7 @@ struct PurchaseRequestDetailView: View {
                     .background(Capsule().fill(req.statusColor.opacity(0.12)))
             }
 
-            Text(req.title)
+            Text(req.displayTitle(language: localeStore.code))
                 .font(.system(size: 20, weight: .bold))
 
             // Items
@@ -67,7 +68,7 @@ struct PurchaseRequestDetailView: View {
                         .foregroundStyle(.secondary)
                     ForEach(req.items, id: \.name) { item in
                         HStack {
-                            Text(item.name)
+                            Text(item.displayName(language: localeStore.code))
                                 .font(.system(size: 15))
                             Spacer()
                             if let qty = item.quantity {
@@ -97,9 +98,19 @@ struct PurchaseRequestDetailView: View {
                     Text("備註")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.secondary)
-                    Text(req.notes)
+                    Text(req.displayNotes(language: localeStore.code))
                         .font(.system(size: 14))
                         .foregroundStyle(.secondary)
+                }
+            }
+
+            if let reply = req.displayReply(language: localeStore.code), !reply.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("家屬回覆")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Text(reply)
+                        .font(.system(size: 14))
                 }
             }
 

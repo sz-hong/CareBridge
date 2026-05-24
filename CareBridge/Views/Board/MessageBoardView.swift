@@ -142,7 +142,6 @@ struct AddPurchaseRequestView: View {
                             isSubmitting = true
                             let item = PurchaseRequest.PurchaseItem(
                                 name: itemName,
-                                nameTranslated: nil,
                                 quantity: itemQuantity.isEmpty ? nil : itemQuantity
                             )
                             let req = PurchaseRequest(
@@ -174,6 +173,7 @@ struct AddPurchaseRequestView: View {
 // MARK: - Purchase Request Card
 struct PurchaseRequestCard: View {
     let request: PurchaseRequest
+    @Environment(LocaleStore.self) private var localeStore
     let userRole: UserRole
     let onApprove: () -> Void
     let onReject: () -> Void
@@ -196,7 +196,7 @@ struct PurchaseRequestCard: View {
             }
 
             // Title
-            Text(request.title)
+            Text(request.displayTitle(language: localeStore.code))
                 .font(.system(size: 18, weight: .bold))
 
             // Details grid
@@ -225,7 +225,7 @@ struct PurchaseRequestCard: View {
                     Text("CAREGIVER NOTES")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.secondary)
-                    Text("\"\(request.notes)\"")
+                    Text("\"\(request.displayNotes(language: localeStore.code))\"")
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                         .lineLimit(4)
