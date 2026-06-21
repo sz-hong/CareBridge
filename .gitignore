@@ -2,6 +2,9 @@ Doc/
 .claude/
 AGENTS.md
 
+# Local presentation/poster working files.
+presentation/
+
 # Python
 __pycache__/
 *.py[cod]
