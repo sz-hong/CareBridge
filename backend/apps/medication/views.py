@@ -165,7 +165,6 @@ class MedicationViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
                 protected_keys={'medication_name'},
                 protected_terms=protected_terms,
             ),
-            photo_url=serializer.validated_data.get('photo_url'),
             timestamp=timezone.now(),
         )
 
