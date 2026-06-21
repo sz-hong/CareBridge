@@ -49,9 +49,12 @@ class LocationManager: NSObject, CLLocationManagerDelegate {
 
 struct SOSView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dataService) private var service
     @State private var isConfirming = false
     @State private var countdown = 5
     @State private var isTriggered = false
+    @State private var notifiedCount = 0
+    @State private var errorMessage: String? = nil
     @State private var timerTask: Task<Void, Never>? = nil
     @State private var locationManager = LocationManager()
 
@@ -67,6 +70,17 @@ struct SOSView: View {
             .background(isTriggered ? Color.red : Color.brandBackground)
             .navigationTitle("SOS 緊急呼叫")
             .navigationBarTitleDisplayMode(.inline)
+            .alert(
+                "SOS 通知失敗",
+                isPresented: Binding(
+                    get: { errorMessage != nil },
+                    set: { if !$0 { errorMessage = nil } }
+                )
+            ) {
+                Button("確定", role: .cancel) { errorMessage = nil }
+            } message: {
+                Text(errorMessage ?? "")
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -90,7 +104,7 @@ struct SOSView: View {
                 Text("緊急求助")
                     .font(.system(size: 28, weight: .bold))
 
-                Text("按下後將自動撥打 119\n並通知所有家庭成員")
+                Text("按下後將通知所有家庭成員")
                     .font(.system(size: 15))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -159,16 +173,30 @@ struct SOSView: View {
                     if countdown > 0 { countdown -= 1 }
                 }
             }
-            if !Task.isCancelled {
+            guard !Task.isCancelled else { return }
+
+            // 觸發後端 SOS：建立紀錄並通知所有家庭成員（App 內通知，不撥打 119）
+            let locationParam = locationManager.coordinate.map {
+                String(format: "%.5f, %.5f", $0.latitude, $0.longitude)
+            }
+            do {
+                let count = try await service.triggerSOS(location: locationParam)
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     withAnimation {
+                        notifiedCount = count
                         isTriggered = true
                         isConfirming = false
                     }
-                    // 撥打 119
-                    if let url = URL(string: "tel://119") {
-                        UIApplication.shared.open(url)
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    withAnimation {
+                        isConfirming = false
+                        countdown = 5
                     }
+                    errorMessage = "無法通知家屬，請檢查網路後重試。"
                 }
             }
         }
@@ -212,7 +240,7 @@ struct SOSView: View {
                 Text("SOS 已觸發")
                     .font(.system(size: 32, weight: .bold))
                     .foregroundStyle(.white)
-                Text("正在撥打 119...")
+                Text("已通知家屬")
                     .font(.system(size: 18))
                     .foregroundStyle(.white.opacity(0.9))
             }
@@ -230,19 +258,14 @@ struct SOSView: View {
             .padding(.vertical, 8)
             .background(RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.2)))
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("已通知以下成員")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.8))
-                ForEach(["林小明", "林大華", "林美華"], id: \.self) { name in
-                    HStack(spacing: 10) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.white)
-                        Text(name)
-                            .font(.system(size: 15))
-                            .foregroundStyle(.white)
-                    }
-                }
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.white)
+                Text(notifiedCount > 0
+                     ? "已通知 \(notifiedCount) 位家庭成員"
+                     : "已建立 SOS 通知")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
             }
             .padding(16)
             .background(RoundedRectangle(cornerRadius: 14).fill(.white.opacity(0.2)))

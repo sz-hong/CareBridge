@@ -1,13 +1,17 @@
 import re
 
-from django.test import TestCase
+from asgiref.sync import async_to_sync
+from channels.testing import WebsocketCommunicator
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import AccessToken
 from unittest.mock import patch
 
 from apps.auth_account.models import User
 from apps.chat.models import Chat, ChatMember, Message
 from apps.family.models import Family
+from carebridge_api.asgi import application
 
 
 class ChatAPIEndpointTests(TestCase):
@@ -192,3 +196,103 @@ class ChatAPIEndpointTests(TestCase):
         self.assertEqual(response.status_code, 200)
         ids = [item['id'] for item in response.json()['data']]
         self.assertEqual(ids[-2:], [str(old_message.id), str(new_message.id)])
+
+
+@override_settings(
+    CHANNEL_LAYERS={'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}}
+)
+class ChatConsumerAuthTests(TransactionTestCase):
+    """WebSocket auth + membership gate for ChatConsumer.
+
+    Uses TransactionTestCase because the consumer reads/writes the DB from a
+    threadpool (database_sync_to_async), which only sees committed rows.
+    """
+
+    def setUp(self):
+        self.member = User.objects.create_user(
+            email='ws-member@example.com',
+            password='password123',
+            name='WS Member',
+            role=User.Role.FAMILY_MEMBER,
+        )
+        self.caregiver = User.objects.create_user(
+            email='ws-caregiver@example.com',
+            password='password123',
+            name='WS Caregiver',
+            role=User.Role.CAREGIVER,
+        )
+        self.outsider = User.objects.create_user(
+            email='ws-outsider@example.com',
+            password='password123',
+            name='WS Outsider',
+            role=User.Role.FAMILY_MEMBER,
+        )
+        self.family = Family.objects.create(
+            name='WS Family',
+            elder_name='Elder',
+            invite_code='838383',
+            created_by=self.member,
+        )
+        self.member.family = self.family
+        self.member.save(update_fields=['family'])
+        self.caregiver.family = self.family
+        self.caregiver.save(update_fields=['family'])
+        self.chat = Chat.objects.create(
+            type=Chat.Type.GROUP, name='WS Chat', family=self.family,
+        )
+        ChatMember.objects.create(chat=self.chat, user=self.member)
+        ChatMember.objects.create(chat=self.chat, user=self.caregiver)
+
+    def _path(self, token=None):
+        path = f'/ws/chat/{self.chat.id}/'
+        if token is not None:
+            path += f'?token={token}'
+        return path
+
+    @staticmethod
+    def _token(user):
+        return str(AccessToken.for_user(user))
+
+    def test_rejects_connection_without_token(self):
+        async def scenario():
+            communicator = WebsocketCommunicator(application, self._path())
+            connected, _ = await communicator.connect()
+            await communicator.disconnect()
+            return connected
+
+        self.assertFalse(async_to_sync(scenario)())
+
+    def test_rejects_non_member_with_valid_token(self):
+        async def scenario():
+            communicator = WebsocketCommunicator(
+                application, self._path(self._token(self.outsider))
+            )
+            connected, _ = await communicator.connect()
+            await communicator.disconnect()
+            return connected
+
+        self.assertFalse(async_to_sync(scenario)())
+
+    @patch('apps.chat.views.ChatViewSet._translate_message')
+    def test_member_connects_and_sender_is_taken_from_token(self, _translate):
+        async def scenario():
+            communicator = WebsocketCommunicator(
+                application, self._path(self._token(self.member))
+            )
+            connected, _ = await communicator.connect()
+            assert connected
+            # Send a message that lies about who the sender is.
+            await communicator.send_json_to({
+                'type': 'chat.message',
+                'content': 'hello',
+                'sender_id': str(self.outsider.id),
+            })
+            payload = await communicator.receive_json_from()
+            await communicator.disconnect()
+            return payload
+
+        payload = async_to_sync(scenario)()
+        message = Message.objects.get(id=payload['id'])
+        # Sender must be the authenticated token user, not the spoofed id.
+        self.assertEqual(message.sender_id, self.member.id)
+        self.assertEqual(message.content, 'hello')

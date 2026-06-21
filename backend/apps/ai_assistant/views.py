@@ -26,6 +26,7 @@ from rest_framework.views import APIView
 from core.permissions import CaregiverCannotDelete
 from core.responses import error_response, success_response
 from .care_analysis_metrics import build_health_metrics_summary
+from .domain_queries import _safe_json, _safe_text
 from .form_templates import (
     FormTemplateError,
     load_subsidy_form_template,
@@ -392,14 +393,22 @@ class CareAnalysisView(APIView):
             .values('name', 'dosage', 'frequency', 'times')
         )
 
+        # Metrics are computed from the raw vital logs (structured numeric
+        # extraction stays server-side). The free-text care logs that go into
+        # the GPT prompt are de-identified first.
         health_metrics_summary = build_health_metrics_summary(
             health_data,
             vital_care_logs,
         )
 
+        safe_care_logs = [
+            {**log, "content": _safe_json(log.get("content"))}
+            for log in care_logs
+        ]
+
         # Build prompt
         data_summary = json.dumps({
-            "care_logs": care_logs,
+            "care_logs": safe_care_logs,
             "health_data": health_data,
             "health_metrics_summary": health_metrics_summary["metrics"],
             "alerts": alerts,
@@ -528,9 +537,20 @@ class HandoverReportView(APIView):
             ).values('title', 'priority', 'due_date')
         )
 
+        # De-identify free-text care-log content and recorder names before they
+        # enter the GPT prompt.
+        safe_care_logs = [
+            {
+                **log,
+                "content": _safe_json(log.get("content")),
+                "recorder__name": _safe_text(log.get("recorder__name")),
+            }
+            for log in care_logs
+        ]
+
         data_summary = json.dumps({
             "date": str(report_date),
-            "care_logs": care_logs,
+            "care_logs": safe_care_logs,
             "medications": medications,
             "medication_confirmations": confirmations,
             "health_data": health,

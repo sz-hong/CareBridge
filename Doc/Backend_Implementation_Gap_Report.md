@@ -3,6 +3,7 @@
 > Review date: 2026-06-21
 > Scope: `backend/` Django backend, `CareBridge/` SwiftUI iOS frontend, Docker-facing backend configuration, and source-delivery development documents.
 > Note: this file keeps the original filename so existing links continue to work, but the report now covers both backend and frontend.
+> Update 2026-06-21: the three P0 issues (chat WebSocket auth/membership, AI prompt de-identification, SOS backend wiring with 119 removed) have been implemented and covered by tests; see the Cross-Stack Gaps table for per-item status.
 
 ## Validation Performed
 
@@ -10,7 +11,7 @@
 |---|---|---|
 | Backend | Parsed 238 backend Python files with AST, excluding local virtualenvs. | Passed. |
 | Backend | `python manage.py check` through `backend\.venv\Scripts\python.exe`. | Passed. |
-| Backend | `python manage.py test --verbosity 1` from `backend/`. | Passed, 180 tests. |
+| Backend | `python manage.py test --verbosity 1` from `backend/`. | Passed, 185 tests (180 baseline + 5 added for the P0 fixes). |
 | Backend | `python manage.py makemigrations --check --dry-run`. | Passed, no model changes detected. |
 | Backend | `python manage.py migrate --check` against local SQLite. | Failed because local `backend/db.sqlite3` has unapplied migrations; this is local DB state, not missing migration files. |
 | Backend | `docker compose config` from `backend/docker`. | Parsed successfully. It warns that the Compose `version` field is obsolete. Do not paste this output publicly because it expands `.env` secrets. |
@@ -24,7 +25,7 @@ One backend test warning appeared when a health WebSocket broadcast could not co
 
 CareBridge is substantially implemented across backend and iOS frontend for the MAIC competition demo. The backend already covers authentication, family groups, chat, care logs, medication, expenses/documents, HealthKit ingestion, notifications, SOS, admin APIs, and AI assistant workflows. The iOS app has real `APIDataService` integration, SwiftUI screens for most product areas, HealthKit sync, local upload redaction, receipt scanning UI, document preview, chat, AI, and profile flows.
 
-The project is not yet fully production-safe. The highest-risk issues are cross-stack: chat WebSocket authentication is missing on the backend, AI report prompts can still include raw care-log free text, the SOS frontend currently does not call the backend SOS endpoint, iOS date decoding is incompatible with typical Django fractional-second timestamps, weekly step response shapes do not match, and APNs registration can silently fail before login.
+The project is not yet fully production-safe, but the three highest-risk P0 issues have been fixed (2026-06-21): the chat WebSocket consumer now enforces the existing JWT auth middleware + room membership and no longer trusts a client-supplied sender id; AI care-analysis/handover prompts de-identify care-log free text before GPT calls; and the SOS screen now calls the backend SOS endpoint (notifying family in-app) instead of dialing 119 with hardcoded member names. The remaining notable cross-stack risks are: iOS date decoding is incompatible with typical Django fractional-second timestamps, APNs registration can silently fail before login, and authorization is coarse in several backend workflows.
 
 For source-code submission, the codebase is coherent enough to explain, but the report below should be treated as the implementation truth: several visible frontend flows are still demo-like or partially wired even when the backend service exists.
 
@@ -124,7 +125,7 @@ For source-code submission, the codebase is coherent enough to explain, but the 
 
 - AI assistant and first-aid screens call the backend AI APIs, including SSE streaming paths in `APIDataService+AI.swift`.
 - SOS service method exists in `APIDataService+SOS.swift` for `POST /sos/trigger/`.
-- The SOS screen includes CoreLocation handling and direct 119 dialing UI.
+- The SOS screen includes CoreLocation handling and calls the backend SOS endpoint; family members are notified in-app (no 119 dialing).
 
 ### HealthKit And Health UI
 
@@ -148,11 +149,10 @@ For source-code submission, the codebase is coherent enough to explain, but the 
 
 | Priority | Gap | Evidence | Recommended fix |
 |---|---|---|---|
-| P0 | Chat WebSocket accepts backend connections without authentication or membership validation. | `backend/apps/chat/consumers.py` accepts immediately; frontend sends `?token=` from `CareBridge/Views/Chat/ChatListView.swift`, but backend must enforce it. | Require authenticated scope user, validate room membership before `accept`, and reject client-supplied sender identity. |
-| P0 | AI care-analysis and handover prompts can include raw care-log free text. | `backend/apps/ai_assistant/views.py` builds prompts from `CareLog.content`. | De-identify or suppress free-text fields before prompt construction, matching the safer `domain_queries` approach. |
-| P0 | SOS frontend does not call backend SOS trigger. | `CareBridge/Views/SOS/SOSView.swift` dials `tel://119` and shows `SOS 已觸發` / `已通知以下成員`, but no `triggerSOS(location:)` call was found; `APIDataService+SOS.swift` has the service method. | Wire SOS button to `service.triggerSOS(location:)`, show real backend success/failure, and add history/resolve UI if needed. |
+| P0 ✅ Resolved (2026-06-21) | Chat WebSocket now enforces JWT auth + room membership and ignores any client-supplied sender id. | `apps/chat/consumers.py` `connect()` closes anonymous (4401) and non-member (4403) connections via a `ChatMember` check, mirroring `HealthConsumer`; `receive()` derives the sender from `scope['user'].id` only and the `sender_id` fallback was removed. Regression tests: `apps/chat/tests.py::ChatConsumerAuthTests` (no-token reject, non-member reject, member connect + sender-from-token). | Done. |
+| P0 ✅ Resolved (2026-06-21) | AI care-analysis and handover prompts de-identify care-log free text before GPT calls. | `apps/ai_assistant/views.py` routes care-log `content` (and handover `recorder__name`) through `_safe_json`/`_safe_text` (reused from `apps/ai_assistant/domain_queries.py`, backed by `core.deidentification.prepare_text_for_gpt`); raw vitals are kept only for server-side numeric metric extraction. Regression tests: `AIPromptDeidentificationTests`. | Done. |
+| P0 ✅ Resolved (2026-06-21) | SOS triggers the backend and notifies family in-app; 119 dialing removed. | `CareBridge/Views/SOS/SOSView.swift` now calls `service.triggerSOS(location:)` (returns the notified-member count) and shows the real count; `tel://119` and the hardcoded member list were removed. `triggerSOS` returns `Int` across `DataService`/`APIDataService+SOS`/`MockDataService`. Backend `POST /sos/trigger/` already creates per-member `Notification` rows (in-app delivery via the notification center; APNs stays a no-op until configured, per the V2 plan). | Done. |
 | P1 | iOS date decoding is incompatible with Django fractional-second ISO timestamps. | `APIClient.makeDecoder`, `ChatWebSocket`, `HealthLiveSocket`, and AI stream decoder use `.iso8601`; several models hard-decode `Date`. | Add one shared ISO8601 decoder that accepts fractional seconds and offsets, then add tests for timestamps such as `2026-06-08T18:57:09.161369+08:00`. |
-| P1 | Weekly steps response contract is mismatched. | iOS `fetchWeeklySteps(elderId:) -> [Int]`, while backend weekly steps returns date/value objects. Home falls back to sample data on failure. | Align the DTO: either backend returns `[Int]` for the app, or iOS decodes `[WeeklyStepPoint]` and maps chart values. |
 | P1 | APNs device-token registration can silently fail. | `CareBridgeApp.didRegisterForRemoteNotificationsWithDeviceToken` calls `try? await APIDataService().registerPushToken(token)` before guaranteed login; no retry after login was found. | Store token, retry after successful login/profile load, surface failure in logs, and verify APNs entitlement/config. |
 | P1 | Receipt OCR is frontend-local only; backend OCR extraction is not implemented. | Spending UI uses Vision OCR and then creates an expense; backend expense creation schedules redaction, not OCR parsing. | Decide whether local OCR is enough for competition. If backend OCR is claimed, add a backend OCR/LLM parsing task after de-identification. |
 | P1 | Medication reminder task exists but is not scheduled. | Backend task exists, but Celery beat only schedules cleanup tasks. | Add a beat schedule and verify `celery-beat` and `celery-worker` in Docker. |
@@ -182,9 +182,8 @@ The frontend is not only a mock shell. Most major screens use the real `DataServ
 
 ### Demo Or Partial Implementation Still Visible
 
-- SOS UI currently simulates notification success instead of relying on backend SOS records and APNs delivery.
 - Forgot password shows success without a network call.
-- Home weekly steps silently falls back to sample values when backend decoding fails.
+- Home weekly steps falls back to sample values on backend/network failure; the DTO itself matches the backend `[Int]` contract, so this is a fallback-UX choice rather than a contract bug.
 - Receipt OCR is a client-side helper, not the backend OCR pipeline described in product goals.
 - Health charts and range selector are more visual than data-driven; backend historical/range data is not fully used.
 - Some settings screens show options that are not persisted or not backed by backend fields.
@@ -193,26 +192,26 @@ The frontend is not only a mock shell. Most major screens use the real `DataServ
 
 The biggest frontend contract issue is timestamp decoding. Django/DRF commonly returns fractional seconds and timezone offsets. Swift `.iso8601` decoding often rejects these formats unless the formatter is configured with fractional seconds. Several models either fail hard or silently replace failed dates with `Date()`, which can make lists and alerts appear current when they are not.
 
-The second largest contract issue is DTO shape drift. Weekly steps currently expects `[Int]` on iOS while the backend returns structured day rows. Similar smaller drift exists where frontend method parameters suggest filtering but no query parameters are sent.
+A secondary contract issue is parameter drift: several frontend method signatures suggest filtering (for example `month:` and `elderId:`) but send no matching query parameters. Note that weekly steps was previously flagged as a DTO mismatch; on review the backend `weekly-steps` endpoint returns a 7-element `[Int]` array (`apps/health/views.py`) that matches the iOS `fetchWeeklySteps(elderId:) -> [Int]` contract, so that item has been removed.
 
 ### Privacy Status
 
-The privacy architecture is directionally correct: frontend strips image metadata and tries local face/text masking, backend stores quarantine keys, DLP redacts asynchronously, and processed presigned URLs are exposed after processing. Remaining gaps are explicit: AI report prompts still need de-identified care-log free text, backend receipt OCR should only parse de-identified content if implemented, and PDFs currently have safe text preview rather than redacted binary output.
+The privacy architecture is directionally correct: frontend strips image metadata and tries local face/text masking, backend stores quarantine keys, DLP redacts asynchronously, and processed presigned URLs are exposed after processing. AI report prompts now de-identify care-log free text before GPT calls (via `core.deidentification`). Remaining gaps are explicit: backend receipt OCR should only parse de-identified content if implemented, and PDFs currently have safe text preview rather than redacted binary output.
 
 ## Recommended Fix Order
 
-1. Secure chat WebSocket authentication and membership on the backend.
-2. De-identify AI report prompts before GPT calls.
-3. Wire SOS frontend to `POST /sos/trigger/` and stop showing fake notification success.
-4. Replace all Swift date decoding paths with one fractional-second-compatible decoder and add regression tests.
-5. Align weekly steps DTO between backend and iOS Home chart.
-6. Fix APNs registration retry after login and verify push/background entitlements in Xcode.
-7. Schedule medication reminders in Celery beat and verify worker/beat parity in Docker.
-8. Tighten backend family/admin authorization and todo assignee validation.
-9. Decide whether backend receipt OCR and redacted PDF output are required for the competition demo.
-10. Clean up frontend demo-only settings: forgot password, logout/session clearing, health thresholds, family invite code, and ignored filters.
-11. Move `AppConfig` target selection out of source edits before multi-device/team testing.
-12. Convert first-aid embeddings to pgvector after the security/privacy fixes.
+Completed 2026-06-21: (a) chat WebSocket JWT auth + room membership enforcement and removal of the `sender_id` fallback, (b) AI report prompt de-identification before GPT calls, (c) SOS frontend wired to `POST /sos/trigger/` with 119 dialing removed (family notified in-app).
+
+Remaining, in order:
+
+1. Replace all Swift date decoding paths with one fractional-second-compatible decoder and add regression tests.
+2. Fix APNs registration retry after login and verify push/background entitlements in Xcode.
+3. Schedule medication reminders in Celery beat and verify worker/beat parity in Docker.
+4. Tighten backend family/admin authorization and todo assignee validation.
+5. Decide whether backend receipt OCR and redacted PDF output are required for the competition demo.
+6. Clean up frontend demo-only settings: forgot password, logout/session clearing, health thresholds, family invite code, and ignored filters.
+7. Move `AppConfig` target selection out of source edits before multi-device/team testing.
+8. Convert first-aid embeddings to pgvector after the security/privacy fixes.
 
 ## Documentation Cleanup Result
 

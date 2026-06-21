@@ -242,7 +242,7 @@ class MockDataService: DataService {
     }
 
     // MARK: - SOS
-    func triggerSOS(location: String?) async throws { }
+    func triggerSOS(location: String?) async throws -> Int { 3 }
 
     // MARK: - Push Notifications
     func registerPushToken(_ token: String) async throws { }

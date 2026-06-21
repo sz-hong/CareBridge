@@ -9,22 +9,40 @@ logger = logging.getLogger(__name__)
 
 class ChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
+        # Auth is established by core.ws_auth.JWTAuthMiddleware (sets scope['user']).
+        # Mirror HealthConsumer: reject anonymous (4401) and non-members (4403)
+        # before accepting, so an unauthenticated or foreign client can never
+        # join a chat group or spoof a sender.
+        user = self.scope.get('user')
+        if not getattr(user, 'is_authenticated', False):
+            await self.close(code=4401)
+            return
+
         self.chat_id = self.scope['url_route']['kwargs']['chat_id']
+
+        if not await self.user_is_chat_member(user.id, self.chat_id):
+            await self.close(code=4403)
+            return
+
+        self.user = user
         self.room_group_name = f'chat_{self.chat_id}'
         await self.channel_layer.group_add(self.room_group_name, self.channel_name)
         await self.accept()
 
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
+        # `room_group_name` is only set once a connection is accepted; guard so a
+        # rejected handshake (4401/4403) does not raise on disconnect.
+        if hasattr(self, 'room_group_name'):
+            await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
 
     async def receive(self, text_data):
         data = json.loads(text_data)
         message_type = data.get('type', 'chat.message')
 
         if message_type == 'chat.message':
-            # Get authenticated user from scope securely
-            user = self.scope.get('user')
-            user_id = user.id if getattr(user, 'is_authenticated', False) else data.get('sender_id')
+            # Sender is always the authenticated scope user established at
+            # connect time; never trust a client-supplied sender_id.
+            user_id = self.user.id
 
             # Save message, translate, and serialize using the same shape
             # as the REST MessageSerializer so the frontend has one codepath.
@@ -58,6 +76,13 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'user_id': event['user_id'],
             'is_typing': event['is_typing'],
         }))
+
+    @database_sync_to_async
+    def user_is_chat_member(self, user_id, chat_id):
+        from apps.chat.models import ChatMember
+        return ChatMember.objects.filter(
+            chat_id=chat_id, user_id=user_id
+        ).exists()
 
     @database_sync_to_async
     def save_translate_and_serialize(self, data, user_id):
