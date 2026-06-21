@@ -1,3 +1,5 @@
+import logging
+
 from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
@@ -7,6 +9,8 @@ from core.storage import build_public_url, delete_object, download_bytes, put_by
 from core.upload_paths import processed_key_for_raw_key
 
 from .models import Document
+
+logger = logging.getLogger(__name__)
 
 
 PDF_SIZE_LIMIT_FINDING = {
@@ -71,12 +75,22 @@ def delete_expired_document_quarantine_files_task():
     ).exclude(raw_file_key='')
 
     deleted = 0
+    errors = 0
     for document in qs:
-        delete_object(document.raw_file_key)
+        try:
+            delete_object(document.raw_file_key)
+        except Exception:
+            # A transient storage error (e.g. tunnel 5xx) must not abort the
+            # whole sweep; log and keep deleting the remaining files.
+            logger.exception(
+                'Failed to delete quarantine object %s', document.raw_file_key
+            )
+            errors += 1
+            continue
         document.raw_file_key = ''
         document.save(update_fields=['raw_file_key'])
         deleted += 1
-    return {'deleted': deleted}
+    return {'deleted': deleted, 'errors': errors}
 
 
 def _redact_document_bytes(raw_bytes, mime_type):
