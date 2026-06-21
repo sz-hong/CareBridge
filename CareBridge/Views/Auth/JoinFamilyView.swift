@@ -96,6 +96,7 @@ struct JoinFamilyView: View {
                                     .multilineTextAlignment(.center)
                                     .font(.system(size: 22, weight: .bold))
                                     .keyboardType(.numberPad)
+                                    .textContentType(.oneTimeCode)
                                     .background(
                                         RoundedRectangle(cornerRadius: 10)
                                             .fill(Color(.systemGray6))
@@ -107,6 +108,8 @@ struct JoinFamilyView: View {
                                         }
                                         if !newValue.isEmpty && index < 5 {
                                             focusedField = index + 1
+                                        } else if !newValue.isEmpty {
+                                            focusedField = nil
                                         }
                                     }
                             }
@@ -205,6 +208,16 @@ struct JoinFamilyView: View {
                 }
             }
             .scrollIndicators(.hidden)
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                KeyboardDoneButton {
+                    focusedField = nil
+                }
+            }
+            .sharedBackgroundVisibility(.hidden)
         }
     }
 

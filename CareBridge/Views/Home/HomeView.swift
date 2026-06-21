@@ -19,6 +19,8 @@ struct HomeView: View {
     @Binding var showProfile: Bool
     @Binding var isInHomeDetail: Bool
     let userRole: UserRole
+    let previewedPhotoID: String?
+    let onPreviewPhoto: (PhotoPreviewItem) -> Void
     @Environment(UserStore.self) private var userStore
     @Environment(MedicationStore.self) private var medicationStore
     @Environment(CareLogStore.self) private var careLogStore
@@ -83,96 +85,98 @@ struct HomeView: View {
     }
 
     var body: some View {
-        NavigationStack(path: $navPath) {
-            ScrollView {
-                VStack(spacing: 20) {
-                    // Greeting
-                    greetingSection
+        ZStack {
+            NavigationStack(path: $navPath) {
+                ScrollView {
+                    VStack(spacing: 20) {
+                        // Greeting
+                        greetingSection
 
-                    // Vitals 移到最上方 — Apple Watch 即時推播的核心數據
-                    heartRateCard
+                        // Vitals 移到最上方 — Apple Watch 即時推播的核心數據
+                        heartRateCard
 
-                    bloodOxygenCard
+                        bloodOxygenCard
 
-                    // Today's Tasks
-                    todayTasksCard
+                        // Today's Tasks
+                        todayTasksCard
 
-                    // Photos captured in today's care logs
-                    todayPhotoAlbumCard
+                        // Photos captured in today's care logs
+                        todayPhotoAlbumCard
 
-                    Spacer(minLength: 20)
+                        Spacer(minLength: 20)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-            }
-            .background(Color.brandBackground)
-            .scrollIndicators(.hidden)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { showProfile = true } label: {
-                        HStack(spacing: 0) {
-                            Image(systemName: "person.circle.fill")
-                                .font(.system(size: 24, weight: .bold))
-                                .foregroundStyle(Color.brandTeal)
-                            Text("CareBridge")
-                                .font(.system(size: 20, weight: .bold))
-                                .foregroundStyle(.primary)
+                .background(Color.brandBackground)
+                .scrollIndicators(.hidden)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { showProfile = true } label: {
+                            HStack(spacing: 0) {
+                                Image(systemName: "person.circle.fill")
+                                    .font(.system(size: 24, weight: .bold))
+                                    .foregroundStyle(Color.brandTeal)
+                                Text("CareBridge")
+                                    .font(.system(size: 20, weight: .bold))
+                                    .foregroundStyle(.primary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            showNotifications = true
+                        } label: {
+                            ZStack(alignment: .topTrailing) {
+                                Image(systemName: "bell.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundStyle(Color.brandTeal)
+                                Circle()
+                                    .fill(.red)
+                                    .frame(width: 8, height: 8)
+                                    .offset(x: 2, y: -2)
+                            }
                         }
                     }
-                    .buttonStyle(.plain)
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showNotifications = true
-                    } label: {
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: "bell.fill")
-                                .font(.system(size: 20))
-                                .foregroundStyle(Color.brandTeal)
-                            Circle()
-                                .fill(.red)
-                                .frame(width: 8, height: 8)
-                                .offset(x: 2, y: -2)
-                        }
+                .navigationDestination(for: HomeDestination.self) { dest in
+                    switch dest {
+                    case .calendar:   SharedCalendarView()
+                    case .todos:      TodoView()
+                    case .medication: MedicationView(userRole: userRole)
+                    case .health:     HealthMonitorView()
                     }
                 }
-            }
-            .navigationDestination(for: HomeDestination.self) { dest in
-                switch dest {
-                case .calendar:   SharedCalendarView()
-                case .todos:      TodoView()
-                case .medication: MedicationView(userRole: userRole)
-                case .health:     HealthMonitorView()
+                .navigationDestination(isPresented: $showNotifications) {
+                    NotificationCenterView()
                 }
-            }
-            .navigationDestination(isPresented: $showNotifications) {
-                NotificationCenterView()
-            }
-            .onChange(of: navPath.count) { _, newCount in
-                isInHomeDetail = newCount > 0
-            }
-            .onChange(of: showNotifications) { _, isShown in
-                isInHomeDetail = isShown || navPath.count > 0
-            }
-            .task {
-                medicationStore.load()
-                careLogStore.load()
-                todoStore.load()
-                calendarStore.load()
-                async let h = service.fetchHealthData(elderId: "")
-                async let s = service.fetchWeeklySteps(elderId: "")
-                health      = (try? await h) ?? .sample
-                weeklySteps = (try? await s) ?? HealthData.weeklySteps
+                .onChange(of: navPath.count) { _, newCount in
+                    isInHomeDetail = newCount > 0
+                }
+                .onChange(of: showNotifications) { _, isShown in
+                    isInHomeDetail = isShown || navPath.count > 0
+                }
+                .task {
+                    medicationStore.load()
+                    careLogStore.load()
+                    todoStore.load()
+                    calendarStore.load()
+                    async let h = service.fetchHealthData(elderId: "")
+                    async let s = service.fetchWeeklySteps(elderId: "")
+                    health      = (try? await h) ?? .sample
+                    weeklySteps = (try? await s) ?? HealthData.weeklySteps
 
-                // Live updates from any family member's HealthKit upload —
-                // mirror the heart rate / SpO2 values into the home cards
-                // so they refresh in real time as the watch streams data.
-                liveSocket.onUpdate = { update in
-                    applyLiveUpdate(update)
+                    // Live updates from any family member's HealthKit upload —
+                    // mirror the heart rate / SpO2 values into the home cards
+                    // so they refresh in real time as the watch streams data.
+                    liveSocket.onUpdate = { update in
+                        applyLiveUpdate(update)
+                    }
+                    liveSocket.connect()
                 }
-                liveSocket.connect()
+                .onDisappear { liveSocket.disconnect() }
             }
-            .onDisappear { liveSocket.disconnect() }
         }
     }
 
@@ -465,25 +469,29 @@ struct HomeView: View {
 
     private func todayPhotoThumbnail(_ entry: CareLogEntry) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            AsyncImage(url: entry.photoURL) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                case .failure:
-                    albumPlaceholder(systemImage: "photo.badge.exclamationmark")
-                case .empty:
-                    ZStack {
-                        Color(.systemGray6)
-                        ProgressView()
+            if let photoURL = entry.photoURL {
+                CachedRemotePhoto(url: photoURL) { image in
+                    PreviewablePhotoSource(
+                        id: "home-photo-\(entry.id)",
+                        image: image,
+                        sourceCornerRadius: 10,
+                        isPreviewed: previewedPhotoID == "home-photo-\(entry.id)",
+                        onPreview: onPreviewPhoto
+                    ) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 132, height: 96)
+                            .clipShape(.rect(cornerRadius: 10))
                     }
-                @unknown default:
+                    .accessibilityLabel("預覽今日相冊照片")
+                    .accessibilityHint("點兩下放大照片")
+                } placeholder: {
                     albumPlaceholder(systemImage: "photo")
+                        .frame(width: 132, height: 96)
+                        .clipShape(.rect(cornerRadius: 10))
                 }
             }
-            .frame(width: 132, height: 96)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
 
             Text(entry.type.displayName)
                 .font(.system(size: 12, weight: .semibold))
@@ -629,11 +637,23 @@ struct HomeView: View {
 }
 
 #Preview {
-    let svc = MockDataService()
-    HomeView(showProfile: .constant(false), isInHomeDetail: .constant(false), userRole: .family)
+    HomePreviewHost()
+}
+
+private struct HomePreviewHost: View {
+    var body: some View {
+        let svc = MockDataService()
+        HomeView(
+            showProfile: .constant(false),
+            isInHomeDetail: .constant(false),
+            userRole: .family,
+            previewedPhotoID: nil,
+            onPreviewPhoto: { _ in }
+        )
         .environment(MedicationStore(service: svc))
         .environment(CareLogStore(service: svc))
         .environment(CalendarStore(service: svc))
         .environment(TodoStore(service: svc))
         .environment(UserStore(service: svc))
+    }
 }

@@ -29,6 +29,7 @@ CARE_LOG_TRANSLATION_KEYS = {
     'medication_name',
     'note',
     'text',
+    'title',
 }
 CARE_LOG_PROTECTED_KEYS = {'medication_name'}
 CARE_LOG_PROTECTED_TERM_KEYS = {
