@@ -1,7 +1,7 @@
 # CareBridge API Documentation
 
-> Version: v3.2
-> Last updated: 2026-05-09
+> Version: v3.3
+> Last reviewed: 2026-06-21
 > Source of truth: `backend/carebridge_api/urls.py`, `backend/apps/*/urls.py`, `views.py`, `serializers.py`, `models.py`
 > Production Base URL: `https://api.carebridge-lab.com/api/v1`
 > Local Development Base URL: `http://127.0.0.1:8000/api/v1`
