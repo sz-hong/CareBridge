@@ -49,6 +49,7 @@ SENSITIVE_FIELD_NAMES = {
     'last_login',
     'user_permissions',
     'groups',
+    'photo_key',
 }
 SENSITIVE_FIELD_MARKERS = (
     'token',

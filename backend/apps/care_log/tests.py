@@ -118,6 +118,113 @@ class CareLogAPIContractTests(TestCase):
         self.assertEqual(care_log.recorder, self.user)
         self.assertEqual(care_log.type, CareLog.Type.VITAL)
 
+    @patch(
+        'apps.care_log.serializers.generate_download_url',
+        return_value='https://download.example/photo.jpg',
+    )
+    def test_create_accepts_family_scoped_photo_key(self, _download_url):
+        photo_key = f'care-logs/{self.family.id}/photos/morning.jpg'
+
+        response = self.client.post(
+            '/api/v1/care-logs/',
+            {
+                'type': CareLog.Type.MEAL,
+                'content': {'description': 'Breakfast'},
+                'photo_key': photo_key,
+                'timestamp': timezone.now().isoformat(),
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        data = response.json()['data']
+        care_log = CareLog.objects.get(id=data['id'])
+        self.assertEqual(care_log.photo_key, photo_key)
+        self.assertEqual(data['photo_url'], 'https://download.example/photo.jpg')
+        self.assertNotIn('photo_key', data)
+
+    def test_create_rejects_photo_key_from_other_family(self):
+        response = self.client.post(
+            '/api/v1/care-logs/',
+            {
+                'type': CareLog.Type.ACTIVITY,
+                'content': {'activity_type': 'Walk'},
+                'photo_key': (
+                    f'care-logs/{self.other_family.id}/photos/foreign.jpg'
+                ),
+                'timestamp': timezone.now().isoformat(),
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(
+            CareLog.objects.filter(photo_key__contains='foreign.jpg').exists()
+        )
+
+    def test_create_rejects_direct_photo_url(self):
+        response = self.client.post(
+            '/api/v1/care-logs/',
+            {
+                'type': CareLog.Type.MEAL,
+                'content': {'description': 'Lunch'},
+                'photo_url': 'https://untrusted.example/photo.jpg',
+                'timestamp': timezone.now().isoformat(),
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    @patch(
+        'core.storage.generate_upload_url',
+        return_value='https://upload.example/photo',
+    )
+    def test_upload_url_uses_family_care_log_photo_path(self, _upload_url):
+        response = self.client.post(
+            '/api/v1/care-logs/upload-url/',
+            {'content_type': 'image/jpeg'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()['data']
+        self.assertEqual(data['upload_url'], 'https://upload.example/photo')
+        self.assertTrue(
+            data['photo_key'].startswith(
+                f'care-logs/{self.family.id}/photos/'
+            )
+        )
+        self.assertTrue(data['photo_key'].endswith('.jpg'))
+
+    def test_upload_url_rejects_non_image_content_type(self):
+        response = self.client.post(
+            '/api/v1/care-logs/upload-url/',
+            {'content_type': 'application/pdf'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    @patch('core.storage.delete_object')
+    def test_delete_removes_photo_object(self, delete_object):
+        self.user.role = User.Role.FAMILY_MEMBER
+        self.user.save(update_fields=['role'])
+        photo_key = f'care-logs/{self.family.id}/photos/delete-me.jpg'
+        care_log = CareLog.objects.create(
+            family=self.family,
+            recorder=self.user,
+            type=CareLog.Type.MEAL,
+            content={'description': 'Dinner'},
+            photo_key=photo_key,
+            timestamp=timezone.now(),
+        )
+
+        response = self.client.delete(f'/api/v1/care-logs/{care_log.id}/')
+
+        self.assertEqual(response.status_code, 200)
+        delete_object.assert_called_once_with(photo_key)
+
     @patch('core.translation.translate_text', return_value={'id': 'Catatan pagi'})
     def test_create_translates_care_log_text_content(self, _translate):
         response = self.client.post(

@@ -8,7 +8,7 @@ from django.conf import settings
 logger = logging.getLogger(__name__)
 
 
-def _get_s3_client():
+def _get_s3_client(endpoint_url=None):
     """
     Create and return a boto3 S3 client using Django settings.
 
@@ -20,7 +20,8 @@ def _get_s3_client():
         AWS_S3_ENDPOINT_URL: Optional custom endpoint URL (for S3-compatible services).
     """
     region = getattr(settings, 'AWS_S3_REGION_NAME', 'ap-northeast-1')
-    endpoint_url = getattr(settings, 'AWS_S3_ENDPOINT_URL', None)
+    if endpoint_url is None:
+        endpoint_url = getattr(settings, 'AWS_S3_ENDPOINT_URL', None)
 
     client_kwargs = {
         'service_name': 's3',
@@ -52,6 +53,13 @@ def _get_bucket_name():
     return bucket
 
 
+def _get_public_endpoint_url():
+    return (
+        getattr(settings, 'AWS_S3_PUBLIC_ENDPOINT_URL', None)
+        or getattr(settings, 'AWS_S3_ENDPOINT_URL', None)
+    )
+
+
 def generate_upload_url(key, content_type, expires=3600):
     """
     Generate a pre-signed URL for uploading a file to S3.
@@ -64,7 +72,7 @@ def generate_upload_url(key, content_type, expires=3600):
     Returns:
         str: A pre-signed URL that allows PUT upload to the specified key.
     """
-    client = _get_s3_client()
+    client = _get_s3_client(endpoint_url=_get_public_endpoint_url())
     bucket = _get_bucket_name()
 
     url = client.generate_presigned_url(
@@ -92,7 +100,7 @@ def generate_download_url(key, expires=3600):
     Returns:
         str: A pre-signed URL that allows GET download of the specified key.
     """
-    client = _get_s3_client()
+    client = _get_s3_client(endpoint_url=_get_public_endpoint_url())
     bucket = _get_bucket_name()
 
     url = client.generate_presigned_url(
@@ -140,7 +148,7 @@ def delete_object(key):
 def build_public_url(key):
     """Build a bare (non-presigned) URL for an S3 object key."""
     bucket = _get_bucket_name()
-    endpoint = getattr(settings, 'AWS_S3_ENDPOINT_URL', None)
+    endpoint = _get_public_endpoint_url()
     if endpoint:
         return f'{endpoint.rstrip("/")}/{bucket}/{key}'
     region = getattr(settings, 'AWS_S3_REGION_NAME', 'ap-northeast-1')

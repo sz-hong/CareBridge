@@ -90,6 +90,11 @@ class MockDataService: DataService {
 
     // MARK: - Care Log
     func fetchCareLogEntries(date: Date?) async throws -> [CareLogEntry] { CareLogEntry.samples }
+    func uploadCareLogPhoto(_ image: UIImage) async throws -> CareLogPhotoUploadReference {
+        CareLogPhotoUploadReference(
+            photoKey: "care-logs/mock-family/photos/mock-photo.jpg"
+        )
+    }
     func createCareLogEntry(_ entry: CareLogEntry) async throws -> CareLogEntry { entry }
 
     // MARK: - Medication

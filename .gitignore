@@ -64,3 +64,5 @@ backend/docker/docker-compose.override.yml
 backend/docker/docker-compose.local.yml
 backend/docker/*.override.yml
 backend/docker/*.local.yml
+
+/Doc

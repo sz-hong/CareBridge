@@ -53,3 +53,18 @@ def is_valid_quarantine_key(raw_key, family_id, object_type):
         return False
     expected_prefix = f'quarantine/{family_id}/{object_type}/'
     return raw_key.startswith(expected_prefix) and not raw_key.endswith('/')
+
+
+def build_care_log_photo_key(family_id, content_type):
+    """Return the permanent private-storage key for a care-log photo."""
+    ext = extension_for_upload(content_type, default='jpg')
+    return f'care-logs/{family_id}/photos/{uuid.uuid4().hex}.{ext}'
+
+
+def is_valid_care_log_photo_key(photo_key, family_id):
+    if not photo_key:
+        return False
+    if '\\' in photo_key or '//' in photo_key or '..' in photo_key:
+        return False
+    expected_prefix = f'care-logs/{family_id}/photos/'
+    return photo_key.startswith(expected_prefix) and not photo_key.endswith('/')

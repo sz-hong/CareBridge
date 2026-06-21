@@ -4,6 +4,8 @@
 <dict>
 	<key>NSFaceIDUsageDescription</key>
 	<string>CareBridge 使用 Face ID 保護您的帳號安全</string>
+	<key>NSCameraUsageDescription</key>
+	<string>CareBridge 使用相機拍攝照護日誌照片</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

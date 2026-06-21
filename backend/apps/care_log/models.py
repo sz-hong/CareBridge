@@ -24,7 +24,9 @@ class CareLog(models.Model):
     type = models.CharField(max_length=20, choices=Type.choices)
     content = models.JSONField()
     content_translated = models.JSONField(null=True, blank=True)
-    photo_url = models.URLField(max_length=500, null=True, blank=True)
+    # Private S3 / MinIO object key. API serializers turn this into a
+    # short-lived presigned download URL; clients never persist direct URLs.
+    photo_key = models.CharField(max_length=500, null=True, blank=True)
     timestamp = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)
 
