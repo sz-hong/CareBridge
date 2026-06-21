@@ -1,0 +1,28 @@
+services:
+  web:
+    environment:
+      AWS_S3_ENDPOINT_URL: http://minio:9000
+      AWS_S3_PUBLIC_ENDPOINT_URL: https://storage.carebridge-lab.com
+
+  celery-worker:
+    environment:
+      AWS_S3_ENDPOINT_URL: http://minio:9000
+      AWS_S3_PUBLIC_ENDPOINT_URL: https://storage.carebridge-lab.com
+
+  celery-beat:
+    environment:
+      AWS_S3_ENDPOINT_URL: http://minio:9000
+      AWS_S3_PUBLIC_ENDPOINT_URL: https://storage.carebridge-lab.com
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+      - --token
+      - ${CLOUDFLARE_TUNNEL_TOKEN:?Set CLOUDFLARE_TUNNEL_TOKEN in backend/.env}
+    depends_on:
+      - web
+      - minio

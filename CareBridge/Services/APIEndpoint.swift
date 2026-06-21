@@ -20,6 +20,7 @@ enum APIEndpoint {
     static let chats = "/chats/"
 
     static let careLogs = "/care-logs/"
+    static let careLogUploadURL = "/care-logs/upload-url/"
 
     static func careLogs(on date: String) -> String {
         "\(careLogs)?date=\(date)"

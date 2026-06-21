@@ -97,6 +97,9 @@ struct HomeView: View {
                     // Today's Tasks
                     todayTasksCard
 
+                    // Photos captured in today's care logs
+                    todayPhotoAlbumCard
+
                     Spacer(minLength: 20)
                 }
                 .padding(.horizontal, 16)
@@ -293,6 +296,15 @@ struct HomeView: View {
             .sorted { $0.date < $1.date }
     }
 
+    private var todayPhotoEntries: [CareLogEntry] {
+        careLogStore.entries
+            .filter {
+                Calendar.current.isDateInToday($0.timestamp)
+                    && $0.photoURL != nil
+            }
+            .sorted { $0.timestamp > $1.timestamp }
+    }
+
     // MARK: - Today's Tasks
     private var todayTasksCard: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -399,6 +411,102 @@ struct HomeView: View {
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 16).fill(.white))
+    }
+
+    private var todayPhotoAlbumCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("今日相冊")
+                    .font(.system(size: 17, weight: .bold))
+                Spacer()
+                Text("\(todayPhotoEntries.count) 張")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            if todayPhotoEntries.isEmpty {
+                HStack(spacing: 12) {
+                    Image(systemName: "photo.on.rectangle.angled")
+                        .font(.system(size: 22))
+                        .foregroundStyle(Color.brandTeal)
+                        .frame(width: 44, height: 44)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color.brandTealLight)
+                        )
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("今天還沒有照片")
+                            .font(.system(size: 15, weight: .semibold))
+                        Text("新增照護日誌時可選擇拍照")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(.systemBackground))
+                )
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 12) {
+                        ForEach(todayPhotoEntries) { entry in
+                            todayPhotoThumbnail(entry)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 16).fill(.white))
+    }
+
+    private func todayPhotoThumbnail(_ entry: CareLogEntry) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            AsyncImage(url: entry.photoURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                case .failure:
+                    albumPlaceholder(systemImage: "photo.badge.exclamationmark")
+                case .empty:
+                    ZStack {
+                        Color(.systemGray6)
+                        ProgressView()
+                    }
+                @unknown default:
+                    albumPlaceholder(systemImage: "photo")
+                }
+            }
+            .frame(width: 132, height: 96)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+
+            Text(entry.type.displayName)
+                .font(.system(size: 12, weight: .semibold))
+                .lineLimit(1)
+
+            Text(entry.timestamp.formatted(date: .omitted, time: .shortened))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+        }
+        .frame(width: 132, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            "\(entry.type.displayName)，\(entry.timestamp.formatted(date: .omitted, time: .shortened))"
+        )
+    }
+
+    private func albumPlaceholder(systemImage: String) -> some View {
+        ZStack {
+            Color(.systemGray6)
+            Image(systemName: systemImage)
+                .font(.system(size: 22))
+                .foregroundStyle(.secondary)
+        }
     }
 
     /// Shared row layout used by 今日行程 / 今日待辦 — matches the Medication

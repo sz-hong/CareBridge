@@ -1,16 +1,22 @@
 from datetime import timedelta
+import logging
 
 from django.db.models import Count, Q
 from django.utils.dateparse import parse_date, parse_datetime
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
 from core.permissions import CaregiverCannotDelete
 from core.responses import empty_success_response, success_response
 from core.translation import translate_content_fields
+from core.upload_paths import (
+    build_care_log_photo_key,
+    is_valid_care_log_photo_key,
+)
 from core.viewsets import FamilyScopedQuerySetMixin
 from .models import CareLog
 from .serializers import CareLogSerializer, CreateCareLogSerializer
@@ -31,6 +37,9 @@ CARE_LOG_PROTECTED_TERM_KEYS = {
     'scheduled_time',
     'time',
 }
+CARE_LOG_PHOTO_CONTENT_TYPES = {'image/jpeg', 'image/png', 'image/heic'}
+
+logger = logging.getLogger(__name__)
 
 
 def _care_log_protected_terms(content):
@@ -92,6 +101,9 @@ class CareLogViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        photo_key = serializer.validated_data.get('photo_key')
+        if photo_key:
+            self._validate_photo_key(photo_key, request.user.family.id)
         serializer.save(
             family=request.user.family,
             recorder=request.user,
@@ -119,6 +131,9 @@ class CareLogViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             instance, data=request.data, partial=partial,
         )
         serializer.is_valid(raise_exception=True)
+        photo_key = serializer.validated_data.get('photo_key')
+        if photo_key:
+            self._validate_photo_key(photo_key, request.user.family.id)
         serializer.save()
         if 'content' in request.data:
             instance.content_translated = translate_content_fields(
@@ -138,8 +153,38 @@ class CareLogViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        photo_key = instance.photo_key
         instance.delete()
+        if photo_key:
+            try:
+                from core.storage import delete_object
+                delete_object(photo_key)
+            except Exception:
+                logger.warning(
+                    'Failed to delete care-log photo %s',
+                    photo_key,
+                    exc_info=True,
+                )
         return empty_success_response()
+
+    @action(detail=False, methods=['post'], url_path='upload-url')
+    def upload_url(self, request):
+        """Return a presigned PUT URL under this family's care-log path."""
+        from core.storage import generate_upload_url
+
+        content_type = request.data.get('content_type') or 'image/jpeg'
+        if content_type not in CARE_LOG_PHOTO_CONTENT_TYPES:
+            raise ValidationError({
+                'content_type': 'Care-log photos must be JPEG, PNG, or HEIC.',
+            })
+
+        family_id = getattr(request.user.family, 'id', None)
+        photo_key = build_care_log_photo_key(family_id, content_type)
+        return success_response(data={
+            'upload_url': generate_upload_url(photo_key, content_type),
+            'photo_key': photo_key,
+            'expires_in': 3600,
+        })
 
     @action(detail=False, methods=['get'], url_path='summary')
     def summary(self, request):
@@ -179,3 +224,12 @@ class CareLogViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             },
         }
         return success_response(data=data)
+
+    @staticmethod
+    def _validate_photo_key(photo_key, family_id):
+        if not is_valid_care_log_photo_key(photo_key, family_id):
+            raise ValidationError({
+                'photo_key': (
+                    'Care-log photo key is outside this family storage path.'
+                ),
+            })

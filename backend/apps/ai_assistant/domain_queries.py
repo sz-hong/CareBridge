@@ -18,6 +18,7 @@ SENSITIVE_JSON_KEYS = {
     "image_url",
     "file_url",
     "photo_url",
+    "photo_key",
     "device_id",
     "device_token",
     "email",

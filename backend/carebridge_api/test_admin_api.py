@@ -203,6 +203,7 @@ class AdminAPIStorageAndLogsTests(TestCase):
     @override_settings(
         AWS_STORAGE_BUCKET_NAME="carebridge-storage",
         AWS_S3_ENDPOINT_URL="https://storage.carebridge-lab.com",
+        AWS_S3_PUBLIC_ENDPOINT_URL="https://storage.carebridge-lab.com",
     )
     @patch("apps.admin_api.views.get_s3_client")
     def test_storage_endpoint_lists_objects_and_marks_linked_files(self, mock_client):
@@ -615,6 +616,7 @@ class AdminAPIFileMutationTests(TestCase):
     @override_settings(
         AWS_STORAGE_BUCKET_NAME="carebridge-storage",
         AWS_S3_ENDPOINT_URL="https://storage.carebridge-lab.com",
+        AWS_S3_PUBLIC_ENDPOINT_URL="https://storage.carebridge-lab.com",
     )
     @patch("apps.admin_api.views.get_s3_client")
     def test_staff_can_upload_file_with_backend_credentials(self, mock_client):

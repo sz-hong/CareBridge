@@ -44,6 +44,43 @@ Expected response:
 {"status":"ok"}
 ```
 
+## Cloudflare Tunnel deployment
+
+The public deployment uses one remotely managed Cloudflare Tunnel with two
+published applications:
+
+| Public hostname | Service URL inside Docker |
+| --- | --- |
+| `api.carebridge-lab.com` | `http://web:8000` |
+| `storage.carebridge-lab.com` | `http://minio:9000` |
+
+Both routes are required. The iOS app talks to the API hostname, while
+presigned photo and document URLs point directly to the storage hostname.
+
+Set these values in `backend/.env`:
+
+```env
+DJANGO_ENV=production
+DJANGO_DEBUG=False
+ALLOWED_HOSTS=api.carebridge-lab.com,localhost,127.0.0.1
+SECURE_SSL_REDIRECT=True
+CLOUDFLARE_TUNNEL_TOKEN=replace-with-the-tunnel-token
+AWS_S3_PUBLIC_ENDPOINT_URL=https://storage.carebridge-lab.com
+```
+
+Start the public stack with:
+
+```bash
+cd backend/docker
+docker compose --env-file ../.env \
+  -f docker-compose.yml \
+  -f docker-compose.tunnel.yml \
+  up -d --build
+```
+
+Debug iOS builds continue using the private device endpoint. Release builds
+automatically use `https://api.carebridge-lab.com`.
+
 ## Main Backend Capabilities
 
 - JWT authentication, user profile, family groups, and family membership.

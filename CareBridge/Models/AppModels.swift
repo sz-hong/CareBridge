@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import UIKit
 
 // MARK: - User Roles
 enum UserRole: String, CaseIterable, Codable {
@@ -495,6 +496,8 @@ struct CareLogEntry: Identifiable, Codable {
     var detail: String      // generated from API content JSONB
     var timestamp: Date     // API: timestamp
     var hasPhoto: Bool      // derived from photo_url != nil
+    var photoURL: URL?
+    var photoKey: String?
     /// Structured vitals — populated for .vital entries so views can read the
     /// latest reading without regex-parsing `detail`. All optional.
     var bloodPressureSystolic: Int? = nil
@@ -514,6 +517,7 @@ struct CareLogEntry: Identifiable, Codable {
     private enum CodingKeys: String, CodingKey {
         case id, type, content, timestamp, contentTranslated
         case photoUrl   // API: photo_url → convertFromSnakeCase → photoUrl
+        case photoKey
     }
 
     // Nested content fields (covers all care log types)
@@ -544,13 +548,18 @@ struct CareLogEntry: Identifiable, Codable {
 
     init(id: String, type: CareLogType, title: String, detail: String,
          timestamp: Date, hasPhoto: Bool,
+         photoURL: URL? = nil,
+         photoKey: String? = nil,
          bloodPressureSystolic: Int? = nil,
          bloodPressureDiastolic: Int? = nil,
          bloodSugar: Double? = nil,
          temperature: Double? = nil,
          weight: Double? = nil) {
         self.id = id; self.type = type; self.title = title
-        self.detail = detail; self.timestamp = timestamp; self.hasPhoto = hasPhoto
+        self.detail = detail; self.timestamp = timestamp
+        self.photoURL = photoURL
+        self.photoKey = photoKey
+        self.hasPhoto = hasPhoto || photoURL != nil || photoKey != nil
         self.bloodPressureSystolic = bloodPressureSystolic
         self.bloodPressureDiastolic = bloodPressureDiastolic
         self.bloodSugar = bloodSugar
@@ -563,7 +572,13 @@ struct CareLogEntry: Identifiable, Codable {
         id        = try c.decode(String.self, forKey: .id)
         type      = try c.decode(CareLogType.self, forKey: .type)
         timestamp = try c.decode(Date.self, forKey: .timestamp)
-        hasPhoto  = (try? c.decodeIfPresent(String.self, forKey: .photoUrl)) != nil
+        let photoURLString = try? c.decodeIfPresent(
+            String.self,
+            forKey: .photoUrl
+        )
+        photoURL = photoURLString.flatMap(URL.init(string:))
+        photoKey = try? c.decodeIfPresent(String.self, forKey: .photoKey)
+        hasPhoto = photoURL != nil || photoKey?.isEmpty == false
 
         let content = (try? c.decode(Content.self, forKey: .content)) ?? Content()
         // content_translated 是後端 keyDecodingStrategy 之外的特殊形狀
@@ -652,6 +667,7 @@ struct CareLogEntry: Identifiable, Codable {
         try c.encode(id, forKey: .id)
         try c.encode(type, forKey: .type)
         try c.encode(timestamp, forKey: .timestamp)
+        try c.encodeIfPresent(photoKey, forKey: .photoKey)
         // Encode minimal content based on type. AnyCodable-free: use a mixed dict
         // so numeric vitals stay numeric instead of being stringified.
         var content: [String: AnyEncodable] = [:]
@@ -797,16 +813,17 @@ class CareLogStore {
         }
     }
 
-    func addEntry(_ entry: CareLogEntry) {
-        state.updateValue { entries in
-            entries.insert(entry, at: 0)
+    @MainActor
+    func addEntry(_ entry: CareLogEntry, photo: UIImage?) async throws {
+        var requestEntry = entry
+        if let photo {
+            let uploaded = try await service.uploadCareLogPhoto(photo)
+            requestEntry.photoKey = uploaded.photoKey
+            requestEntry.hasPhoto = true
         }
-        Task {
-            do {
-                _ = try await service.createCareLogEntry(entry)
-            } catch {
-                print("[CareLogStore] create failed: \(error)")
-            }
+        let saved = try await service.createCareLogEntry(requestEntry)
+        state.updateValue { entries in
+            entries.insert(saved, at: 0)
         }
     }
 }

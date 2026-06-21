@@ -96,12 +96,17 @@ struct ChatListView: View {
                 NotificationCenterView()
             }
             .onChange(of: navPath.count) { _, newCount in
-                isInChatDetail = newCount > 0
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    isInChatDetail = newCount > 0
+                }
             }
             .task {
                 chatRooms = (try? await service.fetchChatRooms()) ?? []
             }
         }
+        .toolbarVisibility(navPath.count > 0 ? .hidden : .visible, for: .tabBar)
     }
 }
 

@@ -245,6 +245,12 @@ AWS_STORAGE_BUCKET_NAME = os.environ.get('AWS_STORAGE_BUCKET_NAME', 'carebridge-
 AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'ap-northeast-1')
 # Set to http://localhost:9000 for local MinIO; leave blank for real AWS S3.
 AWS_S3_ENDPOINT_URL = os.environ.get('AWS_S3_ENDPOINT_URL') or None
+# Optional externally reachable endpoint used only when signing client-facing
+# upload/download URLs. This lets Docker talk to MinIO through `minio:9000`
+# while physical devices use the Mac's Tailscale/LAN address.
+AWS_S3_PUBLIC_ENDPOINT_URL = (
+    os.environ.get('AWS_S3_PUBLIC_ENDPOINT_URL') or AWS_S3_ENDPOINT_URL
+)
 AWS_QUERYSTRING_AUTH = True
 AWS_QUERYSTRING_EXPIRE = 3600  # Presigned URL 有效期 1 小時
 

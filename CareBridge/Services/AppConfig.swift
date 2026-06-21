@@ -7,11 +7,13 @@ import Foundation
 /// struct.
 enum AppConfig {
 
-    // MARK: - Switch here
-    /// Change this one line to flip between targets.
-    //static let mode: Mode = .simulator
-    //static let mode: Mode = .device
+    // Debug builds keep using the private test endpoint. App Store / Release
+    // builds switch to the HTTPS Cloudflare Tunnel automatically.
+#if DEBUG
+    static let mode: Mode = .device
+#else
     static let mode: Mode = .publicTunnel
+#endif
 
     /// When targeting a physical device, update `lanIP` to your Mac's current
     /// LAN IP. Device and Mac must be on the same Wi-Fi.

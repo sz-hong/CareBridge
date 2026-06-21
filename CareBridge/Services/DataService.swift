@@ -31,6 +31,10 @@ struct ReceiptUploadReference: Codable {
     var rawKey: String
 }
 
+struct CareLogPhotoUploadReference: Codable {
+    var photoKey: String
+}
+
 struct CategoryBreakdownItem: Codable {
     var category: String
     var percentage: Double
@@ -164,6 +168,7 @@ protocol DataService {
 
     // Care Log
     func fetchCareLogEntries(date: Date?) async throws -> [CareLogEntry]
+    func uploadCareLogPhoto(_ image: UIImage) async throws -> CareLogPhotoUploadReference
     func createCareLogEntry(_ entry: CareLogEntry) async throws -> CareLogEntry
 
     // Medication

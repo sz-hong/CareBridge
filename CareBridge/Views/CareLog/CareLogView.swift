@@ -128,8 +128,8 @@ struct CareLogView: View {
                 .padding(.bottom, 20)
             }
             .sheet(isPresented: $showAddEntry) {
-                AddCareLogView(userRole: userRole) { newEntry in
-                    careLogStore.addEntry(newEntry)
+                AddCareLogView(userRole: userRole) { newEntry, photo in
+                    try await careLogStore.addEntry(newEntry, photo: photo)
                 }
             }
             .navigationDestination(isPresented: $showNotifications) {
@@ -514,6 +514,30 @@ struct TimelineEntryRow: View {
                     .lineLimit(2)
             }
 
+            if let photoURL = entry.photoURL {
+                AsyncImage(url: photoURL) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .failure:
+                        photoPlaceholder(systemImage: "photo.badge.exclamationmark")
+                    case .empty:
+                        ZStack {
+                            Color(.systemGray6)
+                            ProgressView()
+                        }
+                    @unknown default:
+                        photoPlaceholder(systemImage: "photo")
+                    }
+                }
+                .frame(height: 112)
+                .frame(maxWidth: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .accessibilityLabel("照護日誌照片")
+            }
+
             if entry.type == .medication {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.circle.fill")
@@ -527,6 +551,15 @@ struct TimelineEntryRow: View {
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: 12).fill(.white))
+    }
+
+    private func photoPlaceholder(systemImage: String) -> some View {
+        ZStack {
+            Color(.systemGray6)
+            Image(systemName: systemImage)
+                .font(.system(size: 24))
+                .foregroundStyle(.secondary)
+        }
     }
 
     // MARK: - Vital parsing
@@ -578,10 +611,15 @@ struct TimelineEntryRow: View {
 struct AddCareLogView: View {
     @Environment(\.dismiss) private var dismiss
     let userRole: UserRole
-    let onAdd: (CareLogEntry) -> Void
+    let onAdd: (CareLogEntry, UIImage?) async throws -> Void
 
     @State private var selectedType: CareLogType = .vital  // 預設改為生理數值（移除備註後）
     @State private var recordDate = Date()
+    @State private var selectedPhoto: UIImage?
+    @State private var showCamera = false
+    @State private var showCameraUnavailable = false
+    @State private var isSaving = false
+    @State private var saveErrorMessage: String?
 
     // vital signs
     @State private var bp_systolic = ""
@@ -634,10 +672,45 @@ struct AddCareLogView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("儲存") { saveEntry() }
-                        .fontWeight(.semibold)
-                        .tint(Color.brandTeal)
+                    Button {
+                        Task { await saveEntry() }
+                    } label: {
+                        if isSaving {
+                            ProgressView()
+                        } else {
+                            Text("儲存")
+                                .fontWeight(.semibold)
+                        }
+                    }
+                    .tint(Color.brandTeal)
+                    .disabled(isSaving)
                 }
+            }
+            .interactiveDismissDisabled(isSaving)
+            .fullScreenCover(isPresented: $showCamera) {
+                CareLogCameraView { image in
+                    selectedPhoto = image
+                    showCamera = false
+                } onCancel: {
+                    showCamera = false
+                }
+                .ignoresSafeArea()
+            }
+            .alert("無法使用相機", isPresented: $showCameraUnavailable) {
+                Button("確定", role: .cancel) {}
+            } message: {
+                Text("請確認裝置有相機，並在系統設定中允許 CareBridge 使用相機。")
+            }
+            .alert(
+                "儲存失敗",
+                isPresented: Binding(
+                    get: { saveErrorMessage != nil },
+                    set: { if !$0 { saveErrorMessage = nil } }
+                )
+            ) {
+                Button("確定", role: .cancel) {}
+            } message: {
+                Text(saveErrorMessage ?? "請稍後再試")
             }
         }
     }
@@ -658,6 +731,8 @@ struct AddCareLogView: View {
                 .tint(Color.brandTeal)
         }
 
+        photoSection
+
         switch selectedType {
         case .vital:      vitalSection
         case .medication: medicationSection
@@ -665,6 +740,56 @@ struct AddCareLogView: View {
         case .activity:   activitySection
         case .note:       noteSection
         }
+    }
+
+    @ViewBuilder
+    private var photoSection: some View {
+        Section {
+            if let selectedPhoto {
+                Image(uiImage: selectedPhoto)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(height: 180)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .accessibilityLabel("準備上傳的照護照片")
+
+                HStack {
+                    Button {
+                        openCamera()
+                    } label: {
+                        Label("重新拍攝", systemImage: "camera.rotate")
+                    }
+
+                    Spacer()
+
+                    Button(role: .destructive) {
+                        self.selectedPhoto = nil
+                    } label: {
+                        Label("移除", systemImage: "trash")
+                    }
+                }
+            } else {
+                Button {
+                    openCamera()
+                } label: {
+                    Label("拍照", systemImage: "camera.fill")
+                        .foregroundStyle(Color.brandTeal)
+                }
+            }
+        } header: {
+            Text("照片（選填）")
+        } footer: {
+            Text("照片不是必填；選擇拍照後才會上傳。")
+        }
+    }
+
+    private func openCamera() {
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            showCameraUnavailable = true
+            return
+        }
+        showCamera = true
     }
 
     // MARK: - 生理 section
@@ -817,7 +942,12 @@ struct AddCareLogView: View {
     }
 
     // MARK: - Save
-    private func saveEntry() {
+    @MainActor
+    private func saveEntry() async {
+        guard !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
+
         let title: String
         let detail: String
         let type = selectedType
@@ -853,15 +983,73 @@ struct AddCareLogView: View {
             title: title,
             detail: detail,
             timestamp: recordDate,
-            hasPhoto: false,
+            hasPhoto: selectedPhoto != nil,
             bloodPressureSystolic:  selectedType == .vital ? Int(bp_systolic)  : nil,
             bloodPressureDiastolic: selectedType == .vital ? Int(bp_diastolic) : nil,
             bloodSugar:  selectedType == .vital ? Double(bloodSugar)  : nil,
             temperature: selectedType == .vital ? Double(temperature) : nil,
             weight:      selectedType == .vital ? Double(weight)      : nil
         )
-        onAdd(entry)
-        dismiss()
+        do {
+            try await onAdd(entry, selectedPhoto)
+            dismiss()
+        } catch {
+            saveErrorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct CareLogCameraView: UIViewControllerRepresentable {
+    let onCapture: (UIImage) -> Void
+    let onCancel: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onCapture: onCapture, onCancel: onCancel)
+    }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(
+        _ uiViewController: UIImagePickerController,
+        context: Context
+    ) {}
+
+    final class Coordinator: NSObject,
+        UIImagePickerControllerDelegate,
+        UINavigationControllerDelegate {
+        let onCapture: (UIImage) -> Void
+        let onCancel: () -> Void
+
+        init(
+            onCapture: @escaping (UIImage) -> Void,
+            onCancel: @escaping () -> Void
+        ) {
+            self.onCapture = onCapture
+            self.onCancel = onCancel
+        }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [
+                UIImagePickerController.InfoKey: Any
+            ]
+        ) {
+            guard let image = info[.originalImage] as? UIImage else {
+                onCancel()
+                return
+            }
+            onCapture(image)
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            onCancel()
+        }
     }
 }
 
@@ -871,6 +1059,6 @@ struct AddCareLogView: View {
 }
 
 #Preview("新增") {
-    AddCareLogView(userRole: .caregiver) { _ in }
+    AddCareLogView(userRole: .caregiver) { _, _ in }
         .environment(CareLogStore())
 }

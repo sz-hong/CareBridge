@@ -46,6 +46,7 @@ struct APIClientTests {
         #expect(APIEndpoint.healthWeeklySteps == "/health-data/weekly-steps/")
         #expect(APIEndpoint.chats == "/chats/")
         #expect(APIEndpoint.chatMessages(roomId: "room-1") == "/chats/room-1/messages/")
+        #expect(APIEndpoint.careLogUploadURL == "/care-logs/upload-url/")
         #expect(APIEndpoint.medications == "/medications/")
         #expect(APIEndpoint.medication(id: "med-1") == "/medications/med-1/")
         #expect(APIEndpoint.medicationTodayConfirmations == "/medications/today_confirmations/")

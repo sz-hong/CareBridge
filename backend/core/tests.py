@@ -11,7 +11,11 @@ from core.deidentification import (
     prepare_text_for_gpt,
 )
 from core.pii_patterns import CUSTOM_REGEX_INFO_TYPES
-from core.storage import build_public_url
+from core.storage import (
+    build_public_url,
+    generate_download_url,
+    generate_upload_url,
+)
 from core.translation import (
     SUPPORTED_LANGUAGES,
     protected_entity_map,
@@ -23,11 +27,39 @@ class StorageURLContractTests(SimpleTestCase):
     @override_settings(
         AWS_STORAGE_BUCKET_NAME='carebridge-storage',
         AWS_S3_ENDPOINT_URL='https://storage.carebridge-lab.com',
+        AWS_S3_PUBLIC_ENDPOINT_URL='https://storage.carebridge-lab.com',
     )
     def test_public_minio_endpoint_builds_externally_reachable_url(self):
         self.assertEqual(
             build_public_url('receipts/family-1/receipt.jpg'),
             'https://storage.carebridge-lab.com/carebridge-storage/receipts/family-1/receipt.jpg',
+        )
+
+    @override_settings(
+        AWS_STORAGE_BUCKET_NAME='carebridge-storage',
+        AWS_S3_ENDPOINT_URL='http://minio:9000',
+        AWS_S3_PUBLIC_ENDPOINT_URL='http://100.125.106.32:9000',
+    )
+    @patch('core.storage._get_s3_client')
+    def test_presigned_urls_use_public_endpoint(self, get_s3_client):
+        client = get_s3_client.return_value
+        client.generate_presigned_url.return_value = 'signed-url'
+
+        self.assertEqual(
+            generate_upload_url('care-logs/family/photo.jpg', 'image/jpeg'),
+            'signed-url',
+        )
+        self.assertEqual(
+            generate_download_url('care-logs/family/photo.jpg'),
+            'signed-url',
+        )
+
+        self.assertEqual(
+            get_s3_client.call_args_list,
+            [
+                ((), {'endpoint_url': 'http://100.125.106.32:9000'}),
+                ((), {'endpoint_url': 'http://100.125.106.32:9000'}),
+            ],
         )
 
 
@@ -122,6 +154,7 @@ class MockDeidentificationClientTests(SimpleTestCase):
     @override_settings(
         AWS_STORAGE_BUCKET_NAME='carebridge-storage',
         AWS_S3_ENDPOINT_URL='https://storage.carebridge-lab.com/',
+        AWS_S3_PUBLIC_ENDPOINT_URL='https://storage.carebridge-lab.com/',
     )
     def test_public_minio_endpoint_ignores_trailing_slash(self):
         self.assertEqual(
