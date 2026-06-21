@@ -185,6 +185,9 @@ class MedicationAPIEndpointTests(TestCase):
         self.assertEqual(confirmation.medication, medication)
         self.assertEqual(confirmation.confirmed_by, self.user)
         self.assertEqual(confirmation.scheduled_time, '08:00')
+        # The photo is stored on the confirmation; the derived CareLog (which now
+        # uses photo_key for storage keys) does not mirror the URL.
+        self.assertEqual(confirmation.photo_url, 'https://example.com/photo.jpg')
         self.assertEqual(confirmation.care_log.type, CareLog.Type.MEDICATION)
         self.assertEqual(confirmation.care_log.family, self.family)
         self.assertEqual(confirmation.care_log.recorder, self.user)

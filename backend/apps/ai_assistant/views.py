@@ -470,7 +470,10 @@ class HandoverReportView(APIView):
     def post(self, request):
         serializer = HandoverReportSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        report_date = serializer.validated_data.get('date') or timezone.now().date()
+        # Use the local (settings.TIME_ZONE) date to match the `__date` lookups
+        # below, which evaluate timestamps in the active timezone. Using
+        # timezone.now().date() (UTC) would miss "today" near the day boundary.
+        report_date = serializer.validated_data.get('date') or timezone.localdate()
 
         user = request.user
         family = user.family
