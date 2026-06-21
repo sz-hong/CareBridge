@@ -64,8 +64,10 @@ class DocumentViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         if raw_file_key:
             doc.file_url = None
             doc.raw_file_key = raw_file_key
+            # PDFs are rasterized to a redacted PNG during de-identification, so
+            # the processed object is an image, not the original PDF.
             processed_content_type = (
-                'text/plain'
+                'image/png'
                 if doc.mime_type == 'application/pdf'
                 else doc.mime_type
             )

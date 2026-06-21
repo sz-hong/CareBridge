@@ -1,19 +1,24 @@
+import io
+
 from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
 
-from core.deidentification import HIGH_RISK_LIKELIHOODS, get_deidentification_client
+from core.deidentification import get_deidentification_client
 from core.storage import build_public_url, delete_object, download_bytes, put_bytes
 from core.upload_paths import processed_key_for_raw_key
 
 from .models import Document
 
 
-PDF_SIZE_LIMIT_FINDING = {
-    'info_type': 'DLP_CONTENT_SIZE_LIMIT',
-    'likelihood': 'LIKELY',
-    'quote_length': 0,
-}
+# PDF pages are rasterized at this DPI before per-page DLP image redaction.
+# 150 keeps text legible while keeping each page image well within the DLP
+# image inspection size limit.
+PDF_RASTER_DPI = 150
+
+# Cap each rasterized page's width so an oversized page cannot exceed the DLP
+# image size limit; height is scaled proportionally to preserve aspect ratio.
+PDF_PAGE_MAX_WIDTH = 2000
 
 
 @shared_task
@@ -82,23 +87,7 @@ def delete_expired_document_quarantine_files_task():
 def _redact_document_bytes(raw_bytes, mime_type):
     client = get_deidentification_client()
     if mime_type == 'application/pdf':
-        try:
-            findings = client.inspect_file_bytes(raw_bytes, mime_type=mime_type)
-        except Exception as exc:
-            if not _is_dlp_content_size_limit(exc):
-                raise
-            return (
-                _build_pdf_size_limit_preview(),
-                'text/plain',
-                [PDF_SIZE_LIMIT_FINDING.copy()],
-                True,
-            )
-        return (
-            _build_pdf_processed_preview(findings),
-            'text/plain',
-            [finding.to_dict() for finding in findings],
-            _has_high_risk_findings(findings),
-        )
+        return _redact_pdf_bytes(client, raw_bytes)
 
     if mime_type.startswith('image/'):
         redacted = client.redact_image(raw_bytes, mime_type=mime_type)
@@ -122,42 +111,76 @@ def _redact_document_bytes(raw_bytes, mime_type):
     )
 
 
-def _has_high_risk_findings(findings):
-    return any(finding.likelihood in HIGH_RISK_LIKELIHOODS for finding in findings)
+def _redact_pdf_bytes(client, raw_bytes):
+    """Rasterize every PDF page, redact each via DLP image redaction, then
+    stitch the redacted pages into a single tall PNG.
+
+    DLP's content API cannot redact a PDF and return a redacted PDF, so we turn
+    each page into an image (which DLP *can* redact) and combine them. The
+    output is a single ``image/png`` so it shares the same preview path as
+    image documents and receipts.
+    """
+    page_images = _rasterize_pdf_to_images(raw_bytes)
+    if not page_images:
+        raise ValueError('PDF produced no rasterizable pages.')
+
+    redacted_pages = []
+    findings = []
+    high_risk = False
+    for page_png in page_images:
+        redacted = client.redact_image(page_png, mime_type='image/png')
+        redacted_pages.append(redacted.bytes)
+        findings.extend(redacted.findings_as_dicts())
+        high_risk = high_risk or redacted.high_risk
+
+    stitched = _stitch_images_vertically(redacted_pages)
+    return (stitched, 'image/png', findings, high_risk)
 
 
-def _is_dlp_content_size_limit(exc):
-    message = str(exc).lower()
-    return 'content size' in message and 'exceeds limit' in message
+def _rasterize_pdf_to_images(raw_bytes):
+    """Render each PDF page to PNG bytes via pdf2image (poppler).
+
+    Returns a list of PNG byte strings, one per page. Oversized pages are
+    downscaled to ``PDF_PAGE_MAX_WIDTH`` so a single page cannot exceed the DLP
+    image size limit.
+    """
+    from pdf2image import convert_from_bytes
+
+    pages = convert_from_bytes(raw_bytes, dpi=PDF_RASTER_DPI, fmt='png')
+    page_png_list = []
+    for page in pages:
+        if page.width > PDF_PAGE_MAX_WIDTH:
+            ratio = PDF_PAGE_MAX_WIDTH / page.width
+            page = page.resize(
+                (PDF_PAGE_MAX_WIDTH, max(1, round(page.height * ratio)))
+            )
+        buffer = io.BytesIO()
+        page.save(buffer, format='PNG')
+        page_png_list.append(buffer.getvalue())
+    return page_png_list
 
 
-def _build_pdf_processed_preview(findings):
-    lines = [
-        'Processed PDF preview',
-        '',
-        (
-            'The original PDF was inspected by the DLP provider. Redacted PDF '
-            'output is not supported by this DLP path, so this preview contains '
-            'metadata only and does not expose raw document text.'
-        ),
-        '',
-        f'Findings: {len(findings)}',
-    ]
-    for finding in findings:
-        lines.append(f'- {finding.info_type} ({finding.likelihood})')
-    return ('\n'.join(lines) + '\n').encode('utf-8')
+def _stitch_images_vertically(page_png_list):
+    """Combine page PNGs into one tall PNG (white background, top-aligned)."""
+    from PIL import Image
 
+    images = [Image.open(io.BytesIO(data)).convert('RGB') for data in page_png_list]
+    try:
+        if len(images) == 1:
+            buffer = io.BytesIO()
+            images[0].save(buffer, format='PNG')
+            return buffer.getvalue()
 
-def _build_pdf_size_limit_preview():
-    lines = [
-        'Processed PDF preview',
-        '',
-        (
-            'Content size exceeded the DLP inline limit. The original PDF was '
-            'not included in this preview and requires manual review.'
-        ),
-        '',
-        'Findings: 1',
-        '- DLP_CONTENT_SIZE_LIMIT (LIKELY)',
-    ]
-    return ('\n'.join(lines) + '\n').encode('utf-8')
+        total_width = max(image.width for image in images)
+        total_height = sum(image.height for image in images)
+        canvas = Image.new('RGB', (total_width, total_height), (255, 255, 255))
+        offset_y = 0
+        for image in images:
+            canvas.paste(image, (0, offset_y))
+            offset_y += image.height
+        buffer = io.BytesIO()
+        canvas.save(buffer, format='PNG')
+        return buffer.getvalue()
+    finally:
+        for image in images:
+            image.close()
