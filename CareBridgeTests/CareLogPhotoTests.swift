@@ -23,6 +23,7 @@ struct CareLogPhotoTests {
         )
 
         #expect(entry.hasPhoto)
+        #expect(entry.title == "午餐")
         #expect(
             entry.photoURL?.absoluteString
                 == "https://example.com/care-photo.jpg"
@@ -52,5 +53,50 @@ struct CareLogPhotoTests {
                 == "care-logs/family-1/photos/photo.jpg"
         )
         #expect(object["photo_url"] == nil)
+        let content = try #require(object["content"] as? [String: Any])
+        #expect(content["title"] as? String == "散步")
+    }
+
+    @Test func decodesUserEnteredMealAndActivityTitles() throws {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let mealJSON = """
+        {
+          "id": "meal-1",
+          "type": "meal",
+          "content": {
+            "title": "地瓜粥",
+            "description": "早餐｜食慾：良好"
+          },
+          "timestamp": "2026-06-22T08:00:00Z"
+        }
+        """
+        let activityJSON = """
+        {
+          "id": "activity-1",
+          "type": "activity",
+          "content": {
+            "title": "公園散步",
+            "note": "30分鐘｜輕度"
+          },
+          "timestamp": "2026-06-22T09:00:00Z"
+        }
+        """
+
+        let meal = try decoder.decode(
+            CareLogEntry.self,
+            from: Data(mealJSON.utf8)
+        )
+        let activity = try decoder.decode(
+            CareLogEntry.self,
+            from: Data(activityJSON.utf8)
+        )
+
+        #expect(meal.title == "地瓜粥")
+        #expect(meal.detail == "早餐｜食慾：良好")
+        #expect(activity.title == "公園散步")
+        #expect(activity.detail == "30分鐘｜輕度")
     }
 }

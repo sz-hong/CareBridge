@@ -848,6 +848,7 @@ struct OCRConfirmationView: View {
     @State private var showRawText = false
     @State private var isSaving = false
     @State private var saveError: String?
+    @FocusState private var isAmountFocused: Bool
 
     private let categories: [String] = Expense.allCategoryCodes
 
@@ -901,6 +902,8 @@ struct OCRConfirmationView: View {
                         TextField("金額", text: $totalAmount)
                             .multilineTextAlignment(.trailing)
                             .keyboardType(.numberPad)
+                            .textContentType(.oneTimeCode)
+                            .focused($isAmountFocused)
                     }
                     DatePicker("消費日期", selection: $receiptDate, displayedComponents: .date)
                 }
@@ -926,6 +929,7 @@ struct OCRConfirmationView: View {
                     }
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("確認收據資訊")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -937,6 +941,15 @@ struct OCRConfirmationView: View {
                         .bold().foregroundStyle(Color.brandTeal)
                         .disabled(isSaving || (storeName.isEmpty && totalAmount.isEmpty))
                 }
+                ToolbarItemGroup(placement: .keyboard) {
+                    if isAmountFocused {
+                        Spacer()
+                        KeyboardDoneButton {
+                            isAmountFocused = false
+                        }
+                    }
+                }
+                .sharedBackgroundVisibility(.hidden)
             }
             .alert("儲存失敗", isPresented: .constant(saveError != nil)) {
                 Button("好", role: .cancel) { saveError = nil }

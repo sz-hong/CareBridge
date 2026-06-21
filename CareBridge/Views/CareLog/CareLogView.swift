@@ -3,6 +3,8 @@ import SwiftUI
 struct CareLogView: View {
     @Binding var showProfile: Bool
     let userRole: UserRole
+    let previewedPhotoID: String?
+    let onPreviewPhoto: (PhotoPreviewItem) -> Void
     @Environment(CareLogStore.self) private var careLogStore
     @Environment(LocaleStore.self) private var localeStore
     @State private var selectedFilter: CareLogType? = nil
@@ -37,105 +39,111 @@ struct CareLogView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                // Filter chips + calendar header
-                headerSection
+        ZStack {
+            NavigationStack {
+                VStack(spacing: 0) {
+                    // Filter chips + calendar header
+                    headerSection
 
-                ScrollView {
-                    LazyVStack(spacing: 0, pinnedViews: []) {
-                        if careLogStore.isLoading && careLogStore.entries.isEmpty {
-                            ProgressView()
-                                .padding(.top, 32)
-                        }
+                    ScrollView {
+                        LazyVStack(spacing: 0, pinnedViews: []) {
+                            if careLogStore.isLoading && careLogStore.entries.isEmpty {
+                                ProgressView()
+                                    .padding(.top, 32)
+                            }
 
-                        if let errorMessage = careLogStore.errorMessage {
-                            Text(errorMessage)
-                                .font(.footnote)
-                                .foregroundStyle(.red)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, 16)
-                                .padding(.top, 12)
-                        }
-
-                        ForEach(groupedEntries, id: \.0) { dateString, dayEntries in
-                            VStack(alignment: .leading, spacing: 0) {
-                                // Date header
-                                Text("TODAY  \(dateString)")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(.secondary)
+                            if let errorMessage = careLogStore.errorMessage {
+                                Text(errorMessage)
+                                    .font(.footnote)
+                                    .foregroundStyle(.red)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.horizontal, 16)
-                                    .padding(.top, 16)
-                                    .padding(.bottom, 8)
+                                    .padding(.top, 12)
+                            }
 
-                                // Timeline entries
-                                ForEach(dayEntries) { entry in
-                                    TimelineEntryRow(entry: entry)
+                            ForEach(groupedEntries, id: \.0) { dateString, dayEntries in
+                                VStack(alignment: .leading, spacing: 0) {
+                                    // Date header
+                                    Text("TODAY  \(dateString)")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 16)
+                                        .padding(.top, 16)
+                                        .padding(.bottom, 8)
+
+                                    // Timeline entries
+                                    ForEach(dayEntries) { entry in
+                                        TimelineEntryRow(
+                                            entry: entry,
+                                            previewedPhotoID: previewedPhotoID,
+                                            onPreviewPhoto: onPreviewPhoto
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(minLength: 32)
+                        }
+                    }
+                    .background(Color.brandBackground)
+                }
+                .background(Color.brandBackground)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { showProfile = true } label: {
+                            HStack(spacing: 0) {
+                                Image(systemName: "person.circle.fill")
+                                    .font(.system(size: 24, weight: .bold))
+                                    .foregroundStyle(Color.brandTeal)
+                                Text("CareBridge")
+                                    .font(.system(size: 20, weight: .bold))
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        HStack(spacing: 12) {
+                            Button {
+                                showNotifications = true
+                            } label: {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(systemName: "bell.fill")
+                                        .font(.system(size: 20))
+                                        .foregroundStyle(Color.brandTeal)
+                                    Circle()
+                                        .fill(.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
                                 }
                             }
                         }
-                        Spacer(minLength: 32)
                     }
                 }
-                .background(Color.brandBackground)
-            }
-            .background(Color.brandBackground)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { showProfile = true } label: {
-                        HStack(spacing: 0) {
-                            Image(systemName: "person.circle.fill")
-                                .font(.system(size: 24, weight: .bold))
-                                .foregroundStyle(Color.brandTeal)
-                            Text("CareBridge")
-                                .font(.system(size: 20, weight: .bold))
+                .overlay(alignment: .bottomTrailing) {
+                    Button {
+                        showAddEntry = true
+                    } label: {
+                        ZStack {
+                            Circle()
+                                .fill(Color.brandTeal)
+                                .frame(width: 52, height: 52)
+                            Image(systemName: "plus")
+                                .font(.system(size: 22, weight: .bold))
+                                .foregroundStyle(.white)
                         }
                     }
-                    .buttonStyle(.plain)
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 20)
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 12) {
-                        Button {
-                            showNotifications = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "bell.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundStyle(Color.brandTeal)
-                                Circle()
-                                    .fill(.red)
-                                    .frame(width: 8, height: 8)
-                                    .offset(x: 2, y: -2)
-                            }
-                        }
+                .sheet(isPresented: $showAddEntry) {
+                    AddCareLogView(userRole: userRole) { newEntry, photo in
+                        try await careLogStore.addEntry(newEntry, photo: photo)
                     }
                 }
-            }
-            .overlay(alignment: .bottomTrailing) {
-                Button {
-                    showAddEntry = true
-                } label: {
-                    ZStack {
-                        Circle()
-                            .fill(Color.brandTeal)
-                            .frame(width: 52, height: 52)
-                        Image(systemName: "plus")
-                            .font(.system(size: 22, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
+                .navigationDestination(isPresented: $showNotifications) {
+                    NotificationCenterView()
                 }
-                .padding(.trailing, 20)
-                .padding(.bottom, 20)
+                .task { careLogStore.load() }
             }
-            .sheet(isPresented: $showAddEntry) {
-                AddCareLogView(userRole: userRole) { newEntry, photo in
-                    try await careLogStore.addEntry(newEntry, photo: photo)
-                }
-            }
-            .navigationDestination(isPresented: $showNotifications) {
-                NotificationCenterView()
-            }
-            .task { careLogStore.load() }
         }
     }
 
@@ -413,6 +421,8 @@ struct FilterChip: View {
 // MARK: - Timeline Entry Row
 struct TimelineEntryRow: View {
     let entry: CareLogEntry
+    let previewedPhotoID: String?
+    let onPreviewPhoto: (PhotoPreviewItem) -> Void
     @Environment(LocaleStore.self) private var localeStore
 
     var body: some View {
@@ -515,27 +525,29 @@ struct TimelineEntryRow: View {
             }
 
             if let photoURL = entry.photoURL {
-                AsyncImage(url: photoURL) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
+                CachedRemotePhoto(url: photoURL) { image in
+                    PreviewablePhotoSource(
+                        id: "care-log-\(entry.id)",
+                        image: image,
+                        sourceCornerRadius: 10,
+                        isPreviewed: previewedPhotoID == "care-log-\(entry.id)",
+                        onPreview: onPreviewPhoto
+                    ) {
+                        Image(uiImage: image)
                             .resizable()
                             .scaledToFill()
-                    case .failure:
-                        photoPlaceholder(systemImage: "photo.badge.exclamationmark")
-                    case .empty:
-                        ZStack {
-                            Color(.systemGray6)
-                            ProgressView()
-                        }
-                    @unknown default:
-                        photoPlaceholder(systemImage: "photo")
+                            .frame(height: 112)
+                            .frame(maxWidth: .infinity)
+                            .clipShape(.rect(cornerRadius: 10))
                     }
+                    .accessibilityLabel("預覽照護日誌照片")
+                    .accessibilityHint("點兩下放大照片")
+                } placeholder: {
+                    photoPlaceholder(systemImage: "photo")
+                        .frame(height: 112)
+                        .frame(maxWidth: .infinity)
+                        .clipShape(.rect(cornerRadius: 10))
                 }
-                .frame(height: 112)
-                .frame(maxWidth: .infinity)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .accessibilityLabel("照護日誌照片")
             }
 
             if entry.type == .medication {
@@ -616,10 +628,12 @@ struct AddCareLogView: View {
     @State private var selectedType: CareLogType = .vital  // 預設改為生理數值（移除備註後）
     @State private var recordDate = Date()
     @State private var selectedPhoto: UIImage?
+    @State private var previewedPhoto: PhotoPreviewItem?
     @State private var showCamera = false
     @State private var showCameraUnavailable = false
     @State private var isSaving = false
     @State private var saveErrorMessage: String?
+    @FocusState private var focusedNumericField: NumericField?
 
     // vital signs
     @State private var bp_systolic = ""
@@ -653,64 +667,93 @@ struct AddCareLogView: View {
     private let intensityLabels = ["輕度", "中度", "高強度"]
     // (conditionLabels removed — vital section is now optional fields only)
 
+    private enum NumericField: Hashable {
+        case systolic
+        case diastolic
+        case weight
+        case bloodSugar
+        case temperature
+        case activityDuration
+    }
+
     private var availableRecordTypes: [CareLogType] {
         // 「備註」類型已由 chat / Todo 取代，新增紀錄時不再提供。
         CareLogType.allCases.filter { $0 != .note }
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                recordForm
-            }
-            .navigationTitle("新增紀錄")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark").foregroundStyle(.primary)
-                    }
+        ZStack {
+            NavigationStack {
+                Form {
+                    recordForm
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Task { await saveEntry() }
-                    } label: {
-                        if isSaving {
-                            ProgressView()
-                        } else {
-                            Text("儲存")
-                                .fontWeight(.semibold)
+                .scrollDismissesKeyboard(.interactively)
+                .navigationTitle("新增紀錄")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { dismiss() } label: {
+                            Image(systemName: "xmark").foregroundStyle(.primary)
                         }
                     }
-                    .tint(Color.brandTeal)
-                    .disabled(isSaving)
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button {
+                            Task { await saveEntry() }
+                        } label: {
+                            if isSaving {
+                                ProgressView()
+                            } else {
+                                Text("儲存")
+                                    .fontWeight(.semibold)
+                            }
+                        }
+                        .tint(Color.brandTeal)
+                        .disabled(isSaving)
+                    }
+                    ToolbarItemGroup(placement: .keyboard) {
+                        if focusedNumericField != nil {
+                            Spacer()
+                            KeyboardDoneButton {
+                                focusedNumericField = nil
+                            }
+                        }
+                    }
+                    .sharedBackgroundVisibility(.hidden)
+                }
+                .interactiveDismissDisabled(isSaving)
+                .fullScreenCover(isPresented: $showCamera) {
+                    CareLogCameraView { image in
+                        selectedPhoto = image
+                        showCamera = false
+                    } onCancel: {
+                        showCamera = false
+                    }
+                    .ignoresSafeArea()
+                }
+                .alert("無法使用相機", isPresented: $showCameraUnavailable) {
+                    Button("確定", role: .cancel) {}
+                } message: {
+                    Text("請確認裝置有相機，並在系統設定中允許 CareBridge 使用相機。")
+                }
+                .alert(
+                    "儲存失敗",
+                    isPresented: Binding(
+                        get: { saveErrorMessage != nil },
+                        set: { if !$0 { saveErrorMessage = nil } }
+                    )
+                ) {
+                    Button("確定", role: .cancel) {}
+                } message: {
+                    Text(saveErrorMessage ?? "請稍後再試")
                 }
             }
-            .interactiveDismissDisabled(isSaving)
-            .fullScreenCover(isPresented: $showCamera) {
-                CareLogCameraView { image in
-                    selectedPhoto = image
-                    showCamera = false
-                } onCancel: {
-                    showCamera = false
-                }
-                .ignoresSafeArea()
-            }
-            .alert("無法使用相機", isPresented: $showCameraUnavailable) {
-                Button("確定", role: .cancel) {}
-            } message: {
-                Text("請確認裝置有相機，並在系統設定中允許 CareBridge 使用相機。")
-            }
-            .alert(
-                "儲存失敗",
-                isPresented: Binding(
-                    get: { saveErrorMessage != nil },
-                    set: { if !$0 { saveErrorMessage = nil } }
+
+            if let previewedPhoto {
+                PhotoPreviewOverlay(
+                    item: previewedPhoto,
+                    onDismiss: dismissPhotoPreview
                 )
-            ) {
-                Button("確定", role: .cancel) {}
-            } message: {
-                Text(saveErrorMessage ?? "請稍後再試")
+                .zIndex(10)
             }
         }
     }
@@ -746,13 +789,24 @@ struct AddCareLogView: View {
     private var photoSection: some View {
         Section {
             if let selectedPhoto {
-                Image(uiImage: selectedPhoto)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(height: 180)
-                    .frame(maxWidth: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .accessibilityLabel("準備上傳的照護照片")
+                PreviewablePhotoSource(
+                    id: "new-care-log-photo",
+                    image: selectedPhoto,
+                    sourceCornerRadius: 12,
+                    isPreviewed: previewedPhoto != nil
+                ) { item in
+                    focusedNumericField = nil
+                    previewedPhoto = item
+                } content: {
+                    Image(uiImage: selectedPhoto)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(height: 180)
+                        .frame(maxWidth: .infinity)
+                        .clipShape(.rect(cornerRadius: 12))
+                }
+                .accessibilityLabel("預覽準備上傳的照護照片")
+                .accessibilityHint("點兩下放大照片")
 
                 HStack {
                     Button {
@@ -764,6 +818,7 @@ struct AddCareLogView: View {
                     Spacer()
 
                     Button(role: .destructive) {
+                        previewedPhoto = nil
                         self.selectedPhoto = nil
                     } label: {
                         Label("移除", systemImage: "trash")
@@ -782,6 +837,10 @@ struct AddCareLogView: View {
         } footer: {
             Text("照片不是必填；選擇拍照後才會上傳。")
         }
+    }
+
+    private func dismissPhotoPreview() {
+        previewedPhoto = nil
     }
 
     private func openCamera() {
@@ -809,6 +868,8 @@ struct AddCareLogView: View {
                 Spacer()
                 TextField("120", text: $bp_systolic)
                     .keyboardType(.numberPad)
+                    .textContentType(.oneTimeCode)
+                    .focused($focusedNumericField, equals: .systolic)
                     .multilineTextAlignment(.trailing)
                     .frame(width: 70)
             }
@@ -817,6 +878,8 @@ struct AddCareLogView: View {
                 Spacer()
                 TextField("80", text: $bp_diastolic)
                     .keyboardType(.numberPad)
+                    .textContentType(.oneTimeCode)
+                    .focused($focusedNumericField, equals: .diastolic)
                     .multilineTextAlignment(.trailing)
                     .frame(width: 70)
             }
@@ -828,6 +891,8 @@ struct AddCareLogView: View {
                 Spacer()
                 TextField("60.5", text: $weight)
                     .keyboardType(.decimalPad)
+                    .textContentType(.oneTimeCode)
+                    .focused($focusedNumericField, equals: .weight)
                     .multilineTextAlignment(.trailing)
                     .frame(width: 80)
             }
@@ -839,6 +904,8 @@ struct AddCareLogView: View {
                 Spacer()
                 TextField("5.6", text: $bloodSugar)
                     .keyboardType(.decimalPad)
+                    .textContentType(.oneTimeCode)
+                    .focused($focusedNumericField, equals: .bloodSugar)
                     .multilineTextAlignment(.trailing)
                     .frame(width: 80)
             }
@@ -850,6 +917,8 @@ struct AddCareLogView: View {
                 Spacer()
                 TextField("36.5", text: $temperature)
                     .keyboardType(.decimalPad)
+                    .textContentType(.oneTimeCode)
+                    .focused($focusedNumericField, equals: .temperature)
                     .multilineTextAlignment(.trailing)
                     .frame(width: 80)
             }
@@ -916,6 +985,8 @@ struct AddCareLogView: View {
                 Spacer()
                 TextField("30", text: $activityDuration)
                     .keyboardType(.numberPad)
+                    .textContentType(.oneTimeCode)
+                    .focused($focusedNumericField, equals: .activityDuration)
                     .multilineTextAlignment(.trailing)
                     .frame(width: 60)
                 Text("分鐘").foregroundStyle(.secondary)
@@ -967,8 +1038,13 @@ struct AddCareLogView: View {
             title  = medName.isEmpty ? "用藥紀錄" : "\(medName) \(medDosage)"
             detail = "\(routeLabels[medRoute])｜\(medTaken ? "已服用" : "未服用")"
         case .meal:
-            title  = mealLabels[mealType]
-            detail = "\(mealDesc)｜食慾：\(appetiteLabels[appetite])"
+            let trimmedMealDescription = mealDesc.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+            title = trimmedMealDescription.isEmpty
+                ? mealLabels[mealType]
+                : trimmedMealDescription
+            detail = "\(mealLabels[mealType])｜食慾：\(appetiteLabels[appetite])"
         case .activity:
             title  = activityName.isEmpty ? "活動紀錄" : activityName
             detail = "\(activityDuration.isEmpty ? "—" : activityDuration)分鐘｜\(intensityLabels[activityIntensity])"
@@ -1054,8 +1130,19 @@ private struct CareLogCameraView: UIViewControllerRepresentable {
 }
 
 #Preview {
-    CareLogView(showProfile: .constant(false), userRole: .family)
+    CareLogPreviewHost()
+}
+
+private struct CareLogPreviewHost: View {
+    var body: some View {
+        CareLogView(
+            showProfile: .constant(false),
+            userRole: .family,
+            previewedPhotoID: nil,
+            onPreviewPhoto: { _ in }
+        )
         .environment(CareLogStore())
+    }
 }
 
 #Preview("新增") {
