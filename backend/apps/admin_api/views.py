@@ -30,7 +30,12 @@ from apps.medication.models import MedicationConfirmation
 from core.permissions import CaregiverCannotDelete
 from apps.todo.models import Todo
 from core.responses import error_response, success_response
-from core.storage import _get_s3_client, build_public_url, extract_key_from_url
+from core.storage import (
+    _get_public_endpoint_url,
+    _get_s3_client,
+    build_public_url,
+    extract_key_from_url,
+)
 
 from .models import AdminMutationAuditLog, AdminRequestLog
 
@@ -225,8 +230,8 @@ class StaffAdminAPIView(APIView):
     http_method_names = ['get', 'post', 'delete', 'options']
 
 
-def get_s3_client():
-    return _get_s3_client()
+def get_s3_client(endpoint_url=None):
+    return _get_s3_client(endpoint_url=endpoint_url)
 
 
 def get_table_config(table):
@@ -1239,7 +1244,11 @@ class FilePresignView(StaffReadOnlyAPIView):
             params['ResponseContentType'] = content_type
 
         try:
-            url = client.generate_presigned_url(
+            # Presign against the public endpoint so the browser can reach the
+            # URL (the host is part of the S3 signature); head_object above used
+            # the internal client.
+            public_client = get_s3_client(endpoint_url=_get_public_endpoint_url())
+            url = public_client.generate_presigned_url(
                 ClientMethod='get_object',
                 Params=params,
                 ExpiresIn=PRESIGN_EXPIRES_IN,
