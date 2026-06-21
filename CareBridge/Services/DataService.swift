@@ -231,7 +231,8 @@ protocol DataService {
     func askFirstAid(query: String) async throws -> FirstAidAnswer
 
     // SOS
-    func triggerSOS(location: String?) async throws
+    /// Triggers a backend SOS record and returns how many family members were notified.
+    func triggerSOS(location: String?) async throws -> Int
 
     // Push Notifications
     func registerPushToken(_ token: String) async throws

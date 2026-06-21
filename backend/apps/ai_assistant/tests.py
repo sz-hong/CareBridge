@@ -963,3 +963,91 @@ class FirstAidScenarioEndpointTests(TestCase):
             data[0]["steps"],
             ["Call 119 immediately.", "Keep the elder seated."],
         )
+
+
+@override_settings(DLP_PROVIDER="mock")
+class AIPromptDeidentificationTests(TestCase):
+    """P0: care-analysis / handover prompts must de-identify care-log free text
+    before it is sent to OpenAI."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="deid-family@example.com",
+            password="password123",
+            name="Deid Family",
+            role=User.Role.FAMILY_MEMBER,
+        )
+        self.family = Family.objects.create(
+            name="Deid Family Group",
+            elder_name="Elder",
+            invite_code="909090",
+            created_by=self.user,
+        )
+        self.user.family = self.family
+        self.user.save(update_fields=["family"])
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+
+        self.pii_phone = "0912-345-678"
+        self.pii_id = "A123456789"
+        CareLog.objects.create(
+            family=self.family,
+            recorder=self.user,
+            type=CareLog.Type.NOTE,
+            content={"note": f"聯絡電話 {self.pii_phone} 身分證 {self.pii_id}"},
+            timestamp=timezone.now(),
+        )
+
+    def _fake_client(self, capture):
+        def create(**kwargs):
+            capture.append(kwargs)
+            message = SimpleNamespace(content="ok", tool_calls=None)
+            choice = SimpleNamespace(message=message, finish_reason="stop")
+            usage = SimpleNamespace(total_tokens=10)
+            return SimpleNamespace(choices=[choice], usage=usage)
+
+        client = Mock()
+        client.chat.completions.create.side_effect = create
+        return client
+
+    @staticmethod
+    def _prompt_text(capture):
+        parts = []
+        for call in capture:
+            for message in call.get("messages", []):
+                parts.append(str(message.get("content", "")))
+        return "\n".join(parts)
+
+    def test_care_analysis_deidentifies_care_log_text(self):
+        capture = []
+        with patch(
+            "apps.ai_assistant.views._get_client",
+            return_value=self._fake_client(capture),
+        ):
+            response = self.client.post(
+                "/api/v1/ai/care-analysis/", {"days": 7}, format="json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        prompt = self._prompt_text(capture)
+        self.assertNotIn(self.pii_phone, prompt)
+        self.assertNotIn(self.pii_id, prompt)
+        self.assertIn("[TAIWAN_PHONE_NUMBER]", prompt)
+        self.assertIn("[TAIWAN_NATIONAL_ID]", prompt)
+
+    def test_handover_report_deidentifies_care_log_text(self):
+        capture = []
+        with patch(
+            "apps.ai_assistant.views._get_client",
+            return_value=self._fake_client(capture),
+        ):
+            response = self.client.post(
+                "/api/v1/ai/handover-report/", {}, format="json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        prompt = self._prompt_text(capture)
+        self.assertNotIn(self.pii_phone, prompt)
+        self.assertNotIn(self.pii_id, prompt)
+        self.assertIn("[TAIWAN_PHONE_NUMBER]", prompt)
+        self.assertIn("[TAIWAN_NATIONAL_ID]", prompt)
