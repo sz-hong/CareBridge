@@ -1,6 +1,11 @@
-Doc/
 .claude/
 AGENTS.md
+
+# Curated development docs under Doc/*.md are tracked for source submission.
+# Keep generated/reference artifacts local.
+Doc/*.pdf
+Doc/diagrams/
+Doc/examples/
 
 # Local presentation/poster working files.
 presentation/
