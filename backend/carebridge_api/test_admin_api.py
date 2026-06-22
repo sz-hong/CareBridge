@@ -11,6 +11,7 @@ from apps.auth_account.models import User
 from apps.document.models import Document
 from apps.expense.models import Expense
 from apps.family.models import Family
+from apps.medication.models import Medication
 from apps.todo.models import Todo
 
 
@@ -99,7 +100,24 @@ class AdminAPITableTests(TestCase):
 
         self.assertEqual(response.status_code, 404)
 
+
+    def test_staff_can_list_admin_table_index_with_capabilities(self):
+        self.client.force_authenticate(self.staff)
+
+        response = self.client.get("/api/v1/admin/tables/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        tables = {item["table"]: item for item in data["results"]}
+        self.assertIn("todos", tables)
+        self.assertIn("medications", tables)
+        self.assertIn("messages", tables)
+        self.assertFalse(tables["users"]["capabilities"]["create"])
+        self.assertFalse(tables["families"]["capabilities"]["update"])
+        self.assertTrue(tables["todos"]["capabilities"]["update"])
+        self.assertTrue(tables["medications"]["capabilities"]["delete"])
     def test_table_date_range_filters_between_bounds(self):
+
         old_user = User.objects.create_user(
             email="old@example.com",
             password="password123",
@@ -353,7 +371,52 @@ class AdminAPIMutationTests(TestCase):
         self.assertEqual(audit.record_id, str(todo.id))
         self.assertEqual(audit.actor_email, "staff@example.com")
 
+
+    def test_staff_can_update_allow_listed_record_and_writes_audit_log(self):
+        todo = Todo.objects.create(
+            family=self.family,
+            title="Original title",
+            assignee=self.member,
+            created_by=self.staff,
+            status=Todo.Status.PENDING,
+        )
+        self.client.force_authenticate(self.staff)
+
+        response = self.client.patch(
+            f"/api/v1/admin/records/todos/{todo.id}/",
+            {"title": "Updated from dashboard", "status": Todo.Status.COMPLETED},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        todo.refresh_from_db()
+        self.assertEqual(todo.title, "Updated from dashboard")
+        self.assertEqual(todo.status, Todo.Status.COMPLETED)
+        self.assertEqual(response.json()["data"]["record"]["title"], "Updated from dashboard")
+        audit = self.audit_model().objects.get(action="update")
+        self.assertEqual(audit.table, "todos")
+        self.assertEqual(audit.record_id, str(todo.id))
+        self.assertEqual(audit.metadata["changed_fields"], ["status", "title"])
+
+    def test_staff_can_list_expanded_product_table_records(self):
+        medication = Medication.objects.create(
+            family=self.family,
+            name="Aspirin",
+            dosage="100mg",
+            frequency=Medication.Frequency.DAILY,
+            times=["08:00"],
+            start_date="2026-06-01",
+            created_by=self.staff,
+        )
+        self.client.force_authenticate(self.staff)
+
+        response = self.client.get("/api/v1/admin/tables/medications/")
+
+        self.assertEqual(response.status_code, 200)
+        ids = {item["id"] for item in response.json()["data"]["results"]}
+        self.assertIn(str(medication.id), ids)
     def test_create_rejects_read_only_tables(self):
+
         self.client.force_authenticate(self.staff)
 
         response = self.client.post(
@@ -416,7 +479,19 @@ class AdminAPIMutationTests(TestCase):
         )
         self.assertEqual(detail_response.status_code, 404)
 
+
+    def test_update_rejects_read_only_tables(self):
+        self.client.force_authenticate(self.staff)
+
+        response = self.client.patch(
+            f"/api/v1/admin/records/users/{self.member.id}/",
+            {"name": "Changed"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
     def test_delete_rejects_read_only_tables(self):
+
         self.client.force_authenticate(self.staff)
 
         response = self.client.delete(f"/api/v1/admin/records/users/{self.member.id}/")
@@ -850,5 +925,62 @@ class AdminAPIRequestLogTests(TestCase):
         self.client.force_authenticate(self.member)
 
         response = self.client.get("/api/v1/admin/request-logs/")
+
+        self.assertEqual(response.status_code, 403)
+
+class AdminAPIAuditLogTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.staff = User.objects.create_user(
+            email="staff@example.com",
+            password="password123",
+            name="Staff",
+            is_staff=True,
+        )
+        self.member = User.objects.create_user(
+            email="member@example.com",
+            password="password123",
+            name="Member",
+        )
+
+    def audit_model(self):
+        return apps.get_model("admin_api", "AdminMutationAuditLog")
+
+    def test_staff_can_filter_admin_audit_logs(self):
+        model = self.audit_model()
+        model.objects.create(
+            actor=self.staff,
+            actor_email="staff@example.com",
+            action="create",
+            table="todos",
+            record_id="todo-1",
+            metadata={"changed_fields": ["title"]},
+        )
+        model.objects.create(
+            actor=self.member,
+            actor_email="member@example.com",
+            action="delete",
+            table="documents",
+            record_id="doc-1",
+        )
+        self.client.force_authenticate(self.staff)
+
+        response = self.client.get(
+            "/api/v1/admin/audit-logs/",
+            {"table": "todos", "action": "create"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["table"], "todos")
+        self.assertEqual(data["results"][0]["action"], "create")
+        self.assertEqual(data["results"][0]["actor_email"], "staff@example.com")
+        self.assertEqual(data["results"][0]["metadata"], {"changed_fields": ["title"]})
+
+    def test_audit_log_endpoint_rejects_non_staff_user(self):
+        self.client.force_authenticate(self.member)
+
+        response = self.client.get("/api/v1/admin/audit-logs/")
 
         self.assertEqual(response.status_code, 403)

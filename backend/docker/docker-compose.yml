@@ -106,6 +106,15 @@ services:
       - ..:/app
       - ${CAREBRIDGE_SECRETS_DIR:-./secrets}:/secrets:ro
 
+  dashboard:
+    build:
+      context: ../../dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      - web
+
 volumes:
   pgdata:
   miniodata:

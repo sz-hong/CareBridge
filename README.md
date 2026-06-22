@@ -8,16 +8,17 @@ The repository contains a SwiftUI iOS app and a Docker-based Django backend.
 
 ```text
 CareBridge/
-├── CareBridge/                 # SwiftUI iOS app
-├── CareBridgeTests/            # iOS unit tests
-├── CareBridgeUITests/          # iOS UI tests
-├── backend/                    # Django 5 backend
-│   ├── apps/                   # Backend feature modules
-│   ├── carebridge_api/         # Django settings, URLs, ASGI/WSGI, Celery
-│   ├── core/                   # Shared backend helpers
-│   └── docker/                 # Docker Compose runtime
-├── Doc/                        # Source-submission development docs
-└── README.md
+|-- CareBridge/                 # SwiftUI iOS app
+|-- CareBridgeTests/            # iOS unit tests
+|-- CareBridgeUITests/          # iOS UI tests
+|-- backend/                    # Django 5 backend
+|   |-- apps/                   # Backend feature modules
+|   |-- carebridge_api/         # Django settings, URLs, ASGI/WSGI, Celery
+|   |-- core/                   # Shared backend helpers
+|   `-- docker/                 # Docker Compose runtime
+|-- dashboard/                  # React admin dashboard
+|-- Doc/                        # Source-submission development docs
+`-- README.md
 ```
 
 ## Backend Runtime
@@ -46,23 +47,22 @@ Expected response:
 
 ## Cloudflare Tunnel deployment
 
-The public deployment uses one remotely managed Cloudflare Tunnel with two
+The public deployment uses one remotely managed Cloudflare Tunnel with three
 published applications:
 
 | Public hostname | Service URL inside Docker |
 | --- | --- |
 | `api.carebridge-lab.com` | `http://web:8000` |
 | `storage.carebridge-lab.com` | `http://minio:9000` |
+| `dashboard.carebridge-lab.com` | `http://dashboard:3000` |
 
-Both routes are required. The iOS app talks to the API hostname, while
-presigned photo and document URLs point directly to the storage hostname.
-
+The iOS app talks to the API hostname, presigned photo and document URLs point directly to the storage hostname, and the staff dashboard is served from the dashboard hostname. The dashboard container proxies `/api/v1/*` to the `web` service, so browser traffic is same-origin on `dashboard.carebridge-lab.com`.
 Set these values in `backend/.env`:
 
 ```env
 DJANGO_ENV=production
 DJANGO_DEBUG=False
-ALLOWED_HOSTS=api.carebridge-lab.com,localhost,127.0.0.1
+ALLOWED_HOSTS=api.carebridge-lab.com,dashboard.carebridge-lab.com,localhost,127.0.0.1
 SECURE_SSL_REDIRECT=True
 CLOUDFLARE_TUNNEL_TOKEN=replace-with-the-tunnel-token
 AWS_S3_PUBLIC_ENDPOINT_URL=https://storage.carebridge-lab.com
@@ -90,7 +90,7 @@ automatically use `https://api.carebridge-lab.com`.
 - Receipt and document upload through S3 / MinIO quarantine keys, Celery de-identification, and processed presigned URLs.
 - OpenAI-backed AI assistant, care analysis, handover report generation, subsidy form support, first-aid RAG, and SSE streaming.
 - SOS trigger/history/resolve and APNs-backed notification infrastructure.
-- Staff-only admin API for dashboard, storage, table, request-log, and runtime-log inspection.
+- Staff-only admin API and React dashboard for product-table CRUD, storage inspection, request logs, runtime logs, and audit logs.
 
 ## Documentation
 
