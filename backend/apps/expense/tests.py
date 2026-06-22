@@ -3,7 +3,6 @@ from django.utils import timezone
 from unittest.mock import patch
 from rest_framework.test import APIClient
 
-from core.deidentification import RedactedFile
 from apps.auth_account.models import User
 from apps.expense.models import Expense
 from apps.expense.tasks import (
@@ -325,10 +324,8 @@ class ExpenseAPIEndpointTests(TestCase):
     @patch('apps.expense.tasks.put_bytes')
     @patch('apps.expense.tasks.download_bytes', return_value=b'raw-image')
     @patch('apps.expense.tasks.build_public_url', return_value='https://storage.example/processed.jpg')
-    @patch('apps.expense.tasks.get_deidentification_client')
-    def test_receipt_redaction_task_publishes_only_processed_image_url(
+    def test_receipt_image_task_publishes_processed_copy_without_dlp(
         self,
-        get_client,
         build_url,
         download_bytes,
         put_bytes,
@@ -342,11 +339,6 @@ class ExpenseAPIEndpointTests(TestCase):
             deid_status=Expense.DeidentificationStatus.PROCESSING,
             status=Expense.Status.PROCESSING,
         )
-        get_client.return_value.redact_image.return_value = RedactedFile(
-            bytes=b'redacted-image',
-            mime_type='image/jpeg',
-            findings=[],
-        )
 
         redact_receipt_image_task(expense.id)
 
@@ -354,7 +346,8 @@ class ExpenseAPIEndpointTests(TestCase):
         self.assertEqual(expense.image_url, 'https://storage.example/processed.jpg')
         self.assertEqual(expense.deid_status, Expense.DeidentificationStatus.COMPLETED)
         download_bytes.assert_called_once_with(raw_key)
-        put_bytes.assert_called_once_with(redacted_key, b'redacted-image', 'image/jpeg')
+        # The raw bytes are copied through unchanged — no DLP redaction.
+        put_bytes.assert_called_once_with(redacted_key, b'raw-image', 'image/jpeg')
         build_url.assert_called_once_with(redacted_key)
 
     @patch('apps.expense.tasks.delete_object')
