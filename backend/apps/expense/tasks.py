@@ -4,7 +4,6 @@ from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
 
-from core.deidentification import get_deidentification_client
 from core.storage import build_public_url, delete_object, download_bytes, put_bytes
 
 from .models import Expense
@@ -14,28 +13,26 @@ logger = logging.getLogger(__name__)
 
 @shared_task
 def redact_receipt_image_task(expense_id):
+    """Publish an uploaded receipt image to its permanent processed location.
+
+    Receipt photos are no longer de-identified: Google DLP image redaction
+    rejected multi-MB phone photos (4 MB limit) and receipt images do not
+    require de-identification. We simply copy the quarantined upload to its
+    processed key and publish that URL; the quarantine-cleanup task then
+    removes the raw copy as before. Document uploads keep their own DLP flow.
+    """
     try:
         expense = Expense.objects.get(id=expense_id)
         if not expense.raw_image_key or not expense.redacted_image_key:
             raise ValueError('Expense is missing raw or redacted image storage keys.')
 
-        expense.deid_status = Expense.DeidentificationStatus.PROCESSING
-        expense.save(update_fields=['deid_status', 'updated_at'])
-
+        mime_type = _mime_type_from_key(expense.raw_image_key)
         raw_bytes = download_bytes(expense.raw_image_key)
-        result = get_deidentification_client().redact_image(
-            raw_bytes,
-            mime_type=_mime_type_from_key(expense.raw_image_key),
-        )
-        put_bytes(expense.redacted_image_key, result.bytes, result.mime_type)
+        put_bytes(expense.redacted_image_key, raw_bytes, mime_type)
 
         expense.image_url = build_public_url(expense.redacted_image_key)
-        expense.deid_findings = result.findings_as_dicts()
-        expense.deid_status = (
-            Expense.DeidentificationStatus.NEEDS_REVIEW
-            if result.high_risk
-            else Expense.DeidentificationStatus.COMPLETED
-        )
+        expense.deid_findings = []
+        expense.deid_status = Expense.DeidentificationStatus.COMPLETED
         expense.deid_processed_at = timezone.now()
         expense.save()
         return {'status': expense.deid_status, 'expense_id': str(expense.id)}
