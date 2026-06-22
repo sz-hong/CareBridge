@@ -129,6 +129,9 @@ enum HealthBindingError: LocalizedError {
 enum AIResponseStreamEvent: Equatable {
     case chunk(String)
     case done(conversationID: String?)
+    /// Backend reported a failure mid-stream (e.g. OpenAI quota/rate limit).
+    /// Carries a user-facing message to display in place of the reply.
+    case error(String)
     case ignore
 }
 

@@ -214,6 +214,8 @@ extension APIDataService {
                 continuation.yield(.chunk(text))
             case .done(let conversationID):
                 continuation.yield(.done(conversationID: conversationID))
+            case .error(let message):
+                continuation.yield(.error(message))
             case .ignore:
                 continue
             }
@@ -343,6 +345,9 @@ extension APIDataService {
                 return .chunk(text)
             }
             return .ignore
+        case "error":
+            let message = json["message"] as? String ?? "AI 服務暫時無法使用，請稍後再試。"
+            return .error(message)
         default:
             return .ignore
         }

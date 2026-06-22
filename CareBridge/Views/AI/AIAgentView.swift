@@ -175,6 +175,7 @@ struct AIAgentView: View {
 
         do {
             var accumulated = ""
+            var streamFailed = false
             for try await event in dataService.streamAIResponse(
                 prompt: prompt,
                 conversationID: conversationID
@@ -198,12 +199,24 @@ struct AIAgentView: View {
                     await MainActor.run {
                         self.conversationID = conversationID
                     }
+                case .error(let message):
+                    streamFailed = true
+                    await MainActor.run {
+                        if let idx = messages.firstIndex(where: { $0.id == replyId }) {
+                            messages[idx] = AIMessage(
+                                id: replyId,
+                                content: message,
+                                isUser: false,
+                                timestamp: Date()
+                            )
+                        }
+                    }
                 case .ignore:
                     continue
                 }
             }
 
-            if accumulated.isEmpty && !Task.isCancelled {
+            if accumulated.isEmpty && !streamFailed && !Task.isCancelled {
                 await MainActor.run {
                     if let idx = messages.firstIndex(where: { $0.id == replyId }) {
                         messages[idx] = AIMessage(

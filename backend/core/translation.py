@@ -338,7 +338,7 @@ def translate_text(text, source_lang, target_langs):
                 {'role': 'user', 'content': prompt},
             ],
             temperature=0.3,
-            max_tokens=2048,
+            max_completion_tokens=2048,
         )
 
         response_text = response.choices[0].message.content.strip()
