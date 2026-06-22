@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import logging
 import re
 from dataclasses import dataclass
 from typing import Protocol
@@ -9,7 +11,60 @@ from django.conf import settings
 from core.pii_patterns import COMMON_INFO_TYPES, CUSTOM_REGEX_INFO_TYPES, default_info_types
 
 
+logger = logging.getLogger(__name__)
+
 HIGH_RISK_LIKELIHOODS = {'LIKELY', 'VERY_LIKELY'}
+
+# Google DLP rejects image content larger than 512 KiB ("Content size N exceeds
+# limit of 524288"). Phone photos and rasterized PDF pages routinely exceed
+# this, so we downscale/recompress to JPEG until the payload fits before sending.
+DLP_IMAGE_MAX_BYTES = 512 * 1024
+
+# Formats DLP image redaction accepts directly. Anything else (notably iPhone
+# HEIC) must be transcoded to JPEG first.
+DLP_NATIVE_IMAGE_MIMES = {'image/jpeg', 'image/jpg', 'image/png', 'image/bmp'}
+
+# Teach PIL to open HEIC/HEIF so iPhone photos can be transcoded for DLP.
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except Exception:  # pragma: no cover - optional dependency
+    pass
+
+
+def _shrink_image_for_dlp(image_bytes, mime_type):
+    """Return (bytes, mime_type) that DLP image redaction will accept.
+
+    Images already in a DLP-native format and within the size limit are returned
+    untouched. Non-native formats (e.g. HEIC) are transcoded to JPEG, and
+    oversized images are progressively downscaled/recompressed until under
+    DLP_IMAGE_MAX_BYTES (best effort: the smallest result is returned).
+    """
+    is_native = (mime_type or '').lower() in DLP_NATIVE_IMAGE_MIMES
+    if is_native and len(image_bytes) <= DLP_IMAGE_MAX_BYTES:
+        return image_bytes, mime_type
+    try:
+        from PIL import Image
+        source = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+    except Exception:
+        logger.warning('Could not open image to prepare for DLP; sending as-is')
+        return image_bytes, mime_type
+
+    smallest = image_bytes
+    for max_width in (2000, 1600, 1200, 1000, 800, 600):
+        scaled = source
+        if source.width > max_width:
+            ratio = max_width / source.width
+            scaled = source.resize((max_width, max(1, round(source.height * ratio))))
+        for quality in (80, 70, 60, 50, 40):
+            buffer = io.BytesIO()
+            scaled.save(buffer, format='JPEG', quality=quality, optimize=True)
+            data = buffer.getvalue()
+            if len(data) < len(smallest):
+                smallest = data
+            if len(data) <= DLP_IMAGE_MAX_BYTES:
+                return data, 'image/jpeg'
+    return smallest, 'image/jpeg'
 
 
 @dataclass
@@ -203,6 +258,9 @@ class GoogleDLPDeidentificationClient:
 
     def redact_image(self, image_bytes: bytes, mime_type: str) -> RedactedFile:
         mime_type = mime_type or ''
+        # DLP rejects image content over 512 KiB; shrink oversized payloads
+        # (phone photos, dense PDF pages) before sending.
+        image_bytes, mime_type = _shrink_image_for_dlp(image_bytes, mime_type)
         content_type_index = {
             'image/jpeg': 1,
             'image/jpg': 1,

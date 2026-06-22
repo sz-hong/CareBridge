@@ -96,8 +96,40 @@ def delete_expired_document_quarantine_files_task():
     return {'deleted': deleted, 'errors': errors}
 
 
+def _detect_mime_type(raw_bytes, declared_mime):
+    """Sniff the real content type from magic bytes.
+
+    Clients sometimes upload images/PDFs as ``application/octet-stream``; trusting
+    that would route an image to text de-identification (which then fails on the
+    DLP content-size limit). The byte signature is authoritative; the declared
+    mime is only a fallback.
+    """
+    header = raw_bytes[:16]
+    if header.startswith(b'%PDF'):
+        return 'application/pdf'
+    if header.startswith(b'\x89PNG\r\n\x1a\n'):
+        return 'image/png'
+    if header.startswith(b'\xff\xd8\xff'):
+        return 'image/jpeg'
+    if header.startswith((b'GIF87a', b'GIF89a')):
+        return 'image/gif'
+    if header.startswith(b'BM'):
+        return 'image/bmp'
+    if header[:4] == b'RIFF' and raw_bytes[8:12] == b'WEBP':
+        return 'image/webp'
+    if raw_bytes[4:8] == b'ftyp' and raw_bytes[8:12] in (
+        b'heic', b'heix', b'mif1', b'heif',
+    ):
+        return 'image/heic'
+    declared = (declared_mime or '').lower()
+    if declared and declared != 'application/octet-stream':
+        return declared
+    return 'application/octet-stream'
+
+
 def _redact_document_bytes(raw_bytes, mime_type):
     client = get_deidentification_client()
+    mime_type = _detect_mime_type(raw_bytes, mime_type)
     if mime_type == 'application/pdf':
         return _redact_pdf_bytes(client, raw_bytes)
 
