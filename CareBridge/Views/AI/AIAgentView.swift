@@ -15,42 +15,53 @@ struct AIAgentView: View {
     @State private var documentPreviewURL: URL?
     @FocusState private var isInputFocused: Bool
 
+    private var scrollTrigger: String {
+        let lastMessage = messages.last
+        return [
+            String(messages.count),
+            String(lastMessage?.content.count ?? 0),
+            String(isLoading),
+        ].joined(separator: "-")
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            // Messages
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 20) {
+                    LazyVStack(spacing: 14) {
+                        if messages.isEmpty {
+                            aiWelcome
+                        }
+
                         ForEach(messages) { msg in
                             AIMessageBubble(
                                 message: msg,
+                                isThinking: isLoading
+                                    && msg.id == messages.last?.id
+                                    && !msg.isUser
+                                    && msg.content.isEmpty,
                                 onDocumentPreview: previewDocument
                             )
-                                .id(msg.id)
-                        }
-                        if isLoading {
-                            HStack {
-                                typingIndicator
-                                Spacer()
-                            }
-                            .padding(.horizontal, 16)
+                            .id(msg.id)
                         }
                     }
-                    .padding(.vertical, 16)
+                    .padding(.vertical, 20)
                 }
                 .background(Color.brandBackground)
-                .onChange(of: messages.count) { _, _ in
+                .scrollDismissesKeyboard(.interactively)
+                .onChange(of: scrollTrigger) {
                     if let last = messages.last {
-                        withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                        withAnimation(.easeOut(duration: 0.22)) {
+                            proxy.scrollTo(last.id, anchor: .bottom)
+                        }
                     }
                 }
             }
 
-            // Input bar
             aiInputBar
         }
         .background(Color.brandBackground)
-        .navigationTitle("AI 智慧助理")
+        .navigationTitle("CareBridge AI")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if isModal {
@@ -65,13 +76,30 @@ struct AIAgentView: View {
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
-                HStack(spacing: 16) {
-                    Button { } label: {
-                        Image(systemName: "bell")
-                            .font(.system(size: 18))
-                            .foregroundStyle(Color.brandTeal)
+                Menu {
+                    Section("AI 工具") {
+                        ForEach(AIToolKind.allCases) { tool in
+                            Button {
+                                selectedTool = tool
+                            } label: {
+                                Label(tool.title, systemImage: tool.icon)
+                            }
+                        }
                     }
+
+                    if !messages.isEmpty {
+                        Button {
+                            resetChatContext()
+                        } label: {
+                            Label("開始新對話", systemImage: "square.and.pencil")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color.brandTeal)
                 }
+                .disabled(isLoading)
             }
         }
         .onDisappear {
@@ -85,75 +113,196 @@ struct AIAgentView: View {
         .quickLookPreview($documentPreviewURL)
     }
 
-    // MARK: - Typing Indicator
-    private var typingIndicator: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 14))
-                .foregroundStyle(Color(red: 0.4, green: 0.2, blue: 0.8))
-            Text("AI 分析建議")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(Color(red: 0.4, green: 0.2, blue: 0.8))
-            HStack(spacing: 3) {
-                ForEach(0..<3, id: \.self) { _ in
-                    Circle()
-                        .fill(Color(red: 0.4, green: 0.2, blue: 0.8).opacity(0.6))
-                        .frame(width: 6, height: 6)
+    private var aiWelcome: some View {
+        VStack(spacing: 22) {
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.brandTeal.opacity(0.18),
+                                Color.purple.opacity(0.14),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 74, height: 74)
+
+                Image(systemName: "sparkles")
+                    .font(.system(size: 31, weight: .medium))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [Color.brandTeal, .purple],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+
+            VStack(spacing: 8) {
+                Text("有什麼我能幫忙的？")
+                    .font(.system(size: 25, weight: .bold))
+
+                Text("可以詢問照護、健康紀錄，或請我協助整理重點。")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            VStack(spacing: 10) {
+                suggestionButton(
+                    title: "整理今天的照護重點",
+                    icon: "text.document"
+                )
+                suggestionButton(
+                    title: "最近有哪些健康狀況需要注意？",
+                    icon: "heart.text.clipboard"
+                )
+            }
+            .frame(maxWidth: 420)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(AIToolKind.allCases) { tool in
+                        Button {
+                            selectedTool = tool
+                        } label: {
+                            Label(tool.title, systemImage: tool.icon)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .padding(.horizontal, 13)
+                                .padding(.vertical, 9)
+                                .background(
+                                    Capsule()
+                                        .fill(Color(.systemBackground))
+                                )
+                                .overlay {
+                                    Capsule()
+                                        .stroke(Color(.systemGray5), lineWidth: 1)
+                                }
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
+                .padding(.horizontal, 16)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: 16).fill(Color(red: 0.93, green: 0.90, blue: 0.98)))
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 24)
+        .padding(.top, 56)
     }
 
     // MARK: - Input Bar
     private var aiInputBar: some View {
-        HStack(spacing: 12) {
-            Menu {
-                ForEach(AIToolKind.allCases) { tool in
-                    Button {
-                        selectedTool = tool
-                    } label: {
-                        Label(tool.title, systemImage: tool.icon)
-                    }
-                }
-            } label: {
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 28))
-                    .foregroundStyle(Color.brandTeal)
-            }
-            .disabled(isLoading)
-
-            TextField("輸入您的問題...", text: $inputText, axis: .vertical)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(RoundedRectangle(cornerRadius: 20).fill(Color(.systemGray6)))
+        HStack(alignment: .center, spacing: 10) {
+            TextField("詢問照護相關問題", text: $inputText, axis: .vertical)
                 .focused($isInputFocused)
+                .font(.system(size: 15))
                 .lineLimit(1...4)
+                .frame(minHeight: 32, alignment: .center)
+                .submitLabel(.send)
+                .onSubmit(sendMessage)
 
-            Button {
-                if inputText.trimmingCharacters(in: .whitespaces).isEmpty {
-                    // voice input
-                } else {
-                    sendMessage()
-                }
-            } label: {
-                Image(systemName: inputText.isEmpty ? "mic.fill" : "arrow.up.circle.fill")
-                    .font(.system(size: 28))
-                    .foregroundStyle(Color.brandTeal)
+            Button(action: sendMessage) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 32, height: 32)
+                    .background(
+                        Circle()
+                            .fill(canSend ? Color.brandTeal : Color(.systemGray4))
+                    )
             }
+            .buttonStyle(.plain)
+            .disabled(!canSend)
+            .accessibilityLabel("送出訊息")
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(.regularMaterial)
+        .padding(.vertical, 11)
+        .background(
+            RoundedRectangle(cornerRadius: 24)
+                .fill(Color(.systemBackground))
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 24)
+                .stroke(
+                    isLoading
+                        ? Color.brandTeal.opacity(0.18)
+                        : Color(.systemGray5),
+                    lineWidth: 1
+                )
+        }
+        .aiThinkingBeam(active: isLoading, cornerRadius: 24)
+        .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+    }
+
+    private var canSend: Bool {
+        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !isLoading
+    }
+
+    private func suggestionButton(title: String, icon: String) -> some View {
+        Button {
+            inputText = title
+            sendMessage()
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Color.brandTeal)
+                    .frame(width: 24)
+
+                Text(title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+
+                Spacer()
+
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color(.systemBackground))
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color(.systemGray5), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private func sendMessage() {
-        let text = inputText.trimmingCharacters(in: .whitespaces)
+        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         guard !isLoading else { return }
-        messages.append(AIMessage(id: UUID().uuidString, content: text, isUser: true, timestamp: Date()))
+
+        let replyID = UUID().uuidString
+        messages.append(
+            AIMessage(
+                id: UUID().uuidString,
+                content: text,
+                isUser: true,
+                timestamp: Date()
+            )
+        )
+        messages.append(
+            AIMessage(
+                id: replyID,
+                content: "",
+                isUser: false,
+                timestamp: Date()
+            )
+        )
         inputText = ""
         isLoading = true
         let activeConversationID = conversationID
@@ -161,18 +310,18 @@ struct AIAgentView: View {
         responseTask = Task {
             await streamAIResponse(
                 prompt: text,
-                conversationID: activeConversationID
+                conversationID: activeConversationID,
+                replyID: replyID
             )
         }
     }
 
     /// SSE 串流接收 AI 回應，即時更新畫面；失敗時 fallback 到 mock
-    private func streamAIResponse(prompt: String, conversationID: String?) async {
-        let replyId = UUID().uuidString
-        await MainActor.run {
-            messages.append(AIMessage(id: replyId, content: "", isUser: false, timestamp: Date()))
-        }
-
+    private func streamAIResponse(
+        prompt: String,
+        conversationID: String?,
+        replyID: String
+    ) async {
         do {
             var accumulated = ""
             var streamFailed = false
@@ -186,9 +335,9 @@ struct AIAgentView: View {
                     accumulated += chunk
                     let updated = accumulated
                     await MainActor.run {
-                        if let idx = messages.firstIndex(where: { $0.id == replyId }) {
+                        if let idx = messages.firstIndex(where: { $0.id == replyID }) {
                             messages[idx] = AIMessage(
-                                id: replyId,
+                                id: replyID,
                                 content: updated,
                                 isUser: false,
                                 timestamp: Date()
@@ -202,9 +351,9 @@ struct AIAgentView: View {
                 case .error(let message):
                     streamFailed = true
                     await MainActor.run {
-                        if let idx = messages.firstIndex(where: { $0.id == replyId }) {
+                        if let idx = messages.firstIndex(where: { $0.id == replyID }) {
                             messages[idx] = AIMessage(
-                                id: replyId,
+                                id: replyID,
                                 content: message,
                                 isUser: false,
                                 timestamp: Date()
@@ -218,9 +367,9 @@ struct AIAgentView: View {
 
             if accumulated.isEmpty && !streamFailed && !Task.isCancelled {
                 await MainActor.run {
-                    if let idx = messages.firstIndex(where: { $0.id == replyId }) {
+                    if let idx = messages.firstIndex(where: { $0.id == replyID }) {
                         messages[idx] = AIMessage(
-                            id: replyId,
+                            id: replyID,
                             content: "AI response completed without content.",
                             isUser: false,
                             timestamp: Date()
@@ -234,9 +383,9 @@ struct AIAgentView: View {
             let wasCancelled = Task.isCancelled
             await MainActor.run {
                 if !wasCancelled,
-                   let idx = messages.firstIndex(where: { $0.id == replyId }) {
+                   let idx = messages.firstIndex(where: { $0.id == replyID }) {
                     messages[idx] = AIMessage(
-                        id: replyId,
+                        id: replyID,
                         content: "AI response failed. Please try again.",
                         isUser: false,
                         timestamp: Date()
@@ -496,32 +645,65 @@ private struct AIToolSheet: View {
 // MARK: - AI Message Bubble
 struct AIMessageBubble: View {
     let message: AIMessage
+    let isThinking: Bool
     let onDocumentPreview: (AIGeneratedDocument) -> Void
 
     var body: some View {
-        HStack(alignment: .top) {
+        HStack(alignment: .top, spacing: 10) {
             if message.isUser {
-                Spacer(minLength: 60)
-                Text(message.content)
-                    .font(.system(size: 15))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18)
-                            .fill(Color.brandTeal)
-                    )
+                Spacer(minLength: 52)
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(message.content)
+                        .font(.system(size: 15))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 20)
+                                .fill(Color.brandTeal)
+                        )
+
+                    messageTime
+                }
             } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "sparkles")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Color(red: 0.4, green: 0.2, blue: 0.8))
-                        Text("AI 分析建議")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(Color(red: 0.4, green: 0.2, blue: 0.8))
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.brandTeal.opacity(0.18),
+                                    Color.purple.opacity(0.16),
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 32, height: 32)
+
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.brandTeal)
+                }
+
+                VStack(alignment: .leading, spacing: 10) {
+                    if isThinking {
+                        HStack(spacing: 8) {
+                            Text("正在思考")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.primary)
+
+                            ThinkingDots()
+                        }
+                        .frame(minHeight: 24)
+                    } else {
+                        HStack(spacing: 6) {
+                            Text("CareBridge AI")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color.brandTeal)
+                        }
                     }
-                    if let document = message.document {
+
+                    if !isThinking, let document = message.document {
                         AIGeneratedDocumentBubbleContent(
                             message: message,
                             document: document,
@@ -529,24 +711,155 @@ struct AIMessageBubble: View {
                                 onDocumentPreview(document)
                             }
                         )
-                    } else {
+                    } else if !isThinking {
                         Text(message.content)
                             .font(.system(size: 15))
                             .foregroundStyle(.primary)
+                            .textSelection(.enabled)
                     }
-                    Text(message.timestamp.formatted(date: .omitted, time: .shortened))
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+
+                    if !isThinking {
+                        messageTime
+                    }
                 }
-                .padding(16)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
                 .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(Color(red: 0.93, green: 0.90, blue: 0.98))
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(Color(.systemBackground))
                 )
-                Spacer(minLength: 60)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(
+                            isThinking
+                                ? Color.brandTeal.opacity(0.16)
+                                : Color(.systemGray5),
+                            lineWidth: 1
+                        )
+                }
+                .shadow(color: .black.opacity(0.04), radius: 8, y: 3)
+
+                Spacer(minLength: 28)
             }
         }
         .padding(.horizontal, 16)
+    }
+
+    private var messageTime: some View {
+        Text(message.timestamp.formatted(date: .omitted, time: .shortened))
+            .font(.system(size: 10))
+            .foregroundStyle(.tertiary)
+    }
+}
+
+private struct ThinkingDots: View {
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(Color.brandTeal)
+                    .frame(width: 5, height: 5)
+                    .phaseAnimator([0.55, 1.0, 0.55]) { content, opacity in
+                        content
+                            .opacity(opacity)
+                            .scaleEffect(opacity)
+                    } animation: { _ in
+                        .easeInOut(duration: 0.55)
+                            .delay(Double(index) * 0.12)
+                    }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+private struct AIThinkingBeamModifier: ViewModifier {
+    let active: Bool
+    let cornerRadius: CGFloat
+
+    @State private var phase: Double = 0
+    @State private var breath = 0.55
+
+    private var beamGradient: AngularGradient {
+        AngularGradient(
+            stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .clear, location: 0.36),
+                .init(color: Color.brandTeal.opacity(0.95), location: 0.41),
+                .init(
+                    color: Color(red: 0.20, green: 0.70, blue: 0.76),
+                    location: 0.47
+                ),
+                .init(
+                    color: Color(red: 0.39, green: 0.48, blue: 0.84),
+                    location: 0.53
+                ),
+                .init(
+                    color: Color(red: 0.65, green: 0.45, blue: 0.82),
+                    location: 0.59
+                ),
+                .init(color: .clear, location: 0.67),
+                .init(color: .clear, location: 1),
+            ],
+            center: .center,
+            startAngle: .degrees(phase),
+            endAngle: .degrees(phase + 360)
+        )
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                if active {
+                    let shape = RoundedRectangle(cornerRadius: cornerRadius)
+
+                    ZStack {
+                        beamGradient
+                            .mask {
+                                shape.strokeBorder(lineWidth: 4.5)
+                            }
+                            .blur(radius: 4)
+                            .opacity(breath * 0.72)
+
+                        beamGradient
+                            .mask {
+                                shape.strokeBorder(lineWidth: 1.5)
+                            }
+                            .opacity(min(breath + 0.18, 1))
+                    }
+                    .allowsHitTesting(false)
+                    .onAppear {
+                        phase = 0
+                        breath = 0.55
+                        withAnimation(
+                            .linear(duration: 2.6)
+                                .repeatForever(autoreverses: false)
+                        ) {
+                            phase = 360
+                        }
+                        withAnimation(
+                            .easeInOut(duration: 1.3)
+                                .repeatForever(autoreverses: true)
+                        ) {
+                            breath = 1
+                        }
+                    }
+                }
+            }
+    }
+}
+
+private extension View {
+    func aiThinkingBeam(
+        active: Bool,
+        cornerRadius: CGFloat
+    ) -> some View {
+        modifier(
+            AIThinkingBeamModifier(
+                active: active,
+                cornerRadius: cornerRadius
+            )
+        )
     }
 }
 

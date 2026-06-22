@@ -91,25 +91,24 @@ struct SpendingView: View {
                 }
             }
             .overlay(alignment: .bottomTrailing) {
-                if userRole == .caregiver {
-                    // 跟 AI button 一樣大小（52pt 圓形）+ 位置一致
-                    Button {
-                        showDocumentCamera = true
-                    } label: {
-                        ZStack {
-                            Circle()
-                                .fill(receiptStage == .idle ? Color.brandTeal : Color.gray)
-                                .frame(width: 52, height: 52)
-                                .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
-                            Image(systemName: receiptStage == .idle ? "doc.viewfinder.fill" : "ellipsis")
-                                .font(.system(size: 22, weight: .medium))
-                                .foregroundStyle(.white)
-                        }
+                // Both caregivers and family members may record expenses.
+                Button {
+                    showDocumentCamera = true
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(receiptStage == .idle ? Color.brandTeal : Color.gray)
+                            .frame(width: 52, height: 52)
+                            .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
+                        Image(systemName: receiptStage == .idle ? "doc.viewfinder.fill" : "ellipsis")
+                            .font(.system(size: 22, weight: .medium))
+                            .foregroundStyle(.white)
                     }
-                    .disabled(receiptStage != .idle)
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 70)
                 }
+                .disabled(receiptStage != .idle)
+                .padding(.trailing, 20)
+                .padding(.bottom, 20)
+                .accessibilityLabel("新增記帳")
             }
             // 直接開啟原生文件掃描器
             .fullScreenCover(isPresented: $showDocumentCamera) {

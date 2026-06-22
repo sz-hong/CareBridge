@@ -448,13 +448,23 @@ enum CareLogType: String, CaseIterable, Codable {
     case activity   = "activity"
     case note       = "note"
 
-    var displayName: String {
+    var displayName: LocalizedStringResource {
         switch self {
-        case .medication: return String(localized: "用藥")
-        case .vital:      return String(localized: "生命徵象")
-        case .meal:       return String(localized: "飲食")
-        case .activity:   return String(localized: "活動")
-        case .note:       return String(localized: "備註")
+        case .medication: "用藥"
+        case .vital:      "生命徵象"
+        case .meal:       "飲食"
+        case .activity:   "活動"
+        case .note:       "備註"
+        }
+    }
+
+    var displayNameKey: LocalizedStringKey {
+        switch self {
+        case .medication: "用藥"
+        case .vital:      "生命徵象"
+        case .meal:       "飲食"
+        case .activity:   "活動"
+        case .note:       "備註"
         }
     }
 
@@ -605,13 +615,21 @@ struct CareLogEntry: Identifiable, Codable {
     /// 取對應語言的 title（用藥紀錄會翻 medication_name）。
     func displayTitle(language: String?) -> String {
         let translated = translatedContent(language: language)
-        return CareLogEntry.build(type: type, content: translated).title
+        return CareLogEntry.build(
+            type: type,
+            content: translated,
+            language: language
+        ).title
     }
 
     /// 取對應語言的 detail（meal description / activity note / vital note / text 都會翻）。
     func displayDetail(language: String?) -> String {
         let translated = translatedContent(language: language)
-        return CareLogEntry.build(type: type, content: translated).detail
+        return CareLogEntry.build(
+            type: type,
+            content: translated,
+            language: language
+        ).detail
     }
 
     private func translatedContent(language: String?) -> Content {
@@ -632,42 +650,139 @@ struct CareLogEntry: Identifiable, Codable {
         return copy
     }
 
-    private static func build(type: CareLogType, content: Content) -> (title: String, detail: String) {
+    private static func build(
+        type: CareLogType,
+        content: Content,
+        language: String? = nil
+    ) -> (title: String, detail: String) {
         switch type {
         case .medication:
             return (
-                title:  content.medicationName ?? "用藥紀錄",
+                title: content.medicationName
+                    ?? localized("用藥紀錄", fallback: "用藥紀錄", language: language),
                 detail: [content.dosage, content.note].compactMap { $0 }.joined(separator: "｜")
             )
         case .vital:
             var parts: [String] = []
             if let s = content.bloodPressureSystolic, let d = content.bloodPressureDiastolic {
-                parts.append("血壓 \(Int(s))/\(Int(d)) mmHg")
+                let label = localized("血壓", fallback: "血壓", language: language)
+                parts.append("\(label) \(Int(s))/\(Int(d)) mmHg")
             }
-            if let w = content.weight { parts.append("體重 \(String(format: "%.1f", w)) kg") }
-            if let bs = content.bloodSugar { parts.append("血糖 \(String(format: "%.1f", bs)) mmol/L") }
-            if let t = content.temperature { parts.append("體溫 \(String(format: "%.1f", t))°C") }
+            if let w = content.weight {
+                let label = localized("體重", fallback: "體重", language: language)
+                parts.append("\(label) \(w.formatted(.number.precision(.fractionLength(1)))) kg")
+            }
+            if let bs = content.bloodSugar {
+                let label = localized("血糖", fallback: "血糖", language: language)
+                parts.append("\(label) \(bs.formatted(.number.precision(.fractionLength(1)))) mmol/L")
+            }
+            if let t = content.temperature {
+                let label = localized("體溫", fallback: "體溫", language: language)
+                parts.append("\(label) \(t.formatted(.number.precision(.fractionLength(1))))°C")
+            }
             if let n = content.note { parts.append(n) }
-            return (title: "生理指標測量", detail: parts.joined(separator: "｜"))
+            return (
+                title: localized(
+                    "生理指標測量",
+                    fallback: "生理指標測量",
+                    language: language
+                ),
+                detail: parts.joined(separator: "｜")
+            )
         case .meal:
             let descriptionTitle = content.description?
                 .components(separatedBy: "｜")
                 .first?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            let mealType = localizedStructuredValue(
+                content.mealType,
+                language: language
+            )
+            let appetite = localizedStructuredValue(
+                content.appetite,
+                language: language
+            )
             return (
                 title: content.title
                     ?? (descriptionTitle?.isEmpty == false ? descriptionTitle : nil)
-                    ?? content.mealType
-                    ?? "飲食紀錄",
-                detail: [content.description, content.appetite.map { "食慾：\($0)" }].compactMap { $0 }.joined(separator: "｜")
+                    ?? mealType
+                    ?? localized("飲食紀錄", fallback: "飲食紀錄", language: language),
+                detail: [
+                    content.description,
+                    appetite.map {
+                        let label = localized("食慾", fallback: "食慾", language: language)
+                        return "\(label)：\($0)"
+                    },
+                ]
+                .compactMap { $0 }
+                .joined(separator: "｜")
             )
         case .activity:
+            let activityType = localizedStructuredValue(
+                content.activityType,
+                language: language
+            )
             return (
-                title: content.title ?? content.activityType ?? "活動紀錄",
-                detail: content.durationMinutes.map { "持續 \($0) 分鐘" } ?? (content.note ?? "")
+                title: content.title
+                    ?? activityType
+                    ?? localized("活動紀錄", fallback: "活動紀錄", language: language),
+                detail: content.durationMinutes.map {
+                    localized(
+                        "持續 \($0) 分鐘",
+                        fallback: "持續 \($0) 分鐘",
+                        language: language
+                    )
+                } ?? (content.note ?? "")
             )
         case .note:
-            return (title: "備註", detail: content.text ?? content.textTranslated ?? "")
+            return (
+                title: localized("備註", fallback: "備註", language: language),
+                detail: content.text ?? content.textTranslated ?? ""
+            )
+        }
+    }
+
+    private static func localized(
+        _ key: String.LocalizationValue,
+        fallback: String,
+        language: String?
+    ) -> String {
+        guard let language else { return fallback }
+        let localeIdentifier = language == "tl" ? "fil" : language
+        return String(
+            localized: key,
+            locale: Locale(identifier: localeIdentifier)
+        )
+    }
+
+    private static func localizedStructuredValue(
+        _ value: String?,
+        language: String?
+    ) -> String? {
+        guard let value else { return nil }
+        switch value.lowercased() {
+        case "早餐", "breakfast":
+            return localized("早餐", fallback: value, language: language)
+        case "午餐", "lunch":
+            return localized("午餐", fallback: value, language: language)
+        case "晚餐", "dinner":
+            return localized("晚餐", fallback: value, language: language)
+        case "點心", "snack":
+            return localized("點心", fallback: value, language: language)
+        case "差", "poor":
+            return localized("差", fallback: value, language: language)
+        case "一般", "normal":
+            return localized("一般", fallback: value, language: language)
+        case "良好", "good":
+            return localized("良好", fallback: value, language: language)
+        case "輕度", "light":
+            return localized("輕度", fallback: value, language: language)
+        case "中度", "moderate":
+            return localized("中度", fallback: value, language: language)
+        case "高強度", "high":
+            return localized("高強度", fallback: value, language: language)
+        default:
+            return value
         }
     }
 
@@ -803,6 +918,7 @@ class CareLogStore {
     private let service: DataService
     @ObservationIgnored private var timelineCache: [TimelineQuery: TimelinePage] = [:]
     @ObservationIgnored private var activeTimelineQuery: TimelineQuery?
+    @ObservationIgnored private var activeTimelineRequestID: UUID?
     private var didLoadRecentEntries = false
     private(set) var isLoadingMoreTimeline = false
     private(set) var timelineHasMore = false
@@ -859,17 +975,24 @@ class CareLogStore {
         forceRefresh: Bool = false
     ) async {
         let query = timelineQuery(date: date, type: type)
+        let isSameQuery = activeTimelineQuery == query
+        let previousEntries = isSameQuery ? timelineState.value : []
+        let previousHasMore = isSameQuery ? timelineHasMore : false
+        let requestID = UUID()
+
         activeTimelineQuery = query
+        activeTimelineRequestID = requestID
 
         if !forceRefresh, let cached = timelineCache[query] {
+            activeTimelineRequestID = nil
             applyTimelinePage(cached)
             return
         }
 
-        timelineState.finish(with: [])
+        timelineState.finish(with: previousEntries)
         timelineState.beginLoading()
         isLoadingMoreTimeline = false
-        timelineHasMore = false
+        timelineHasMore = previousHasMore
 
         do {
             let result = try await service.fetchCareLogEntries(
@@ -877,7 +1000,17 @@ class CareLogStore {
                 type: query.type,
                 page: 1
             )
-            guard !Task.isCancelled, activeTimelineQuery == query else {
+            guard !Task.isCancelled else {
+                finishCancelledTimelineRequest(
+                    query: query,
+                    requestID: requestID,
+                    previousEntries: previousEntries,
+                    previousHasMore: previousHasMore
+                )
+                return
+            }
+            guard activeTimelineQuery == query,
+                  activeTimelineRequestID == requestID else {
                 return
             }
             let page = TimelinePage(
@@ -885,12 +1018,20 @@ class CareLogStore {
                 nextPage: result.hasNextPage ? 2 : nil,
                 totalCount: result.totalCount
             )
+            activeTimelineRequestID = nil
             timelineCache[query] = page
             applyTimelinePage(page)
-        } catch is CancellationError {
-            return
         } catch {
-            guard activeTimelineQuery == query else { return }
+            guard activeTimelineQuery == query,
+                  activeTimelineRequestID == requestID else {
+                return
+            }
+            activeTimelineRequestID = nil
+            if Task.isCancelled || Self.isCancellation(error) {
+                timelineState.finish(with: previousEntries)
+                timelineHasMore = previousHasMore
+                return
+            }
             timelineState.fail(error)
             print("[CareLogStore] timeline fetch failed: \(error)")
         }
@@ -931,10 +1072,11 @@ class CareLogStore {
             cached.totalCount = result.totalCount
             timelineCache[query] = cached
             applyTimelinePage(cached)
-        } catch is CancellationError {
-            return
         } catch {
             guard activeTimelineQuery == query else { return }
+            if Task.isCancelled || Self.isCancellation(error) {
+                return
+            }
             timelineState.fail(error)
             timelineHasMore = false
             print("[CareLogStore] load more failed: \(error)")
@@ -999,6 +1141,33 @@ class CareLogStore {
     private func applyTimelinePage(_ page: TimelinePage) {
         timelineState.finish(with: page.entries)
         timelineHasMore = page.nextPage != nil
+    }
+
+    private func finishCancelledTimelineRequest(
+        query: TimelineQuery,
+        requestID: UUID,
+        previousEntries: [CareLogEntry],
+        previousHasMore: Bool
+    ) {
+        guard activeTimelineQuery == query,
+              activeTimelineRequestID == requestID else {
+            return
+        }
+        activeTimelineRequestID = nil
+        timelineState.finish(with: previousEntries)
+        timelineHasMore = previousHasMore
+    }
+
+    private static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        if let urlError = error as? URLError, urlError.code == .cancelled {
+            return true
+        }
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain
+            && nsError.code == NSURLErrorCancelled
     }
 }
 
