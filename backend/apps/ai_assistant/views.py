@@ -16,7 +16,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.http import StreamingHttpResponse
 from django.utils import timezone
-from openai import OpenAI
+from openai import OpenAI, OpenAIError
 from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -267,58 +267,70 @@ class AIChatView(APIView):
             raw_full_reply = ""
             streamed_reply = ""
 
-            # First, handle any tool calls (non-streaming)
-            for _ in range(5):
-                pre_response = client.chat.completions.create(
+            try:
+                # First, handle any tool calls (non-streaming)
+                for _ in range(5):
+                    pre_response = client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        tools=TOOL_DEFINITIONS,
+                        tool_choice="auto",
+                        temperature=0.7,
+                        max_completion_tokens=2048,
+                    )
+                    choice = pre_response.choices[0]
+                    total_tokens += pre_response.usage.total_tokens if pre_response.usage else 0
+
+                    if choice.finish_reason == "tool_calls" and choice.message.tool_calls:
+                        messages.append(choice.message.model_dump())
+                        for tool_call in choice.message.tool_calls:
+                            result = execute_tool(
+                                tool_call.function.name,
+                                tool_call.function.arguments,
+                                user,
+                                user_message=user_message,
+                            )
+                            messages.append({
+                                "role": "tool",
+                                "tool_call_id": tool_call.id,
+                                "content": result,
+                            })
+                            yield f"data: {json.dumps({'type': 'tool_call', 'tool': tool_call.function.name})}\n\n"
+                    else:
+                        # No more tool calls, break to streaming
+                        break
+
+                # Now stream the final response
+                stream = client.chat.completions.create(
                     model=model,
                     messages=messages,
-                    tools=TOOL_DEFINITIONS,
-                    tool_choice="auto",
                     temperature=0.7,
                     max_completion_tokens=2048,
+                    stream=True,
                 )
-                choice = pre_response.choices[0]
-                total_tokens += pre_response.usage.total_tokens if pre_response.usage else 0
 
-                if choice.finish_reason == "tool_calls" and choice.message.tool_calls:
-                    messages.append(choice.message.model_dump())
-                    for tool_call in choice.message.tool_calls:
-                        result = execute_tool(
-                            tool_call.function.name,
-                            tool_call.function.arguments,
-                            user,
-                            user_message=user_message,
-                        )
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tool_call.id,
-                            "content": result,
-                        })
-                        yield f"data: {json.dumps({'type': 'tool_call', 'tool': tool_call.function.name})}\n\n"
-                else:
-                    # No more tool calls, break to streaming
-                    break
+                for chunk in stream:
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        raw_content = chunk.choices[0].delta.content
+                        raw_full_reply += raw_content
+                        plain_reply = _plain_text_from_markdown(raw_full_reply)
+                        content = plain_reply[len(streamed_reply):]
+                        streamed_reply = plain_reply
+                        if content:
+                            yield f"data: {json.dumps({'type': 'content', 'text': content})}\n\n"
+            except OpenAIError:
+                # Upstream AI provider failed (quota/rate limit/network/etc.).
+                # Surface a friendly SSE error instead of letting it bubble up
+                # to ASGI as a 500 + dropped connection.
+                logger.exception("AI assistant streaming failed (OpenAI error)")
+                yield f"data: {json.dumps({'type': 'error', 'message': 'AI 服務暫時無法使用，請稍後再試。'})}\n\n"
+                return
+            except Exception:
+                logger.exception("Unexpected error during AI assistant streaming")
+                yield f"data: {json.dumps({'type': 'error', 'message': 'AI 服務發生未預期錯誤，請稍後再試。'})}\n\n"
+                return
 
-            # Now stream the final response
-            stream = client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0.7,
-                max_completion_tokens=2048,
-                stream=True,
-            )
-
-            for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    raw_content = chunk.choices[0].delta.content
-                    raw_full_reply += raw_content
-                    plain_reply = _plain_text_from_markdown(raw_full_reply)
-                    content = plain_reply[len(streamed_reply):]
-                    streamed_reply = plain_reply
-                    if content:
-                        yield f"data: {json.dumps({'type': 'content', 'text': content})}\n\n"
-
-            # Save conversation
+            # Save conversation (success path only)
             conversation.messages_history.append(
                 {"role": "user", "content": user_message}
             )
