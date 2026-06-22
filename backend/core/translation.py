@@ -173,7 +173,15 @@ def translate_for_user(
     targets = list(dict.fromkeys(targets))
     translated = {source: original_text}
 
-    request_targets = [lang for lang in targets if lang != source]
+    # Translate into every requested language. `source` is only the author's
+    # *account-language* hint, NOT the actual language of the text: a caregiver
+    # whose UI is zh-TW may type Vietnamese, in which case a zh-TW translation
+    # is still required. We therefore do not exclude `source` here — the model
+    # detects the real language and returns the text unchanged for whichever
+    # language it is already written in (see translate_text), so the
+    # source-language slot ends up holding a genuine translation when the text
+    # was authored in a different language.
+    request_targets = list(targets)
     if not request_targets:
         return translated
     if _is_unmocked_test_run():
@@ -296,8 +304,10 @@ def translate_text(text, source_lang, target_langs):
                 f"Supported: {list(SUPPORTED_LANGUAGES.keys())}"
             )
 
-    # Filter out source language from targets
-    target_langs = [lang for lang in target_langs if lang != source_lang]
+    # Translate into every requested language. `source_lang` is only a hint
+    # (the author's account language); the model detects the text's actual
+    # language and returns it unchanged for whichever target it already matches.
+    target_langs = list(dict.fromkeys(target_langs))
     if not target_langs:
         return {}
 
@@ -311,16 +321,19 @@ def translate_text(text, source_lang, target_langs):
     target_descriptions = ', '.join(
         f'{code} ({SUPPORTED_LANGUAGES[code]})' for code in target_langs
     )
-    source_description = f'{source_lang} ({SUPPORTED_LANGUAGES[source_lang]})'
+    target_codes = ', '.join(target_langs)
 
     prompt = (
-        f'Translate the following text from {source_description} into these languages: '
-        f'{target_descriptions}.\n\n'
-        f'Return ONLY a valid JSON object where keys are the language codes and values '
-        f'are the translated strings. Do not include any explanation or markdown formatting.\n'
+        f'Detect the language the message below is actually written in, then '
+        f'translate the message into each of these languages: {target_descriptions}.\n'
+        f'If the message is already written in one of those languages, return it '
+        f'unchanged for that language.\n\n'
+        f'Return ONLY a valid JSON object whose keys are exactly these language codes: '
+        f'{target_codes}, and whose values are the message rendered in that language. '
+        f'Do not include any explanation or markdown formatting.\n'
         f'Do not translate, alter, remove, or reorder tokens that look like '
         f'__CB_PROTECTED_0__; copy each protected token exactly as provided.\n\n'
-        f'Text to translate:\n{text}'
+        f'Message:\n{text}'
     )
 
     try:
