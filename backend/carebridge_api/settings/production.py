@@ -2,8 +2,13 @@
 CareBridge API — 正式環境設定
 """
 import os
+import sys
 from django.core.exceptions import ImproperlyConfigured
 from .base import *
+
+# True while running the test suite (`manage.py test`). Used to relax
+# transport-level security that breaks Django's HTTP test client.
+RUNNING_TESTS = 'test' in sys.argv
 
 DEBUG = False
 
@@ -32,7 +37,13 @@ SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
-SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'True').lower() == 'true'
+# Defaults to True in normal production operation. Only disabled while the
+# test suite runs, because the HTTP test client speaks plain http and would
+# otherwise receive a 301 redirect to https on every request.
+SECURE_SSL_REDIRECT = (
+    os.environ.get('SECURE_SSL_REDIRECT', 'True').lower() == 'true'
+    and not RUNNING_TESTS
+)
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # S3 作為預設檔案儲存
