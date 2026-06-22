@@ -606,10 +606,15 @@ struct RequestCardBubble: View {
 // MARK: - Message Bubble
 struct MessageBubble: View {
     let message: ChatMessage
-    @Environment(UserStore.self) private var userStore
+    // Use the device-level reading language the user picked (same source every
+    // other screen uses), NOT the account's backend `language`. Accounts are
+    // often all created as zh-TW, so keying off currentUser.language made a
+    // caregiver see their own input translated to Chinese instead of seeing
+    // family messages translated into the language they actually chose.
+    @Environment(LocaleStore.self) private var localeStore
 
     private var translatedText: String? {
-        message.translation(for: userStore.currentUser?.language)
+        message.translation(for: localeStore.code)
     }
 
     var body: some View {
