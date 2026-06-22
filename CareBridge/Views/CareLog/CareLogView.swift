@@ -200,7 +200,7 @@ struct CareLogView: View {
                         selectedFilter = nil
                     }
                     ForEach(CareLogType.allCases, id: \.self) { type in
-                        FilterChip(title: type.displayName, isSelected: selectedFilter == type) {
+                        FilterChip(title: type.displayNameKey, isSelected: selectedFilter == type) {
                             selectedFilter = (selectedFilter == type) ? nil : type
                         }
                     }
@@ -265,18 +265,28 @@ struct CareLogView: View {
 
             // 週 / 月 toggle
             HStack(spacing: 0) {
-                ForEach(["週", "月"].indices, id: \.self) { i in
+                ForEach(CalendarDisplayMode.allCases) { mode in
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { calendarMode = i }
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            calendarMode = mode.rawValue
+                        }
                     } label: {
-                        Text(["週", "月"][i])
+                        Text(mode.title)
                             .font(.system(size: 13, weight: .medium))
                             .frame(width: 36, height: 26)
                             .background(
                                 RoundedRectangle(cornerRadius: 6)
-                                    .fill(calendarMode == i ? Color.brandTeal : Color.clear)
+                                    .fill(
+                                        calendarMode == mode.rawValue
+                                            ? Color.brandTeal
+                                            : Color.clear
+                                    )
                             )
-                            .foregroundStyle(calendarMode == i ? .white : .secondary)
+                            .foregroundStyle(
+                                calendarMode == mode.rawValue
+                                    ? .white
+                                    : .secondary
+                            )
                     }
                     .buttonStyle(.plain)
                 }
@@ -297,7 +307,11 @@ struct CareLogView: View {
 
     // MARK: - Calendar body
     private var miniCalendar: some View {
-        let weekDays = ["日", "一", "二", "三", "四", "五", "六"]
+        let formatter = DateFormatter()
+        formatter.locale = localeStore.locale
+        let weekDays = formatter.veryShortStandaloneWeekdaySymbols
+            ?? formatter.veryShortWeekdaySymbols
+            ?? ["日", "一", "二", "三", "四", "五", "六"]
 
         return VStack(spacing: 0) {
             // Day-of-week header
@@ -399,11 +413,10 @@ struct CareLogView: View {
     // MARK: - Legend
     private var calendarLegend: some View {
         HStack(spacing: 16) {
-            ForEach([("藥物", Color.brandTeal), ("醫療", Color.red),
-                     ("急診", Color.orange), ("個人", Color.blue)], id: \.0) { label, color in
+            ForEach(CalendarLegendItem.allCases) { item in
                 HStack(spacing: 4) {
-                    Circle().fill(color).frame(width: 6, height: 6)
-                    Text(label)
+                    Circle().fill(item.color).frame(width: 6, height: 6)
+                    Text(item.title)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -412,6 +425,47 @@ struct CareLogView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
+    }
+
+    private enum CalendarDisplayMode: Int, CaseIterable, Identifiable {
+        case week
+        case month
+
+        var id: Int { rawValue }
+
+        var title: LocalizedStringResource {
+            switch self {
+            case .week: "週"
+            case .month: "月"
+            }
+        }
+    }
+
+    private enum CalendarLegendItem: String, CaseIterable, Identifiable {
+        case medication
+        case medical
+        case emergency
+        case personal
+
+        var id: String { rawValue }
+
+        var title: LocalizedStringResource {
+            switch self {
+            case .medication: "藥物"
+            case .medical:    "醫療"
+            case .emergency:  "急診"
+            case .personal:   "個人"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .medication: Color.brandTeal
+            case .medical:    .red
+            case .emergency:  .orange
+            case .personal:   .blue
+            }
+        }
     }
 }
 
@@ -496,7 +550,7 @@ struct TimelineEntryRow: View {
         VStack(alignment: .leading, spacing: 8) {
             // Type badge
             HStack(spacing: 6) {
-                Text(entry.type.displayName.uppercased())
+                Text(entry.type.displayName)
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(entry.type.uiColor)
                     .padding(.horizontal, 8)
@@ -638,11 +692,22 @@ struct TimelineEntryRow: View {
     /// 體重 / 體溫等其他 vitals 的補充文字（去除已在卡片裡顯示的血壓、血糖
     /// 與重複的格式化欄位以避免兩行雷同）。靠 dedupe 把同義字串合併。
     private var extraVitalsText: String? {
-        let parts = entry.detail
+        let bloodPressureLabel = String(
+            localized: "血壓",
+            locale: localeStore.locale
+        )
+        let bloodSugarLabel = String(
+            localized: "血糖",
+            locale: localeStore.locale
+        )
+        let parts = entry.displayDetail(language: localeStore.code)
             .components(separatedBy: "｜")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
-            .filter { !$0.contains("血壓") && !$0.contains("血糖") }
+            .filter {
+                !$0.hasPrefix(bloodPressureLabel)
+                    && !$0.hasPrefix(bloodSugarLabel)
+            }
 
         // dedupe 但保留順序
         var seen = Set<String>()
@@ -694,10 +759,22 @@ struct AddCareLogView: View {
     // note
     @State private var noteText = ""
 
-    private let routeLabels     = ["口服", "外用", "注射"]
-    private let mealLabels      = ["早餐", "午餐", "晚餐", "點心"]
-    private let appetiteLabels  = ["差", "一般", "良好"]
+    private let routeLabels = ["口服", "外用", "注射"]
+    private let routeDisplayLabels: [LocalizedStringResource] = [
+        "口服", "外用", "注射",
+    ]
+    private let mealLabels = ["早餐", "午餐", "晚餐", "點心"]
+    private let mealDisplayLabels: [LocalizedStringResource] = [
+        "早餐", "午餐", "晚餐", "點心",
+    ]
+    private let appetiteLabels = ["差", "一般", "良好"]
+    private let appetiteDisplayLabels: [LocalizedStringResource] = [
+        "差", "一般", "良好",
+    ]
     private let intensityLabels = ["輕度", "中度", "高強度"]
+    private let intensityDisplayLabels: [LocalizedStringResource] = [
+        "輕度", "中度", "高強度",
+    ]
     // (conditionLabels removed — vital section is now optional fields only)
 
     private enum NumericField: Hashable {
@@ -969,7 +1046,7 @@ struct AddCareLogView: View {
         Section("服用方式") {
             Picker("方式", selection: $medRoute) {
                 ForEach(0..<routeLabels.count, id: \.self) { i in
-                    Text(routeLabels[i]).tag(i)
+                    Text(routeDisplayLabels[i]).tag(i)
                 }
             }
             .pickerStyle(.segmented)
@@ -987,7 +1064,7 @@ struct AddCareLogView: View {
         Section("餐別") {
             Picker("餐別", selection: $mealType) {
                 ForEach(0..<mealLabels.count, id: \.self) { i in
-                    Text(mealLabels[i]).tag(i)
+                    Text(mealDisplayLabels[i]).tag(i)
                 }
             }
             .pickerStyle(.segmented)
@@ -1001,7 +1078,7 @@ struct AddCareLogView: View {
         Section("食慾") {
             Picker("食慾", selection: $appetite) {
                 ForEach(0..<appetiteLabels.count, id: \.self) { i in
-                    Text(appetiteLabels[i]).tag(i)
+                    Text(appetiteDisplayLabels[i]).tag(i)
                 }
             }
             .pickerStyle(.segmented)
@@ -1029,7 +1106,7 @@ struct AddCareLogView: View {
         Section("強度") {
             Picker("強度", selection: $activityIntensity) {
                 ForEach(0..<intensityLabels.count, id: \.self) { i in
-                    Text(intensityLabels[i]).tag(i)
+                    Text(intensityDisplayLabels[i]).tag(i)
                 }
             }
             .pickerStyle(.segmented)

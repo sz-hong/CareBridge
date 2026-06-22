@@ -83,19 +83,28 @@ struct DocumentsView: View {
         .background(Color.brandBackground)
         .navigationTitle("文件管理")
         .navigationBarTitleDisplayMode(.large)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showUpload = true
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.up.circle.fill")
-                        Text("上傳")
-                    }
-                    .foregroundStyle(Color.brandTeal)
-                    .font(.system(size: 14, weight: .medium))
+        .overlay(alignment: .bottomTrailing) {
+            Button {
+                showUpload = true
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(Color.brandTeal)
+                        .frame(width: 52, height: 52)
+                        .shadow(
+                            color: .black.opacity(0.15),
+                            radius: 6,
+                            x: 0,
+                            y: 3
+                        )
+                    Image(systemName: "plus")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.white)
                 }
             }
+            .padding(.trailing, 20)
+            .padding(.bottom, 20)
+            .accessibilityLabel("上傳文件")
         }
         .sheet(isPresented: $showUpload) {
             UploadDocumentView { newDoc in

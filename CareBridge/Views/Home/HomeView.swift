@@ -503,8 +503,9 @@ struct HomeView: View {
         }
         .frame(width: 132, alignment: .leading)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(
-            "\(entry.type.displayName)，\(entry.timestamp.formatted(date: .omitted, time: .shortened))"
+        .accessibilityLabel(Text(entry.type.displayName))
+        .accessibilityValue(
+            Text(entry.timestamp.formatted(date: .omitted, time: .shortened))
         )
     }
 
