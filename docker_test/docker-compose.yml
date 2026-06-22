@@ -1,0 +1,22 @@
+name: carebridge-docker-test
+
+services:
+  mock-api:
+    image: python:3.12-alpine
+    working_dir: /app
+    command: ["python", "server.py"]
+    ports:
+      - "${CAREBRIDGE_MOCK_API_BIND:-127.0.0.1}:${CAREBRIDGE_MOCK_API_PORT:-8001}:8001"
+    environment:
+      MOCK_API_HOST: 0.0.0.0
+      MOCK_API_PORT: 8001
+      MOCK_API_ACCESS_TOKEN: mock-access-token
+      MOCK_API_REFRESH_TOKEN: mock-refresh-token
+      MOCK_API_CORS_ORIGIN: ${MOCK_API_CORS_ORIGIN:-*}
+    volumes:
+      - ./mock_api:/app:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/api/v1/health/', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 3

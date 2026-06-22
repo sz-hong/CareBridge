@@ -11,7 +11,7 @@ services:
       # Server-side object operations stay on Docker's private network.
       AWS_S3_ENDPOINT_URL: http://minio:9000
       # Local-device default. The tunnel overlay replaces this with HTTPS.
-      AWS_S3_PUBLIC_ENDPOINT_URL: ${AWS_S3_PUBLIC_ENDPOINT_URL:-http://100.125.106.32:9000}
+      AWS_S3_PUBLIC_ENDPOINT_URL: ${AWS_S3_PUBLIC_ENDPOINT_URL:-http://127.0.0.1:9000}
     depends_on:
       - db
       - redis
@@ -44,8 +44,8 @@ services:
   minio:
     image: minio/minio:latest
     ports:
-      # Bind the S3 API to the Mac's Tailscale IP for physical-device uploads.
-      - "${CAREBRIDGE_STORAGE_BIND_IP:-100.125.106.32}:9000:9000"
+      # Bind S3 locally by default. Device-specific IPs belong in ignored override files.
+      - "${CAREBRIDGE_STORAGE_BIND_IP:-127.0.0.1}:9000:9000"
       - "127.0.0.1:9001:9001"   # Web console
     environment:
       MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:-minioadmin}
@@ -80,7 +80,7 @@ services:
       - ../.env
     environment:
       AWS_S3_ENDPOINT_URL: http://minio:9000
-      AWS_S3_PUBLIC_ENDPOINT_URL: ${AWS_S3_PUBLIC_ENDPOINT_URL:-http://100.125.106.32:9000}
+      AWS_S3_PUBLIC_ENDPOINT_URL: ${AWS_S3_PUBLIC_ENDPOINT_URL:-http://127.0.0.1:9000}
     depends_on:
       - db
       - redis
@@ -97,7 +97,7 @@ services:
       - ../.env
     environment:
       AWS_S3_ENDPOINT_URL: http://minio:9000
-      AWS_S3_PUBLIC_ENDPOINT_URL: ${AWS_S3_PUBLIC_ENDPOINT_URL:-http://100.125.106.32:9000}
+      AWS_S3_PUBLIC_ENDPOINT_URL: ${AWS_S3_PUBLIC_ENDPOINT_URL:-http://127.0.0.1:9000}
     depends_on:
       - db
       - redis
