@@ -36,6 +36,21 @@ describe('apiRequest', () => {
       status: 403,
     } satisfies Partial<ApiRequestError>);
   });
+
+  it('extracts Django REST Framework validation errors', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ non_field_errors: ['Invalid email or password.'] }),
+    }));
+
+    await expect(apiRequest('/auth/login/', { method: 'POST' })).rejects.toMatchObject({
+      name: 'ApiRequestError',
+      message: 'Invalid email or password.',
+      status: 400,
+      fields: { non_field_errors: ['Invalid email or password.'] },
+    } satisfies Partial<ApiRequestError>);
+  });
 });
 
 describe('toQuery', () => {

@@ -1,3 +1,4 @@
+import { ApiRequestError } from '../models/api';
 import type { AuthResponse, DashboardSession } from '../models/auth';
 import { apiRequest } from './apiClient';
 
@@ -16,6 +17,17 @@ export const authService = {
       accessToken: data.tokens.access,
       refreshToken: data.tokens.refresh,
     };
+
+    try {
+      await apiRequest<unknown>('/admin/overview/', { token: session.accessToken });
+    } catch (err) {
+      this.logout();
+      if (err instanceof ApiRequestError && err.status === 403) {
+        throw new Error('Staff access is required for the dashboard.');
+      }
+      throw err;
+    }
+
     this.saveSession(session);
     return session;
   },
