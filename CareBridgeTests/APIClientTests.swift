@@ -93,6 +93,43 @@ struct APIClientTests {
         #expect(session.lastRequest?.value(forHTTPHeaderField: "Authorization") == "Bearer token")
     }
 
+    @Test func decodesPaginatedEnvelopeMetadata() async throws {
+        let session = MockHTTPSession(
+            json: """
+            {
+              "success": true,
+              "data": [{"value": "first"}],
+              "meta": {
+                "count": 21,
+                "next": "https://example.com/items/?page=2",
+                "previous": null
+              }
+            }
+            """
+        )
+        let client = APIClient(baseURL: "https://example.com", session: session)
+
+        let result: PaginatedResult<TestPayload> = try await client.requestPage(
+            "GET",
+            path: "/care-logs/?page=1&page_size=20"
+        )
+
+        #expect(result.items == [TestPayload(value: "first")])
+        #expect(result.totalCount == 21)
+        #expect(result.hasNextPage)
+    }
+
+    @Test func buildsPaginatedCareLogEndpoint() {
+        #expect(
+            APIEndpoint.careLogs(
+                date: "2026-06-22",
+                type: .meal,
+                page: 2
+            )
+            == "/care-logs/?date=2026-06-22&type=meal&page=2&page_size=20"
+        )
+    }
+
     @Test func decodesEmptySuccessEnvelope() async throws {
         let session = MockHTTPSession(json: #"{"success":true,"data":{}}"#)
         let client = APIClient(baseURL: "https://example.com", session: session)

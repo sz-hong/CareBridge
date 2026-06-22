@@ -22,20 +22,17 @@ struct CareLogView: View {
         return f
     }
 
-    var filteredEntries: [CareLogEntry] {
-        let sameDayEntries = careLogStore.entries.filter {
-            calendar.isDate($0.timestamp, inSameDayAs: selectedDate)
-        }
-        guard let filter = selectedFilter else { return sameDayEntries }
-        return sameDayEntries.filter { $0.type == filter }
-    }
-
     var groupedEntries: [(String, [CareLogEntry])] {
         let calendar = Calendar.current
-        let groups = Dictionary(grouping: filteredEntries) { entry in
+        let groups = Dictionary(grouping: careLogStore.timelineEntries) { entry in
             calendar.startOfDay(for: entry.timestamp)
         }
         return groups.sorted { $0.key > $1.key }.map { (dateFormatter.string(from: $0.key), $0.value) }
+    }
+
+    private var timelineQueryID: String {
+        let day = calendar.startOfDay(for: selectedDate)
+        return "\(day.timeIntervalSince1970)-\(selectedFilter?.rawValue ?? "all")"
     }
 
     var body: some View {
@@ -47,12 +44,13 @@ struct CareLogView: View {
 
                     ScrollView {
                         LazyVStack(spacing: 0, pinnedViews: []) {
-                            if careLogStore.isLoading && careLogStore.entries.isEmpty {
+                            if careLogStore.isTimelineLoading
+                                && careLogStore.timelineEntries.isEmpty {
                                 ProgressView()
                                     .padding(.top, 32)
                             }
 
-                            if let errorMessage = careLogStore.errorMessage {
+                            if let errorMessage = careLogStore.timelineErrorMessage {
                                 Text(errorMessage)
                                     .font(.footnote)
                                     .foregroundStyle(.red)
@@ -81,10 +79,39 @@ struct CareLogView: View {
                                     }
                                 }
                             }
+
+                            if !careLogStore.isTimelineLoading,
+                               careLogStore.timelineEntries.isEmpty,
+                               careLogStore.timelineErrorMessage == nil {
+                                ContentUnavailableView(
+                                    "這天沒有照護日誌",
+                                    systemImage: "doc.text.magnifyingglass"
+                                )
+                                .padding(.top, 24)
+                            }
+
+                            if careLogStore.isLoadingMoreTimeline {
+                                ProgressView()
+                                    .padding(.vertical, 20)
+                            } else if careLogStore.timelineHasMore {
+                                Color.clear
+                                    .frame(height: 1)
+                                    .task {
+                                        await careLogStore.loadMoreTimeline()
+                                    }
+                            }
+
                             Spacer(minLength: 32)
                         }
                     }
                     .background(Color.brandBackground)
+                    .refreshable {
+                        await careLogStore.loadTimeline(
+                            date: selectedDate,
+                            type: selectedFilter,
+                            forceRefresh: true
+                        )
+                    }
                 }
                 .background(Color.brandBackground)
                 .toolbar {
@@ -143,6 +170,12 @@ struct CareLogView: View {
                     NotificationCenterView()
                 }
                 .task { careLogStore.load() }
+                .task(id: timelineQueryID) {
+                    await careLogStore.loadTimeline(
+                        date: selectedDate,
+                        type: selectedFilter
+                    )
+                }
             }
         }
     }
@@ -333,7 +366,7 @@ struct CareLogView: View {
     private func dayCell(date: Date) -> some View {
         let isToday    = calendar.isDateInToday(date)
         let isSelected = calendar.isDate(date, inSameDayAs: selectedDate)
-        let hasEntry   = careLogStore.entries.contains { calendar.isDate($0.timestamp, inSameDayAs: date) }
+        let hasEntry = careLogStore.hasEntry(on: date)
 
         return Button {
             withAnimation(.easeInOut(duration: 0.25)) {

@@ -18,6 +18,19 @@ struct APIResponse<T: Codable>: Codable {
     var success: Bool
     var data: T?
     var message: String?
+    var meta: APIPaginationMeta?
+}
+
+struct APIPaginationMeta: Codable, Equatable {
+    var count: Int
+    var next: String?
+    var previous: String?
+}
+
+struct PaginatedResult<Item> {
+    var items: [Item]
+    var totalCount: Int
+    var hasNextPage: Bool
 }
 
 // MARK: - Spending Summary
@@ -170,7 +183,11 @@ protocol DataService {
     func sendRequestMessage(roomId: String, messageType: String, referenceId: String, content: String) async throws -> ChatMessage
 
     // Care Log
-    func fetchCareLogEntries(date: Date?) async throws -> [CareLogEntry]
+    func fetchCareLogEntries(
+        date: Date?,
+        type: CareLogType?,
+        page: Int
+    ) async throws -> PaginatedResult<CareLogEntry>
     func uploadCareLogPhoto(_ image: UIImage) async throws -> CareLogPhotoUploadReference
     func createCareLogEntry(_ entry: CareLogEntry) async throws -> CareLogEntry
 

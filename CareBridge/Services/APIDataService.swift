@@ -46,6 +46,44 @@ class APIDataService: DataService {
         }
     }
 
+    func requestPage<T: Codable>(
+        _ method: String,
+        path: String,
+        retried: Bool = false
+    ) async throws -> PaginatedResult<T> {
+        do {
+            return try await apiClient.requestPage(
+                method,
+                path: path,
+                authToken: authToken
+            )
+        } catch APIError.serverError(let statusCode)
+            where statusCode == 401 && !retried && authToken != nil {
+            if await refreshAccessToken() {
+                return try await requestPage(
+                    method,
+                    path: path,
+                    retried: true
+                )
+            }
+            authToken = nil
+            KeychainService.clearAll()
+            throw APIError.serverError(statusCode: 401)
+        } catch APIError.backendError(let statusCode, _)
+            where statusCode == 401 && !retried && authToken != nil {
+            if await refreshAccessToken() {
+                return try await requestPage(
+                    method,
+                    path: path,
+                    retried: true
+                )
+            }
+            authToken = nil
+            KeychainService.clearAll()
+            throw APIError.serverError(statusCode: 401)
+        }
+    }
+
     /// Exchange refresh token for a new access token (SimpleJWT, rotation enabled).
     /// Response format is `{access, refresh}` without the `{success,data}` envelope.
     func refreshAccessToken() async -> Bool {

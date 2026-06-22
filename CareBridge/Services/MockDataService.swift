@@ -89,7 +89,30 @@ class MockDataService: DataService {
     }
 
     // MARK: - Care Log
-    func fetchCareLogEntries(date: Date?) async throws -> [CareLogEntry] { CareLogEntry.samples }
+    func fetchCareLogEntries(
+        date: Date?,
+        type: CareLogType?,
+        page: Int
+    ) async throws -> PaginatedResult<CareLogEntry> {
+        let calendar = Calendar.current
+        let filtered = CareLogEntry.samples.filter { entry in
+            let matchesDate = date.map {
+                calendar.isDate(entry.timestamp, inSameDayAs: $0)
+            } ?? true
+            let matchesType = type.map { entry.type == $0 } ?? true
+            return matchesDate && matchesType
+        }
+        let pageSize = 20
+        let start = max(page - 1, 0) * pageSize
+        let items = start < filtered.count
+            ? Array(filtered.dropFirst(start).prefix(pageSize))
+            : []
+        return PaginatedResult(
+            items: items,
+            totalCount: filtered.count,
+            hasNextPage: start + items.count < filtered.count
+        )
+    }
     func uploadCareLogPhoto(_ image: UIImage) async throws -> CareLogPhotoUploadReference {
         CareLogPhotoUploadReference(
             photoKey: "care-logs/mock-family/photos/mock-photo.jpg"

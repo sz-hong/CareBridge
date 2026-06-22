@@ -799,7 +799,24 @@ class UserStore {
 @Observable
 class CareLogStore {
     private var state = AsyncViewState<[CareLogEntry]>(value: [])
+    private var timelineState = AsyncViewState<[CareLogEntry]>(value: [])
     private let service: DataService
+    @ObservationIgnored private var timelineCache: [TimelineQuery: TimelinePage] = [:]
+    @ObservationIgnored private var activeTimelineQuery: TimelineQuery?
+    private var didLoadRecentEntries = false
+    private(set) var isLoadingMoreTimeline = false
+    private(set) var timelineHasMore = false
+
+    private struct TimelineQuery: Hashable {
+        let day: Date
+        let type: CareLogType?
+    }
+
+    private struct TimelinePage {
+        var entries: [CareLogEntry]
+        var nextPage: Int?
+        var totalCount: Int
+    }
 
     var entries: [CareLogEntry] {
         get { state.value }
@@ -808,20 +825,132 @@ class CareLogStore {
 
     var isLoading: Bool { state.isLoading }
     var errorMessage: String? { state.errorMessage }
+    var timelineEntries: [CareLogEntry] { timelineState.value }
+    var isTimelineLoading: Bool { timelineState.isLoading }
+    var timelineErrorMessage: String? { timelineState.errorMessage }
 
     init(service: DataService = MockDataService()) {
         self.service = service
     }
 
     func load() {
-        guard !isLoading else { return }
+        guard !isLoading, !didLoadRecentEntries else { return }
         state.beginLoading()
         Task { @MainActor in
             do {
-                state.finish(with: try await service.fetchCareLogEntries(date: nil))
+                let page = try await service.fetchCareLogEntries(
+                    date: nil,
+                    type: nil,
+                    page: 1
+                )
+                state.finish(with: page.items)
+                didLoadRecentEntries = true
             } catch {
                 state.fail(error)
                 print("[CareLogStore] fetch failed: \(error)")
+            }
+        }
+    }
+
+    @MainActor
+    func loadTimeline(
+        date: Date,
+        type: CareLogType?,
+        forceRefresh: Bool = false
+    ) async {
+        let query = timelineQuery(date: date, type: type)
+        activeTimelineQuery = query
+
+        if !forceRefresh, let cached = timelineCache[query] {
+            applyTimelinePage(cached)
+            return
+        }
+
+        timelineState.finish(with: [])
+        timelineState.beginLoading()
+        isLoadingMoreTimeline = false
+        timelineHasMore = false
+
+        do {
+            let result = try await service.fetchCareLogEntries(
+                date: query.day,
+                type: query.type,
+                page: 1
+            )
+            guard !Task.isCancelled, activeTimelineQuery == query else {
+                return
+            }
+            let page = TimelinePage(
+                entries: result.items,
+                nextPage: result.hasNextPage ? 2 : nil,
+                totalCount: result.totalCount
+            )
+            timelineCache[query] = page
+            applyTimelinePage(page)
+        } catch is CancellationError {
+            return
+        } catch {
+            guard activeTimelineQuery == query else { return }
+            timelineState.fail(error)
+            print("[CareLogStore] timeline fetch failed: \(error)")
+        }
+    }
+
+    @MainActor
+    func loadMoreTimeline() async {
+        guard !isTimelineLoading,
+              !isLoadingMoreTimeline,
+              let query = activeTimelineQuery,
+              var cached = timelineCache[query],
+              let pageNumber = cached.nextPage else {
+            return
+        }
+
+        isLoadingMoreTimeline = true
+        defer {
+            if activeTimelineQuery == query {
+                isLoadingMoreTimeline = false
+            }
+        }
+
+        do {
+            let result = try await service.fetchCareLogEntries(
+                date: query.day,
+                type: query.type,
+                page: pageNumber
+            )
+            guard !Task.isCancelled, activeTimelineQuery == query else {
+                return
+            }
+
+            let existingIDs = Set(cached.entries.map(\.id))
+            cached.entries.append(
+                contentsOf: result.items.filter { !existingIDs.contains($0.id) }
+            )
+            cached.nextPage = result.hasNextPage ? pageNumber + 1 : nil
+            cached.totalCount = result.totalCount
+            timelineCache[query] = cached
+            applyTimelinePage(cached)
+        } catch is CancellationError {
+            return
+        } catch {
+            guard activeTimelineQuery == query else { return }
+            timelineState.fail(error)
+            timelineHasMore = false
+            print("[CareLogStore] load more failed: \(error)")
+        }
+    }
+
+    func hasEntry(on date: Date) -> Bool {
+        let calendar = Calendar.current
+        if state.value.contains(where: {
+            calendar.isDate($0.timestamp, inSameDayAs: date)
+        }) {
+            return true
+        }
+        return timelineCache.values.contains { page in
+            page.entries.contains {
+                calendar.isDate($0.timestamp, inSameDayAs: date)
             }
         }
     }
@@ -838,6 +967,38 @@ class CareLogStore {
         state.updateValue { entries in
             entries.insert(saved, at: 0)
         }
+        didLoadRecentEntries = true
+
+        let calendar = Calendar.current
+        for query in Array(timelineCache.keys) {
+            guard calendar.isDate(saved.timestamp, inSameDayAs: query.day),
+                  query.type == nil || query.type == saved.type,
+                  var page = timelineCache[query] else {
+                continue
+            }
+            page.entries.removeAll { $0.id == saved.id }
+            page.entries.insert(saved, at: 0)
+            page.totalCount += 1
+            timelineCache[query] = page
+            if activeTimelineQuery == query {
+                applyTimelinePage(page)
+            }
+        }
+    }
+
+    private func timelineQuery(
+        date: Date,
+        type: CareLogType?
+    ) -> TimelineQuery {
+        TimelineQuery(
+            day: Calendar.current.startOfDay(for: date),
+            type: type
+        )
+    }
+
+    private func applyTimelinePage(_ page: TimelinePage) {
+        timelineState.finish(with: page.entries)
+        timelineHasMore = page.nextPage != nil
     }
 }
 
