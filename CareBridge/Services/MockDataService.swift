@@ -156,6 +156,18 @@ class MockDataService: DataService {
                     fileSize: "\(fileData.count / 1024) KB", uploadDate: Date())
     }
     func deleteDocument(id: String) async throws { }
+    func approveDocument(id: String) async throws -> AppDocument {
+        let existing = AppDocument.samples.first { $0.id == id }
+        return AppDocument(
+            id: id,
+            title: existing?.title ?? "Document",
+            category: existing?.category ?? "other",
+            fileSize: existing?.fileSize ?? "0 KB",
+            uploadDate: existing?.uploadDate ?? Date(),
+            remoteURL: existing?.remoteURL,
+            deidStatus: "completed"
+        )
+    }
 
     // MARK: - Notifications
     func fetchNotifications() async throws -> [AppNotification] { AppNotification.samples }

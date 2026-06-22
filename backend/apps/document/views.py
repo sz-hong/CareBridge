@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -64,8 +65,10 @@ class DocumentViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         if raw_file_key:
             doc.file_url = None
             doc.raw_file_key = raw_file_key
+            # PDFs are rasterized to a redacted PNG during de-identification, so
+            # the processed object is an image, not the original PDF.
             processed_content_type = (
-                'text/plain'
+                'image/png'
                 if doc.mime_type == 'application/pdf'
                 else doc.mime_type
             )
@@ -117,6 +120,24 @@ class DocumentViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             'raw_key': key,
             'expires_in': 3600,
         })
+
+    @action(detail=True, methods=['post'], url_path='approve')
+    def approve(self, request, *args, **kwargs):
+        """Approve a document flagged NEEDS_REVIEW after a human has checked it.
+
+        Caregivers are already blocked from every document endpoint by
+        DenyCaregiverDocumentAccess, so only family members / elders reach here.
+        """
+        document = self.get_object()
+        if document.deid_status != Document.DeidentificationStatus.NEEDS_REVIEW:
+            raise ValidationError({
+                'deid_status': 'Only documents awaiting review can be approved.'
+            })
+        document.deid_status = Document.DeidentificationStatus.COMPLETED
+        document.reviewed_by = request.user
+        document.reviewed_at = timezone.now()
+        document.save(update_fields=['deid_status', 'reviewed_by', 'reviewed_at'])
+        return success_response(data=DocumentSerializer(document).data)
 
     def _validate_document_key(self, raw_key, family_id):
         if not is_valid_quarantine_key(raw_key, family_id, 'documents'):

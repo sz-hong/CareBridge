@@ -48,6 +48,12 @@ extension APIDataService {
 
     func deleteDocument(id: String) async throws { try await delete(path: APIEndpoint.document(id: id)) }
 
+    /// Approve a document flagged `needs_review`; the backend flips it to
+    /// `completed` and records the reviewer, returning the updated document.
+    func approveDocument(id: String) async throws -> AppDocument {
+        try await post(path: APIEndpoint.documentApprove(id: id))
+    }
+
     private static func detectDocumentMimeType(_ data: Data) -> String {
         let bytes = [UInt8](data.prefix(8))
         if bytes.starts(with: [0x25, 0x50, 0x44, 0x46]) { return "application/pdf" }

@@ -4,7 +4,7 @@ from django.utils import timezone
 from unittest.mock import patch
 from rest_framework.test import APIClient
 
-from core.deidentification import DeidentificationResult, PIIFinding
+from core.deidentification import DeidentificationResult, PIIFinding, RedactedFile
 from apps.auth_account.models import User
 from apps.document.models import Document
 from apps.document.tasks import (
@@ -12,6 +12,17 @@ from apps.document.tasks import (
     delete_expired_document_quarantine_files_task,
 )
 from apps.family.models import Family
+
+
+def _png_bytes(color, size=(10, 10)):
+    """Return real PNG bytes so the rasterize/stitch path can be exercised."""
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new('RGB', size, color).save(buffer, format='PNG')
+    return buffer.getvalue()
 
 
 class DocumentCeleryScheduleTests(SimpleTestCase):
@@ -145,7 +156,7 @@ class DocumentAPIContractTests(TestCase):
         delay.assert_called_once_with(document.id)
 
     @patch('apps.document.views.deidentify_document_task.delay')
-    def test_create_with_pdf_raw_file_key_uses_text_processed_key(self, delay):
+    def test_create_with_pdf_raw_file_key_uses_image_processed_key(self, delay):
         raw_key = f'quarantine/{self.family.id}/documents/upload.pdf'
 
         response = self.client.post(
@@ -164,7 +175,7 @@ class DocumentAPIContractTests(TestCase):
         document = Document.objects.get(id=response.json()['data']['id'])
         self.assertEqual(
             document.redacted_file_key,
-            f'processed/{self.family.id}/documents/upload.txt',
+            f'processed/{self.family.id}/documents/upload.png',
         )
         delay.assert_called_once_with(document.id)
 
@@ -236,11 +247,13 @@ class DocumentAPIContractTests(TestCase):
 
     @patch('apps.document.tasks.put_bytes')
     @patch('apps.document.tasks.download_bytes', return_value=b'%PDF-1.7 raw pdf bytes')
-    @patch('apps.document.tasks.build_public_url', return_value='https://storage.example/processed.txt')
+    @patch('apps.document.tasks.build_public_url', return_value='https://storage.example/processed.png')
+    @patch('apps.document.tasks._rasterize_pdf_to_images')
     @patch('apps.document.tasks.get_deidentification_client')
-    def test_document_task_inspects_pdf_and_publishes_safe_text_preview(
+    def test_document_task_rasterizes_pdf_and_publishes_redacted_image(
         self,
         get_client,
+        rasterize,
         build_url,
         download_bytes,
         put_bytes,
@@ -259,20 +272,26 @@ class DocumentAPIContractTests(TestCase):
             redacted_file_key=redacted_key,
             deid_status=Document.DeidentificationStatus.PROCESSING,
         )
-        get_client.return_value.inspect_file_bytes.return_value = [
-            PIIFinding(
-                info_type='EMAIL_ADDRESS',
-                quote='amy@example.com',
-                likelihood='LIKELY',
-            )
-        ]
+        page_png = _png_bytes((255, 0, 0))
+        rasterize.return_value = [page_png]
+        get_client.return_value.redact_image.return_value = RedactedFile(
+            bytes=page_png,
+            mime_type='image/png',
+            findings=[
+                PIIFinding(
+                    info_type='EMAIL_ADDRESS',
+                    quote='amy@example.com',
+                    likelihood='LIKELY',
+                )
+            ],
+        )
 
         deidentify_document_task(document.id)
 
         document.refresh_from_db()
-        expected_key = f'processed/{self.family.id}/documents/report.txt'
+        expected_key = f'processed/{self.family.id}/documents/report.png'
         self.assertEqual(document.redacted_file_key, expected_key)
-        self.assertEqual(document.file_url, 'https://storage.example/processed.txt')
+        self.assertEqual(document.file_url, 'https://storage.example/processed.png')
         self.assertEqual(
             document.deid_status,
             Document.DeidentificationStatus.NEEDS_REVIEW,
@@ -285,85 +304,91 @@ class DocumentAPIContractTests(TestCase):
             }
         ])
         download_bytes.assert_called_once_with(raw_key)
-        get_client.return_value.inspect_file_bytes.assert_called_once_with(
-            b'%PDF-1.7 raw pdf bytes',
-            mime_type='application/pdf',
+        rasterize.assert_called_once_with(b'%PDF-1.7 raw pdf bytes')
+        get_client.return_value.redact_image.assert_called_once_with(
+            page_png,
+            mime_type='image/png',
         )
-        get_client.return_value.redact_image.assert_not_called()
+        get_client.return_value.inspect_file_bytes.assert_not_called()
         put_bytes.assert_called_once()
         put_key, body, content_type = put_bytes.call_args.args
         self.assertEqual(put_key, expected_key)
-        self.assertEqual(content_type, 'text/plain')
-        self.assertIn(b'Processed PDF preview', body)
-        self.assertIn(b'EMAIL_ADDRESS', body)
-        self.assertNotIn(b'amy@example.com', body)
+        self.assertEqual(content_type, 'image/png')
+        self.assertEqual(body[:8], b'\x89PNG\r\n\x1a\n')
         build_url.assert_called_once_with(expected_key)
 
     @patch('apps.document.tasks.put_bytes')
-    @patch('apps.document.tasks.download_bytes', return_value=b'%PDF-1.7 large pdf bytes')
-    @patch('apps.document.tasks.build_public_url', return_value='https://storage.example/processed.txt')
+    @patch('apps.document.tasks.download_bytes', return_value=b'%PDF-1.7 two page pdf')
+    @patch('apps.document.tasks.build_public_url', return_value='https://storage.example/processed.png')
+    @patch('apps.document.tasks._rasterize_pdf_to_images')
     @patch('apps.document.tasks.get_deidentification_client')
-    def test_document_task_marks_large_pdf_for_review_when_dlp_size_limit_is_hit(
+    def test_document_task_stitches_multipage_pdf_into_single_image(
         self,
         get_client,
+        rasterize,
         build_url,
         download_bytes,
         put_bytes,
     ):
-        raw_key = f'quarantine/{self.family.id}/documents/large-report.pdf'
+        raw_key = f'quarantine/{self.family.id}/documents/two-page.pdf'
         document = Document.objects.create(
             family=self.family,
             uploaded_by=self.user,
-            title='Large Medical Report',
+            title='Two Page Report',
             category=Document.Category.MEDICAL,
             file_url=None,
-            file_size=531732,
+            file_size=4096,
             mime_type='application/pdf',
             raw_file_key=raw_key,
-            redacted_file_key=f'processed/{self.family.id}/documents/large-report.txt',
+            redacted_file_key=f'processed/{self.family.id}/documents/two-page.pdf',
             deid_status=Document.DeidentificationStatus.PROCESSING,
         )
-        get_client.return_value.inspect_file_bytes.side_effect = RuntimeError(
-            '400 Content size 531732 exceeds limit of 524288 [reason: "3" '
-            'domain: "dlp.googleapis.com"]'
-        )
+        page_one = _png_bytes((10, 20, 30), size=(40, 50))
+        page_two = _png_bytes((40, 50, 60), size=(30, 70))
+        rasterize.return_value = [page_one, page_two]
+        get_client.return_value.redact_image.side_effect = [
+            RedactedFile(
+                bytes=page_one,
+                mime_type='image/png',
+                findings=[PIIFinding('PERSON_NAME', 'Wang', likelihood='POSSIBLE')],
+            ),
+            RedactedFile(
+                bytes=page_two,
+                mime_type='image/png',
+                findings=[PIIFinding('TAIWAN_PHONE_NUMBER', '0912345678', likelihood='POSSIBLE')],
+            ),
+        ]
 
         result = deidentify_document_task(document.id)
 
         document.refresh_from_db()
-        expected_key = f'processed/{self.family.id}/documents/large-report.txt'
-        self.assertEqual(result['status'], Document.DeidentificationStatus.NEEDS_REVIEW)
-        self.assertEqual(
-            document.deid_status,
-            Document.DeidentificationStatus.NEEDS_REVIEW,
-        )
+        expected_key = f'processed/{self.family.id}/documents/two-page.png'
+        self.assertEqual(result['status'], Document.DeidentificationStatus.COMPLETED)
+        self.assertEqual(document.deid_status, Document.DeidentificationStatus.COMPLETED)
         self.assertEqual(document.redacted_file_key, expected_key)
-        self.assertEqual(document.file_url, 'https://storage.example/processed.txt')
-        self.assertEqual(document.deid_findings, [
-            {
-                'info_type': 'DLP_CONTENT_SIZE_LIMIT',
-                'likelihood': 'LIKELY',
-                'quote_length': 0,
-            }
-        ])
-        self.assertEqual(document.raw_file_key, raw_key)
-        download_bytes.assert_called_once_with(raw_key)
-        get_client.return_value.inspect_file_bytes.assert_called_once_with(
-            b'%PDF-1.7 large pdf bytes',
-            mime_type='application/pdf',
+        self.assertEqual(len(document.deid_findings), 2)
+        self.assertEqual(
+            {finding['info_type'] for finding in document.deid_findings},
+            {'PERSON_NAME', 'TAIWAN_PHONE_NUMBER'},
         )
-        get_client.return_value.redact_image.assert_not_called()
+        self.assertEqual(get_client.return_value.redact_image.call_count, 2)
+        get_client.return_value.inspect_file_bytes.assert_not_called()
         put_bytes.assert_called_once()
         put_key, body, content_type = put_bytes.call_args.args
         self.assertEqual(put_key, expected_key)
-        self.assertEqual(content_type, 'text/plain')
-        self.assertIn(b'Content size exceeded the DLP inline limit.', body)
-        self.assertIn(b'DLP_CONTENT_SIZE_LIMIT', body)
-        self.assertNotIn(b'large pdf bytes', body)
+        self.assertEqual(content_type, 'image/png')
+        # The stitched image stacks both pages vertically: height is the sum of
+        # page heights, width is the widest page.
+        import io
+
+        from PIL import Image
+
+        stitched = Image.open(io.BytesIO(body))
+        self.assertEqual(stitched.size, (40, 120))
         build_url.assert_called_once_with(expected_key)
 
     @patch('apps.document.tasks.delete_object')
-    def test_cleanup_deletes_completed_and_reviewed_document_raw_files_only(
+    def test_cleanup_deletes_completed_raw_files_but_keeps_needs_review(
         self,
         delete_object,
     ):
@@ -419,19 +444,68 @@ class DocumentAPIContractTests(TestCase):
 
         result = delete_expired_document_quarantine_files_task()
 
-        self.assertEqual(result['deleted'], 2)
+        # Only COMPLETED raw files are purged. NEEDS_REVIEW must be retained
+        # until a human approves it, so its quarantine file stays put.
+        self.assertEqual(result['deleted'], 1)
         self.assertEqual(
             {call.args[0] for call in delete_object.call_args_list},
-            {completed.raw_file_key, reviewed.raw_file_key},
+            {completed.raw_file_key},
         )
         completed.refresh_from_db()
         reviewed.refresh_from_db()
         failed.refresh_from_db()
         processing.refresh_from_db()
         self.assertEqual(completed.raw_file_key, '')
-        self.assertEqual(reviewed.raw_file_key, '')
+        self.assertTrue(reviewed.raw_file_key)
         self.assertTrue(failed.raw_file_key)
         self.assertTrue(processing.raw_file_key)
+
+    def test_approve_needs_review_document_marks_completed_and_records_reviewer(self):
+        document = Document.objects.create(
+            family=self.family,
+            uploaded_by=self.user,
+            title='Insurance Scan',
+            category=Document.Category.INSURANCE,
+            file_url='https://storage.example/processed/scan.png',
+            file_size=128,
+            mime_type='image/png',
+            deid_status=Document.DeidentificationStatus.NEEDS_REVIEW,
+            deid_processed_at=timezone.now(),
+        )
+
+        response = self.client.post(f'/api/v1/documents/{document.id}/approve/')
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()['data']
+        self.assertEqual(body['deid_status'], Document.DeidentificationStatus.COMPLETED)
+        self.assertEqual(body['reviewed_by']['id'], str(self.user.id))
+        document.refresh_from_db()
+        self.assertEqual(
+            document.deid_status,
+            Document.DeidentificationStatus.COMPLETED,
+        )
+        self.assertEqual(document.reviewed_by, self.user)
+        self.assertIsNotNone(document.reviewed_at)
+
+    def test_approve_rejects_document_not_awaiting_review(self):
+        document = Document.objects.create(
+            family=self.family,
+            uploaded_by=self.user,
+            title='Already Done',
+            category=Document.Category.MEDICAL,
+            file_url='https://storage.example/processed/done.png',
+            file_size=128,
+            mime_type='image/png',
+            deid_status=Document.DeidentificationStatus.COMPLETED,
+            deid_processed_at=timezone.now(),
+        )
+
+        response = self.client.post(f'/api/v1/documents/{document.id}/approve/')
+
+        self.assertEqual(response.status_code, 400)
+        document.refresh_from_db()
+        self.assertIsNone(document.reviewed_by)
+        self.assertIsNone(document.reviewed_at)
 
     @patch('apps.document.tasks.delete_object')
     def test_cleanup_continues_after_a_transient_delete_error(
@@ -522,6 +596,7 @@ class DocumentAPIContractTests(TestCase):
                 },
             ),
             ('delete', f'/api/v1/documents/{document.id}/', None),
+            ('post', f'/api/v1/documents/{document.id}/approve/', None),
         ]
 
         for method, path, data in checks:

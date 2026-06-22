@@ -11,6 +11,7 @@ struct DocumentsView: View {
     // 一律先把 processed 檔下載到 caches 再交本機 file:// 給它。
     @State private var previewLocalURL: URL? = nil
     @State private var previewLoadingDocumentID: String?
+    @State private var approvingDocumentID: String?
     @State private var previewError: String?
     @State private var pollingToken = UUID()
 
@@ -63,9 +64,14 @@ struct DocumentsView: View {
                         DocumentRow(
                             document: doc,
                             isLoadingPreview: previewLoadingDocumentID == doc.id,
-                        ) {
-                            Task { await preparePreview(for: doc) }
-                        }
+                            isApproving: approvingDocumentID == doc.id,
+                            onPreview: {
+                                Task { await preparePreview(for: doc) }
+                            },
+                            onApprove: {
+                                Task { await approveDocument(doc) }
+                            }
+                        )
                         .listRowBackground(Color.white)
                     }
                     .onDelete(perform: deleteDocuments)
@@ -103,7 +109,7 @@ struct DocumentsView: View {
         .task(id: pollingToken) {
             await pollDocumentsUntilProcessed()
         }
-        .alert("無法載入預覽", isPresented: Binding(
+        .alert("操作未完成", isPresented: Binding(
             get: { previewError != nil },
             set: { if !$0 { previewError = nil } }
         )) {
@@ -184,6 +190,21 @@ struct DocumentsView: View {
     }
 
     @MainActor
+    private func approveDocument(_ document: AppDocument) async {
+        guard approvingDocumentID == nil else { return }
+        approvingDocumentID = document.id
+        defer { approvingDocumentID = nil }
+        do {
+            let updated = try await service.approveDocument(id: document.id)
+            if let index = documents.firstIndex(where: { $0.id == updated.id }) {
+                documents[index] = updated
+            }
+        } catch {
+            previewError = "Unable to approve this document. Please try again."
+        }
+    }
+
+    @MainActor
     private func refreshDocuments(schedulePolling: Bool = true) async {
         do {
             documents = try await service.fetchDocuments()
@@ -227,7 +248,13 @@ struct DocumentsView: View {
 struct DocumentRow: View {
     let document: AppDocument
     var isLoadingPreview: Bool = false
+    var isApproving: Bool = false
     let onPreview: () -> Void
+    var onApprove: () -> Void = {}
+
+    private var needsReview: Bool {
+        document.normalizedDeidStatus == "needs_review"
+    }
 
     var body: some View {
         HStack(spacing: 14) {
@@ -277,6 +304,28 @@ struct DocumentRow: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(document.previewURL == nil || isLoadingPreview)
+
+                if needsReview {
+                    Button {
+                        onApprove()
+                    } label: {
+                        HStack(spacing: 3) {
+                            if isApproving {
+                                ProgressView()
+                                    .controlSize(.mini)
+                                    .scaleEffect(0.7)
+                            } else {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 13, weight: .semibold))
+                            }
+                            Text("核准")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundStyle(Color.brandTeal)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isApproving)
+                }
             }
         }
         .padding(.vertical, 6)
