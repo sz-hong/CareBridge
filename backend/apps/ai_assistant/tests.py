@@ -364,7 +364,7 @@ class AIToolQueryTests(TestCase):
         self.assertEqual(alerts["count"], 1)
         self.assertEqual(alerts["health_alerts"][0]["value"], 101.0)
 
-    def test_ai_tools_omit_sensitive_fields_and_redact_free_text(self):
+    def test_ai_tools_omit_sensitive_structured_fields(self):
         now = timezone.now()
         today = timezone.localdate()
         CareLog.objects.create(
@@ -417,8 +417,9 @@ class AIToolQueryTests(TestCase):
             "family_members": family_member_data,
         }, ensure_ascii=False, default=str)
 
-        self.assertNotIn("0912-345-678", combined)
-        self.assertNotIn("A123456789", combined)
+        # Structured sensitive fields are still omitted entirely (defence in
+        # depth): they are either dropped by SENSITIVE_JSON_KEYS or never
+        # selected by the query.
         self.assertNotIn("family@example.com", combined)
         self.assertNotIn("0912-111-111", combined)
         self.assertNotIn("PRIVATE_DEVICE_ID", combined)
@@ -427,7 +428,10 @@ class AIToolQueryTests(TestCase):
         self.assertNotIn("secret-member-id", combined)
         self.assertNotIn("raw_image_key", combined)
         self.assertNotIn("raw_file_key", combined)
-        self.assertIn("[TAIWAN_PHONE_NUMBER]", combined)
+        # Free text is passed through verbatim — the database is curated to
+        # contain no personal data, so the AI read path no longer runs DLP.
+        self.assertIn("0912-345-678", combined)
+        self.assertIn("A123456789", combined)
 
 
 class AIChatStreamingContractTests(TestCase):
@@ -1018,7 +1022,7 @@ class AIPromptDeidentificationTests(TestCase):
                 parts.append(str(message.get("content", "")))
         return "\n".join(parts)
 
-    def test_care_analysis_deidentifies_care_log_text(self):
+    def test_care_analysis_includes_care_log_text_verbatim(self):
         capture = []
         with patch(
             "apps.ai_assistant.views._get_client",
@@ -1030,12 +1034,12 @@ class AIPromptDeidentificationTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         prompt = self._prompt_text(capture)
-        self.assertNotIn(self.pii_phone, prompt)
-        self.assertNotIn(self.pii_id, prompt)
-        self.assertIn("[TAIWAN_PHONE_NUMBER]", prompt)
-        self.assertIn("[TAIWAN_NATIONAL_ID]", prompt)
+        # The database is curated to contain no personal data, so care-log
+        # free text now reaches the prompt verbatim (no DLP round-trip).
+        self.assertIn(self.pii_phone, prompt)
+        self.assertIn(self.pii_id, prompt)
 
-    def test_handover_report_deidentifies_care_log_text(self):
+    def test_handover_report_includes_care_log_text_verbatim(self):
         capture = []
         with patch(
             "apps.ai_assistant.views._get_client",
@@ -1047,7 +1051,5 @@ class AIPromptDeidentificationTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         prompt = self._prompt_text(capture)
-        self.assertNotIn(self.pii_phone, prompt)
-        self.assertNotIn(self.pii_id, prompt)
-        self.assertIn("[TAIWAN_PHONE_NUMBER]", prompt)
-        self.assertIn("[TAIWAN_NATIONAL_ID]", prompt)
+        self.assertIn(self.pii_phone, prompt)
+        self.assertIn(self.pii_id, prompt)
