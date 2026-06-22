@@ -15,6 +15,7 @@ struct SignUpView: View {
     @State private var language: String = SupportedLanguage.defaultFromLocale
     @State private var isRegistering = false
     @State private var errorMessage: String? = nil
+    @FocusState private var isPhoneFocused: Bool
 
     private var canRegister: Bool {
         !name.trimmingCharacters(in: .whitespaces).isEmpty &&
@@ -114,6 +115,7 @@ struct SignUpView: View {
                             TextField("0912345678", text: $phone)
                                 .textContentType(.telephoneNumber)
                                 .keyboardType(.phonePad)
+                                .focused($isPhoneFocused)
                         }
 
                         // 語言
@@ -190,6 +192,18 @@ struct SignUpView: View {
                 }
             }
             .scrollIndicators(.hidden)
+            .scrollDismissesKeyboard(.interactively)
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                if isPhoneFocused {
+                    Spacer()
+                    KeyboardDoneButton {
+                        isPhoneFocused = false
+                    }
+                }
+            }
+            .sharedBackgroundVisibility(.hidden)
         }
     }
 

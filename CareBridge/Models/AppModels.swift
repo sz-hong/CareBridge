@@ -522,6 +522,7 @@ struct CareLogEntry: Identifiable, Codable {
 
     // Nested content fields (covers all care log types)
     fileprivate struct Content: Codable {
+        var title: String?
         var medicationName: String?
         var dosage: String?
         var bloodPressureSystolic: Double?
@@ -540,7 +541,7 @@ struct CareLogEntry: Identifiable, Codable {
 
         enum CodingKeys: String, CodingKey {
             // All snake_case keys auto-converted by .convertFromSnakeCase
-            case medicationName, dosage, note, description, appetite, temperature, text
+            case title, medicationName, dosage, note, description, appetite, temperature, text
             case bloodPressureSystolic, bloodPressureDiastolic
             case bloodSugar, weight, mealType, activityType, durationMinutes, textTranslated
         }
@@ -624,6 +625,7 @@ struct CareLogEntry: Identifiable, Codable {
             return original
         }
         copy.medicationName = pick("medication_name", copy.medicationName)
+        copy.title          = pick("title", copy.title)
         copy.note           = pick("note", copy.note)
         copy.description    = pick("description", copy.description)
         copy.text           = pick("text", copy.text)
@@ -648,13 +650,20 @@ struct CareLogEntry: Identifiable, Codable {
             if let n = content.note { parts.append(n) }
             return (title: "生理指標測量", detail: parts.joined(separator: "｜"))
         case .meal:
+            let descriptionTitle = content.description?
+                .components(separatedBy: "｜")
+                .first?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             return (
-                title: "飲食紀錄",
+                title: content.title
+                    ?? (descriptionTitle?.isEmpty == false ? descriptionTitle : nil)
+                    ?? content.mealType
+                    ?? "飲食紀錄",
                 detail: [content.description, content.appetite.map { "食慾：\($0)" }].compactMap { $0 }.joined(separator: "｜")
             )
         case .activity:
             return (
-                title: content.activityType ?? "活動紀錄",
+                title: content.title ?? content.activityType ?? "活動紀錄",
                 detail: content.durationMinutes.map { "持續 \($0) 分鐘" } ?? (content.note ?? "")
             )
         case .note:
@@ -683,8 +692,12 @@ struct CareLogEntry: Identifiable, Codable {
             if let w  = weight       { content["weight"]      = AnyEncodable(w) }
             if let bs = bloodSugar   { content["blood_sugar"] = AnyEncodable(bs) }
             if let t  = temperature  { content["temperature"] = AnyEncodable(t) }
-        case .meal:       content["description"] = AnyEncodable(detail)
-        case .activity:   content["note"]        = AnyEncodable(detail)
+        case .meal:
+            content["title"] = AnyEncodable(title)
+            content["description"] = AnyEncodable(detail)
+        case .activity:
+            content["title"] = AnyEncodable(title)
+            content["note"] = AnyEncodable(detail)
         case .medication: content["medication_name"] = AnyEncodable(title)
         }
         try c.encode(content, forKey: .content)

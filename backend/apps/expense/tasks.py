@@ -1,3 +1,5 @@
+import logging
+
 from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
@@ -6,6 +8,8 @@ from core.deidentification import get_deidentification_client
 from core.storage import build_public_url, delete_object, download_bytes, put_bytes
 
 from .models import Expense
+
+logger = logging.getLogger(__name__)
 
 
 @shared_task
@@ -59,12 +63,22 @@ def delete_expired_receipt_quarantine_files_task():
     ).exclude(raw_image_key='')
 
     deleted = 0
+    errors = 0
     for expense in qs:
-        delete_object(expense.raw_image_key)
+        try:
+            delete_object(expense.raw_image_key)
+        except Exception:
+            # A transient storage error (e.g. tunnel 5xx) must not abort the
+            # whole sweep; log and keep deleting the remaining files.
+            logger.exception(
+                'Failed to delete quarantine object %s', expense.raw_image_key
+            )
+            errors += 1
+            continue
         expense.raw_image_key = ''
         expense.save(update_fields=['raw_image_key', 'updated_at'])
         deleted += 1
-    return {'deleted': deleted}
+    return {'deleted': deleted, 'errors': errors}
 
 
 def _mime_type_from_key(key):

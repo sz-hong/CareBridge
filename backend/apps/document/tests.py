@@ -507,6 +507,52 @@ class DocumentAPIContractTests(TestCase):
         self.assertIsNone(document.reviewed_by)
         self.assertIsNone(document.reviewed_at)
 
+    @patch('apps.document.tasks.delete_object')
+    def test_cleanup_continues_after_a_transient_delete_error(
+        self,
+        delete_object,
+    ):
+        old = timezone.now() - timezone.timedelta(hours=25)
+        failing = Document.objects.create(
+            family=self.family,
+            uploaded_by=self.user,
+            title='Failing delete',
+            category=Document.Category.MEDICAL,
+            file_url='https://storage.example/processed/fail.pdf',
+            file_size=128,
+            mime_type='application/pdf',
+            raw_file_key=f'quarantine/{self.family.id}/documents/fail.pdf',
+            deid_status=Document.DeidentificationStatus.COMPLETED,
+            deid_processed_at=old,
+        )
+        succeeding = Document.objects.create(
+            family=self.family,
+            uploaded_by=self.user,
+            title='Succeeding delete',
+            category=Document.Category.MEDICAL,
+            file_url='https://storage.example/processed/ok.pdf',
+            file_size=128,
+            mime_type='application/pdf',
+            raw_file_key=f'quarantine/{self.family.id}/documents/ok.pdf',
+            deid_status=Document.DeidentificationStatus.COMPLETED,
+            deid_processed_at=old,
+        )
+
+        def fake_delete(key):
+            if key == failing.raw_file_key:
+                raise RuntimeError('transient storage error')
+
+        delete_object.side_effect = fake_delete
+
+        # The whole sweep must not raise; a per-item failure is isolated.
+        result = delete_expired_document_quarantine_files_task()
+
+        self.assertEqual(result, {'deleted': 1, 'errors': 1})
+        failing.refresh_from_db()
+        succeeding.refresh_from_db()
+        self.assertTrue(failing.raw_file_key)  # kept for the next sweep
+        self.assertEqual(succeeding.raw_file_key, '')
+
     @patch('core.storage.generate_upload_url', return_value='https://upload.example')
     @patch('apps.document.views.deidentify_document_task.delay')
     def test_caregiver_cannot_access_document_management_endpoints(

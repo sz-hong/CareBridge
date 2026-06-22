@@ -355,6 +355,7 @@ struct EditProfileView: View {
     @State private var name = ""
     @State private var phone = ""
     @State private var isSaving = false
+    @FocusState private var isPhoneFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -368,6 +369,8 @@ struct EditProfileView: View {
                         TextField("電話號碼", text: $phone)
                             .multilineTextAlignment(.trailing)
                             .keyboardType(.phonePad)
+                            .textContentType(.telephoneNumber)
+                            .focused($isPhoneFocused)
                     }
                 }
 
@@ -384,6 +387,7 @@ struct EditProfileView: View {
                     .padding(.vertical, 8)
                 }
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("編輯個人資料")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
@@ -413,6 +417,15 @@ struct EditProfileView: View {
                     .foregroundStyle(Color.brandTeal)
                     .disabled(isSaving || name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
+                ToolbarItemGroup(placement: .keyboard) {
+                    if isPhoneFocused {
+                        Spacer()
+                        KeyboardDoneButton {
+                            isPhoneFocused = false
+                        }
+                    }
+                }
+                .sharedBackgroundVisibility(.hidden)
             }
         }
     }
