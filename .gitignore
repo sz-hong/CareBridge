@@ -60,14 +60,16 @@ node_modules/
 *.tmp
 tsconfig.tsbuildinfo
 
-# Local DLP secrets (mounted into Docker as /secrets/)
+# Docker startup/config folder is shared by the backend runtime. Keep the
+# versioned runtime files below, but ignore every other machine-specific Docker
+# launch/config file a developer may create locally.
+backend/docker/**
+!backend/docker/
+!backend/docker/Dockerfile
+!backend/docker/docker-compose.yml
+!backend/docker/docker-compose.tunnel.yml
+!backend/docker/secrets/
 backend/docker/secrets/*
 !backend/docker/secrets/.gitkeep
-
-# Local Docker Compose overrides; keep frontend work from committing Docker config variants.
-backend/docker/docker-compose.override.yml
-backend/docker/docker-compose.local.yml
-backend/docker/*.override.yml
-backend/docker/*.local.yml
 
 /Doc
