@@ -1,3 +1,4 @@
+import concurrent.futures
 import io
 import logging
 
@@ -22,6 +23,11 @@ PDF_RASTER_DPI = 150
 # Cap each rasterized page's width so an oversized page cannot exceed the DLP
 # image size limit; height is scaled proportionally to preserve aspect ratio.
 PDF_PAGE_MAX_WIDTH = 2000
+
+# Each PDF page is redacted by a separate Google DLP network round-trip. Running
+# them concurrently turns wall-clock from sum-of-pages into roughly the slowest
+# page. Capped so a large PDF can't open too many connections or balloon memory.
+PDF_REDACT_MAX_WORKERS = 8
 
 
 @shared_task
@@ -168,12 +174,20 @@ def _redact_pdf_bytes(client, raw_bytes):
     if not page_images:
         raise ValueError('PDF produced no rasterizable pages.')
 
-    redacted_pages = []
+    # Redact every page concurrently — each call is an independent DLP network
+    # round-trip, so threads overlap the waits. executor.map preserves order, so
+    # the stitched output stays in page order.
+    max_workers = max(1, min(len(page_images), PDF_REDACT_MAX_WORKERS))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        redactions = list(executor.map(
+            lambda page_png: client.redact_image(page_png, mime_type='image/png'),
+            page_images,
+        ))
+
+    redacted_pages = [redacted.bytes for redacted in redactions]
     findings = []
     high_risk = False
-    for page_png in page_images:
-        redacted = client.redact_image(page_png, mime_type='image/png')
-        redacted_pages.append(redacted.bytes)
+    for redacted in redactions:
         findings.extend(redacted.findings_as_dicts())
         high_risk = high_risk or redacted.high_risk
 
