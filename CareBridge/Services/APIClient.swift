@@ -81,6 +81,49 @@ struct APIClient {
         return result
     }
 
+    func requestPage<T: Codable>(
+        _ method: String,
+        path: String,
+        authToken: String? = nil
+    ) async throws -> PaginatedResult<T> {
+        guard let url = URL(string: "\(baseURL)\(path)") else {
+            throw URLError(.badURL)
+        }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = method
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        if let authToken {
+            req.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+        }
+
+        let (data, response) = try await session.data(for: req)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.serverError(statusCode: 0)
+        }
+
+        guard 200...299 ~= http.statusCode else {
+            if let parsed = try? decoder.decode(ErrorEnvelope.self, from: data),
+               let message = parsed.error?.message,
+               !message.isEmpty {
+                throw APIError.backendError(
+                    statusCode: http.statusCode,
+                    message: message
+                )
+            }
+            throw APIError.serverError(statusCode: http.statusCode)
+        }
+
+        let apiResponse = try decoder.decode(APIResponse<[T]>.self, from: data)
+        let items = apiResponse.data ?? []
+        return PaginatedResult(
+            items: items,
+            totalCount: apiResponse.meta?.count ?? items.count,
+            hasNextPage: apiResponse.meta?.next != nil
+        )
+    }
+
     private static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

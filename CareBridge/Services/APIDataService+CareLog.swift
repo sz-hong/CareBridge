@@ -3,17 +3,20 @@ import UIKit
 
 extension APIDataService {
     // MARK: - Care Log
-    func fetchCareLogEntries(date: Date?) async throws -> [CareLogEntry] {
-        if let date {
-            let formatter = DateFormatter()
-            formatter.calendar = Calendar(identifier: .gregorian)
-            formatter.locale = Locale(identifier: "en_US_POSIX")
-            formatter.timeZone = .current
-            formatter.dateFormat = "yyyy-MM-dd"
-            let dateStr = formatter.string(from: date)
-            return try await get(path: APIEndpoint.careLogs(on: dateStr))
+    func fetchCareLogEntries(
+        date: Date?,
+        type: CareLogType?,
+        page: Int
+    ) async throws -> PaginatedResult<CareLogEntry> {
+        let dateString = date.map {
+            Self.careLogDateFormatter.string(from: $0)
         }
-        return try await get(path: APIEndpoint.careLogs)
+        let path = APIEndpoint.careLogs(
+            date: dateString,
+            type: type,
+            page: page
+        )
+        return try await requestPage("GET", path: path)
     }
 
     func uploadCareLogPhoto(_ image: UIImage) async throws -> CareLogPhotoUploadReference {
@@ -67,6 +70,15 @@ extension APIDataService {
     }
 
     func createCareLogEntry(_ entry: CareLogEntry) async throws -> CareLogEntry { try await post(path: APIEndpoint.careLogs, body: entry) }
+
+    private static let careLogDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
 }
 
 private enum CareLogPhotoUploadError: LocalizedError {

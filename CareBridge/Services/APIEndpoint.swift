@@ -26,6 +26,23 @@ enum APIEndpoint {
         "\(careLogs)?date=\(date)"
     }
 
+    static func careLogs(
+        date: String?,
+        type: CareLogType?,
+        page: Int,
+        pageSize: Int = 20
+    ) -> String {
+        var components = URLComponents()
+        components.path = Self.careLogs
+        components.queryItems = [
+            date.map { URLQueryItem(name: "date", value: $0) },
+            type.map { URLQueryItem(name: "type", value: $0.rawValue) },
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "page_size", value: String(pageSize)),
+        ].compactMap { $0 }
+        return components.string ?? Self.careLogs
+    }
+
     static let medications = "/medications/"
     static let medicationTodayConfirmations = "/medications/today_confirmations/"
 
