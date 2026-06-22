@@ -10,8 +10,11 @@ services:
     environment:
       # Server-side object operations stay on Docker's private network.
       AWS_S3_ENDPOINT_URL: http://minio:9000
-      # Local-device default. The tunnel overlay replaces this with HTTPS.
-      AWS_S3_PUBLIC_ENDPOINT_URL: ${AWS_S3_PUBLIC_ENDPOINT_URL:-http://127.0.0.1:9000}
+      # AWS_S3_PUBLIC_ENDPOINT_URL is intentionally NOT set here so the value
+      # from ../.env wins (the Cloudflare tunnel storage hostname, e.g.
+      # https://storage.carebridge-lab.com). A compose `environment:` entry
+      # would override env_file and make presigned URLs point at 127.0.0.1,
+      # which real devices reaching the backend via the tunnel cannot fetch.
     depends_on:
       - db
       - redis
@@ -80,7 +83,8 @@ services:
       - ../.env
     environment:
       AWS_S3_ENDPOINT_URL: http://minio:9000
-      AWS_S3_PUBLIC_ENDPOINT_URL: ${AWS_S3_PUBLIC_ENDPOINT_URL:-http://127.0.0.1:9000}
+      # AWS_S3_PUBLIC_ENDPOINT_URL comes from ../.env (Cloudflare tunnel storage
+      # hostname) so presigned URLs are reachable from real devices.
     depends_on:
       - db
       - redis
@@ -97,7 +101,8 @@ services:
       - ../.env
     environment:
       AWS_S3_ENDPOINT_URL: http://minio:9000
-      AWS_S3_PUBLIC_ENDPOINT_URL: ${AWS_S3_PUBLIC_ENDPOINT_URL:-http://127.0.0.1:9000}
+      # AWS_S3_PUBLIC_ENDPOINT_URL comes from ../.env (Cloudflare tunnel storage
+      # hostname) so presigned URLs are reachable from real devices.
     depends_on:
       - db
       - redis
