@@ -7,6 +7,7 @@ from .models import Document
 
 class DocumentSerializer(serializers.ModelSerializer):
     uploaded_by = UserSerializer(read_only=True)
+    reviewed_by = UserSerializer(read_only=True)
     file_url = serializers.SerializerMethodField()
 
     class Meta:
@@ -14,7 +15,7 @@ class DocumentSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'family', 'title', 'category', 'file_url', 'file_size',
             'mime_type', 'deid_status', 'deid_findings', 'deid_processed_at',
-            'uploaded_by', 'created_at',
+            'reviewed_by', 'reviewed_at', 'uploaded_by', 'created_at',
         ]
         read_only_fields = fields
 

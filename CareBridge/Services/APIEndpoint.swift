@@ -67,6 +67,10 @@ enum APIEndpoint {
         "/documents/\(id)/"
     }
 
+    static func documentApprove(id: String) -> String {
+        "/documents/\(id)/approve/"
+    }
+
     static let notifications = "/notifications/"
     static let notificationDevice = "/notifications/device/"
 

@@ -388,7 +388,7 @@ class DocumentAPIContractTests(TestCase):
         build_url.assert_called_once_with(expected_key)
 
     @patch('apps.document.tasks.delete_object')
-    def test_cleanup_deletes_completed_and_reviewed_document_raw_files_only(
+    def test_cleanup_deletes_completed_raw_files_but_keeps_needs_review(
         self,
         delete_object,
     ):
@@ -444,19 +444,68 @@ class DocumentAPIContractTests(TestCase):
 
         result = delete_expired_document_quarantine_files_task()
 
-        self.assertEqual(result['deleted'], 2)
+        # Only COMPLETED raw files are purged. NEEDS_REVIEW must be retained
+        # until a human approves it, so its quarantine file stays put.
+        self.assertEqual(result['deleted'], 1)
         self.assertEqual(
             {call.args[0] for call in delete_object.call_args_list},
-            {completed.raw_file_key, reviewed.raw_file_key},
+            {completed.raw_file_key},
         )
         completed.refresh_from_db()
         reviewed.refresh_from_db()
         failed.refresh_from_db()
         processing.refresh_from_db()
         self.assertEqual(completed.raw_file_key, '')
-        self.assertEqual(reviewed.raw_file_key, '')
+        self.assertTrue(reviewed.raw_file_key)
         self.assertTrue(failed.raw_file_key)
         self.assertTrue(processing.raw_file_key)
+
+    def test_approve_needs_review_document_marks_completed_and_records_reviewer(self):
+        document = Document.objects.create(
+            family=self.family,
+            uploaded_by=self.user,
+            title='Insurance Scan',
+            category=Document.Category.INSURANCE,
+            file_url='https://storage.example/processed/scan.png',
+            file_size=128,
+            mime_type='image/png',
+            deid_status=Document.DeidentificationStatus.NEEDS_REVIEW,
+            deid_processed_at=timezone.now(),
+        )
+
+        response = self.client.post(f'/api/v1/documents/{document.id}/approve/')
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()['data']
+        self.assertEqual(body['deid_status'], Document.DeidentificationStatus.COMPLETED)
+        self.assertEqual(body['reviewed_by']['id'], str(self.user.id))
+        document.refresh_from_db()
+        self.assertEqual(
+            document.deid_status,
+            Document.DeidentificationStatus.COMPLETED,
+        )
+        self.assertEqual(document.reviewed_by, self.user)
+        self.assertIsNotNone(document.reviewed_at)
+
+    def test_approve_rejects_document_not_awaiting_review(self):
+        document = Document.objects.create(
+            family=self.family,
+            uploaded_by=self.user,
+            title='Already Done',
+            category=Document.Category.MEDICAL,
+            file_url='https://storage.example/processed/done.png',
+            file_size=128,
+            mime_type='image/png',
+            deid_status=Document.DeidentificationStatus.COMPLETED,
+            deid_processed_at=timezone.now(),
+        )
+
+        response = self.client.post(f'/api/v1/documents/{document.id}/approve/')
+
+        self.assertEqual(response.status_code, 400)
+        document.refresh_from_db()
+        self.assertIsNone(document.reviewed_by)
+        self.assertIsNone(document.reviewed_at)
 
     @patch('core.storage.generate_upload_url', return_value='https://upload.example')
     @patch('apps.document.views.deidentify_document_task.delay')
@@ -501,6 +550,7 @@ class DocumentAPIContractTests(TestCase):
                 },
             ),
             ('delete', f'/api/v1/documents/{document.id}/', None),
+            ('post', f'/api/v1/documents/{document.id}/approve/', None),
         ]
 
         for method, path, data in checks:

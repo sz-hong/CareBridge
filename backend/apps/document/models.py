@@ -37,6 +37,14 @@ class Document(models.Model):
     )
     deid_findings = models.JSONField(default=list, blank=True)
     deid_processed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reviewed_documents',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,

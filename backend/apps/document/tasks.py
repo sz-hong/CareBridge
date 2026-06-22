@@ -66,11 +66,10 @@ def delete_expired_document_quarantine_files_task():
     cutoff = timezone.now() - timezone.timedelta(
         hours=getattr(settings, 'DLP_DELETE_RAW_AFTER_HOURS', 24)
     )
+    # NEEDS_REVIEW is intentionally excluded: its raw quarantine file must be
+    # retained until a human approves the document (which flips it to COMPLETED).
     qs = Document.objects.filter(
-        deid_status__in=[
-            Document.DeidentificationStatus.COMPLETED,
-            Document.DeidentificationStatus.NEEDS_REVIEW,
-        ],
+        deid_status=Document.DeidentificationStatus.COMPLETED,
         deid_processed_at__lt=cutoff,
         raw_file_key__isnull=False,
     ).exclude(raw_file_key='')

@@ -207,6 +207,7 @@ protocol DataService {
     func fetchDocuments() async throws -> [AppDocument]
     func uploadDocument(title: String, category: String, fileData: Data) async throws -> AppDocument
     func deleteDocument(id: String) async throws
+    func approveDocument(id: String) async throws -> AppDocument
 
     // Notifications
     func fetchNotifications() async throws -> [AppNotification]
