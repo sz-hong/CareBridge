@@ -211,7 +211,7 @@ class AIChatView(APIView):
                 tools=TOOL_DEFINITIONS,
                 tool_choice="auto",
                 temperature=0.7,
-                max_tokens=2048,
+                max_completion_tokens=2048,
             )
 
             choice = response.choices[0]
@@ -275,7 +275,7 @@ class AIChatView(APIView):
                     tools=TOOL_DEFINITIONS,
                     tool_choice="auto",
                     temperature=0.7,
-                    max_tokens=2048,
+                    max_completion_tokens=2048,
                 )
                 choice = pre_response.choices[0]
                 total_tokens += pre_response.usage.total_tokens if pre_response.usage else 0
@@ -304,7 +304,7 @@ class AIChatView(APIView):
                 model=model,
                 messages=messages,
                 temperature=0.7,
-                max_tokens=2048,
+                max_completion_tokens=2048,
                 stream=True,
             )
 
@@ -446,7 +446,7 @@ class CareAnalysisView(APIView):
                 {"role": "user", "content": prompt},
             ],
             temperature=0.5,
-            max_tokens=3000,
+            max_completion_tokens=3000,
         )
 
         reply = _plain_text_from_markdown(response.choices[0].message.content)
@@ -591,7 +591,7 @@ class HandoverReportView(APIView):
                 {"role": "user", "content": prompt},
             ],
             temperature=0.4,
-            max_tokens=3000,
+            max_completion_tokens=3000,
         )
 
         reply = _plain_text_from_markdown(response.choices[0].message.content)
@@ -698,7 +698,7 @@ class SubsidyFormView(APIView):
                 {"role": "user", "content": prompt},
             ],
             temperature=0.3,
-            max_tokens=2000,
+            max_completion_tokens=2000,
             response_format={"type": "json_object"},
         )
 
@@ -793,7 +793,7 @@ class FirstAidView(APIView):
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.3,
-            max_tokens=2000,
+            max_completion_tokens=2000,
         )
 
         reply = response.choices[0].message.content
