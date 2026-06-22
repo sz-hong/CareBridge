@@ -26,3 +26,4 @@ services:
     depends_on:
       - web
       - minio
+      - dashboard

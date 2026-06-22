@@ -7,6 +7,7 @@ from django.db import models
 class AdminMutationAuditLog(models.Model):
     class Action(models.TextChoices):
         CREATE = 'create', 'Create'
+        UPDATE = 'update', 'Update'
         DELETE = 'delete', 'Delete'
         UPLOAD = 'upload', 'Upload'
         PRESIGN_PREVIEW = 'presign_preview', 'Presign preview'

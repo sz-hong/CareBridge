@@ -5,8 +5,6 @@ from django.db.models import Sum
 from django.utils.dateparse import parse_date
 from django.utils import timezone
 
-from core.deidentification import prepare_text_for_gpt
-
 
 logger = logging.getLogger(__name__)
 
@@ -38,17 +36,17 @@ def _positive_int(value, default):
 
 
 def _safe_text(value):
+    # Database content is curated to contain no personal data, so the AI read
+    # path no longer routes free text through Google DLP. DLP added a network
+    # round-trip per text field, and a single "summarise day X" query touches
+    # dozens of records — that serial latency stalled the chat stream past the
+    # client's timeout. Structured sensitive keys are still dropped by
+    # _safe_json below as defence in depth.
     if value is None:
         return ""
     if not isinstance(value, str):
         value = str(value)
-    if not value:
-        return ""
-    try:
-        return prepare_text_for_gpt(value)
-    except Exception:
-        logger.exception("Failed to deidentify AI tool text")
-        return "[redaction_failed]"
+    return value
 
 
 def _safe_json(value):

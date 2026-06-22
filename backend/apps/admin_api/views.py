@@ -18,17 +18,22 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.ai_assistant.models import AIConversation, FirstAidDocument
 from apps.auth_account.models import User
 from apps.board.models import BoardRequest
 from apps.calendar_event.models import Event
 from apps.care_log.models import CareLog
+from apps.chat.models import Chat, ChatMember, Message
 from apps.document.models import Document
 from apps.expense.models import Expense
 from apps.family.models import Family
 from apps.health.models import HealthAlert, HealthAlertThreshold, HealthData
-from apps.medication.models import MedicationConfirmation
-from core.permissions import CaregiverCannotDelete
+from apps.leave.models import Leave, LeaveVote
+from apps.medication.models import Medication, MedicationConfirmation
+from apps.notification.models import Device, Notification
+from apps.sos.models import SOSRecord
 from apps.todo.models import Todo
+from core.permissions import CaregiverCannotDelete
 from core.responses import error_response, success_response
 from core.storage import (
     _get_public_endpoint_url,
@@ -55,6 +60,8 @@ SENSITIVE_FIELD_NAMES = {
     'user_permissions',
     'groups',
     'photo_key',
+    'embedding',
+    'messages_history',
 }
 SENSITIVE_FIELD_MARKERS = (
     'token',
@@ -106,6 +113,8 @@ class TableConfig:
     date_fields: tuple[str, ...] = ('updated_at', 'created_at')
     actor_fields: tuple[str, ...] = ()
     mutable: bool = False
+    display_name: str = ''
+    category: str = 'Care Operations'
 
 
 TABLES = {
@@ -113,36 +122,37 @@ TABLES = {
         model=User,
         search_fields=('email', 'name', 'phone'),
         actor_fields=(),
+        display_name='Users',
+        category='Identity',
     ),
     'families': TableConfig(
         model=Family,
         search_fields=('name', 'elder_name', 'invite_code'),
         actor_fields=('created_by',),
+        display_name='Families',
+        category='Identity',
     ),
     'care_logs': TableConfig(
         model=CareLog,
-        search_fields=('type', 'recorder__email', 'recorder__name'),
+        search_fields=('type', 'content', 'recorder__email', 'recorder__name'),
         date_fields=('created_at', 'timestamp'),
         actor_fields=('recorder',),
         mutable=True,
+        display_name='Care Logs',
     ),
     'board_requests': TableConfig(
         model=BoardRequest,
-        search_fields=(
-            'category',
-            'status',
-            'note',
-            'requester__email',
-            'requester__name',
-        ),
+        search_fields=('category', 'status', 'note', 'requester__email', 'requester__name'),
         actor_fields=('requester', 'reviewed_by'),
         mutable=True,
+        display_name='Board Requests',
     ),
     'todos': TableConfig(
         model=Todo,
         search_fields=('title', 'priority', 'status', 'assignee__email', 'assignee__name'),
         actor_fields=('created_by', 'assignee'),
         mutable=True,
+        display_name='Todos',
     ),
     'events': TableConfig(
         model=Event,
@@ -150,12 +160,15 @@ TABLES = {
         date_fields=('created_at', 'start_time'),
         actor_fields=('created_by',),
         mutable=True,
+        display_name='Events',
     ),
     'health_data': TableConfig(
         model=HealthData,
         search_fields=('type', 'unit', 'device_id'),
         date_fields=('created_at', 'recorded_at'),
         mutable=True,
+        display_name='Health Data',
+        category='Health',
     ),
     'health_alerts': TableConfig(
         model=HealthAlert,
@@ -163,6 +176,8 @@ TABLES = {
         date_fields=('created_at', 'recorded_at', 'acknowledged_at'),
         actor_fields=('acknowledged_by',),
         mutable=True,
+        display_name='Health Alerts',
+        category='Health',
     ),
     'health_thresholds': TableConfig(
         model=HealthAlertThreshold,
@@ -170,6 +185,25 @@ TABLES = {
         date_fields=('updated_at',),
         actor_fields=('updated_by',),
         mutable=True,
+        display_name='Health Thresholds',
+        category='Health',
+    ),
+    'medications': TableConfig(
+        model=Medication,
+        search_fields=('name', 'dosage', 'frequency', 'created_by__email'),
+        actor_fields=('created_by',),
+        mutable=True,
+        display_name='Medications',
+        category='Medication',
+    ),
+    'medication_confirmations': TableConfig(
+        model=MedicationConfirmation,
+        search_fields=('scheduled_time', 'note', 'confirmed_by__email'),
+        date_fields=('confirmed_at',),
+        actor_fields=('confirmed_by',),
+        mutable=True,
+        display_name='Medication Confirmations',
+        category='Medication',
     ),
     'expenses': TableConfig(
         model=Expense,
@@ -177,15 +211,104 @@ TABLES = {
         date_fields=('updated_at', 'created_at', 'date'),
         actor_fields=('recorder',),
         mutable=True,
+        display_name='Expenses',
+        category='Finance',
     ),
     'documents': TableConfig(
         model=Document,
         search_fields=('title', 'category', 'mime_type', 'uploaded_by__email'),
-        actor_fields=('uploaded_by',),
+        actor_fields=('uploaded_by', 'reviewed_by'),
         mutable=True,
+        display_name='Documents',
+        category='Documents',
+    ),
+    'leaves': TableConfig(
+        model=Leave,
+        search_fields=('type', 'status', 'reason', 'applicant__email', 'applicant__name'),
+        date_fields=('created_at', 'start_date', 'end_date', 'reviewed_at'),
+        actor_fields=('applicant', 'reviewed_by'),
+        mutable=True,
+        display_name='Leaves',
+    ),
+    'leave_votes': TableConfig(
+        model=LeaveVote,
+        search_fields=('member_name', 'member__email'),
+        date_fields=('voted_at',),
+        actor_fields=('member',),
+        mutable=True,
+        display_name='Leave Votes',
+    ),
+    'chats': TableConfig(
+        model=Chat,
+        search_fields=('type', 'name', 'family__name'),
+        date_fields=('created_at',),
+        mutable=True,
+        display_name='Chats',
+        category='Communication',
+    ),
+    'chat_members': TableConfig(
+        model=ChatMember,
+        search_fields=('user__email', 'user__name', 'chat__name'),
+        date_fields=('joined_at',),
+        actor_fields=('user',),
+        mutable=True,
+        display_name='Chat Members',
+        category='Communication',
+    ),
+    'messages': TableConfig(
+        model=Message,
+        search_fields=('content', 'type', 'message_type', 'sender__email', 'sender__name'),
+        date_fields=('sent_at',),
+        actor_fields=('sender',),
+        mutable=True,
+        display_name='Messages',
+        category='Communication',
+    ),
+    'notifications': TableConfig(
+        model=Notification,
+        search_fields=('type', 'title', 'body', 'user__email', 'user__name'),
+        date_fields=('created_at', 'read_at'),
+        actor_fields=('user',),
+        mutable=True,
+        display_name='Notifications',
+        category='Notifications',
+    ),
+    'devices': TableConfig(
+        model=Device,
+        search_fields=('platform', 'device_name', 'user__email', 'user__name'),
+        date_fields=('updated_at', 'created_at'),
+        actor_fields=('user',),
+        mutable=True,
+        display_name='Devices',
+        category='Notifications',
+    ),
+    'sos_records': TableConfig(
+        model=SOSRecord,
+        search_fields=('status', 'situation', 'triggered_by__email', 'triggered_by__name'),
+        date_fields=('triggered_at', 'resolved_at'),
+        actor_fields=('triggered_by',),
+        mutable=True,
+        display_name='SOS Records',
+        category='Emergency',
+    ),
+    'ai_conversations': TableConfig(
+        model=AIConversation,
+        search_fields=('user__email', 'user__name', 'family__name'),
+        date_fields=('updated_at', 'created_at'),
+        actor_fields=('user',),
+        mutable=True,
+        display_name='AI Conversations',
+        category='AI',
+    ),
+    'first_aid_documents': TableConfig(
+        model=FirstAidDocument,
+        search_fields=('title', 'source', 'section', 'content'),
+        date_fields=('created_at',),
+        mutable=True,
+        display_name='First Aid Documents',
+        category='AI',
     ),
 }
-
 EXTRA_FILE_MODELS = {
     'medication_confirmations': MedicationConfirmation,
 }
@@ -227,7 +350,7 @@ class StaffReadOnlyAPIView(APIView):
 
 class StaffAdminAPIView(APIView):
     permission_classes = [IsAuthenticated, IsActiveStaff, CaregiverCannotDelete]
-    http_method_names = ['get', 'post', 'delete', 'options']
+    http_method_names = ['get', 'post', 'patch', 'delete', 'options']
 
 
 def get_s3_client(endpoint_url=None):
@@ -395,13 +518,13 @@ def field_has_default(field):
     )
 
 
-def create_values_for_model(model, payload):
+def values_for_model(model, payload, partial=False):
     values = {}
     errors = {}
     allowed_keys = set()
 
     for field in model._meta.fields:
-        if field.primary_key or not field.editable:
+        if field.primary_key or not field.editable or is_sensitive_field(field.name):
             continue
 
         if is_single_relation_field(field):
@@ -412,14 +535,14 @@ def create_values_for_model(model, payload):
                 values[field.attname] = payload[input_key]
             elif field.name in payload:
                 values[field.attname] = payload[field.name]
-            elif not field_has_default(field) and not field.blank and not field.null:
+            elif not partial and not field_has_default(field) and not field.blank and not field.null:
                 errors[input_key] = ['This field is required.']
             continue
 
         allowed_keys.add(field.name)
         if field.name in payload:
             values[field.name] = payload[field.name]
-        elif not field_has_default(field) and not field.blank and not field.null:
+        elif not partial and not field_has_default(field) and not field.blank and not field.null:
             errors[field.name] = ['This field is required.']
 
     unknown_keys = set(payload.keys()) - allowed_keys
@@ -427,6 +550,14 @@ def create_values_for_model(model, payload):
         errors[key] = ['Unknown field.']
 
     return values, errors
+
+
+def create_values_for_model(model, payload):
+    return values_for_model(model, payload, partial=False)
+
+
+def update_values_for_model(model, payload):
+    return values_for_model(model, payload, partial=True)
 
 
 def create_record_from_payload(config, payload):
@@ -439,6 +570,19 @@ def create_record_from_payload(config, payload):
     instance.save()
     return instance
 
+
+def update_record_from_payload(config, instance, payload):
+    values, errors = update_values_for_model(config.model, payload)
+    if errors:
+        raise ValidationError(errors)
+    if not values:
+        return instance, []
+
+    for field_name, value in values.items():
+        setattr(instance, field_name, value)
+    instance.full_clean()
+    instance.save(update_fields=sorted(values.keys()))
+    return instance, sorted(payload.keys())
 
 def lookup_resource_for_model(model):
     if model == User:
@@ -760,6 +904,51 @@ def serialize_request_log(log):
     }
 
 
+def serialize_audit_log(log):
+    return {
+        'id': str(log.id),
+        'request_id': log.request_id,
+        'actor_id': str(log.actor_id) if log.actor_id else None,
+        'actor_email': log.actor_email,
+        'action': log.action,
+        'table': log.table,
+        'record_id': log.record_id,
+        'bucket': log.bucket,
+        'object_key': log.object_key,
+        'status_code': log.status_code,
+        'metadata': normalize_value(log.metadata),
+        'created_at': normalize_value(log.created_at),
+    }
+
+
+def table_display_name(table, config):
+    return config.display_name or table.replace('_', ' ').title()
+
+
+def serialize_table_config(table, config):
+    mutable = mutation_allowed(config)
+    base = f'/api/v1/admin'
+    return {
+        'table': table,
+        'display_name': table_display_name(table, config),
+        'category': config.category,
+        'model': f'{config.model._meta.app_label}.{config.model._meta.object_name}',
+        'capabilities': {
+            'list': True,
+            'detail': True,
+            'schema': True,
+            'create': mutable,
+            'update': mutable,
+            'delete': mutable,
+        },
+        'endpoints': {
+            'list': f'{base}/tables/{table}/',
+            'schema': f'{base}/tables/{table}/schema/',
+            'detail': f'{base}/records/{table}/{{id}}/',
+        },
+    }
+
+
 def get_count_since(model, field_name, since):
     if not model_has_field(model, field_name):
         return 0
@@ -1005,6 +1194,15 @@ class ActivityView(StaffReadOnlyAPIView):
         return success_response(data={'results': sliced, 'next_cursor': next_cursor})
 
 
+class TableIndexView(StaffReadOnlyAPIView):
+    def get(self, request):
+        items = [
+            serialize_table_config(table, config)
+            for table, config in TABLES.items()
+        ]
+        return success_response(data={'results': items, 'count': len(items)})
+
+
 class TableSchemaView(StaffReadOnlyAPIView):
     def get(self, request, table):
         config = get_table_config(table)
@@ -1093,7 +1291,7 @@ class TableListView(StaffAdminAPIView):
 
 
 class RecordDetailView(StaffAdminAPIView):
-    http_method_names = ['get', 'delete', 'options']
+    http_method_names = ['get', 'patch', 'delete', 'options']
 
     def get(self, request, table, record_id):
         config = get_table_config(table)
@@ -1113,7 +1311,46 @@ class RecordDetailView(StaffAdminAPIView):
             }
         )
 
+    def patch(self, request, table, record_id):
+        config = get_table_config(table)
+        if not config:
+            return error_response('not_found', 'Admin table not found.', status=404)
+        if not mutation_allowed(config):
+            return error_response(
+                'mutation_not_allowed',
+                'This admin table is read-only.',
+                status=403,
+            )
+        if not isinstance(request.data, dict):
+            return validation_error_response('Invalid request body.')
+        try:
+            instance = get_queryset(config, table=table).get(pk=record_id)
+        except (config.model.DoesNotExist, ValueError, ValidationError):
+            return error_response('not_found', 'Record not found.', status=404)
+
+        try:
+            instance, changed_fields = update_record_from_payload(config, instance, request.data)
+        except ValidationError as exc:
+            return validation_error_response('Invalid request body.', exc)
+        except IntegrityError as exc:
+            return validation_error_response(str(exc), {'non_field_errors': [str(exc)]})
+
+        write_audit_log(
+            request,
+            AdminMutationAuditLog.Action.UPDATE,
+            table=table,
+            record_id=instance.pk,
+            metadata={'changed_fields': changed_fields},
+        )
+        record = serialize_instance(instance)
+        return success_response(
+            data={
+                'record': record,
+                'raw': record,
+            }
+        )
     def delete(self, request, table, record_id):
+
         config = get_table_config(table)
         if not config:
             return error_response('not_found', 'Admin table not found.', status=404)
@@ -1427,6 +1664,54 @@ class RequestLogsView(StaffReadOnlyAPIView):
         return success_response(
             data=paginate_items(
                 [serialize_request_log(log) for log in queryset],
+                request,
+            )
+        )
+
+
+class AuditLogsView(StaffReadOnlyAPIView):
+    def get(self, request):
+        queryset = AdminMutationAuditLog.objects.all().select_related('actor')
+
+        action = request.query_params.get('action')
+        if action:
+            queryset = queryset.filter(action=action)
+
+        table = request.query_params.get('table')
+        if table:
+            queryset = queryset.filter(table=table)
+
+        record_id = request.query_params.get('record_id')
+        if record_id:
+            queryset = queryset.filter(record_id=record_id)
+
+        actor_email = request.query_params.get('actor_email')
+        if actor_email:
+            queryset = queryset.filter(actor_email__icontains=actor_email)
+
+        search = request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                Q(request_id__icontains=search)
+                | Q(actor_email__icontains=search)
+                | Q(table__icontains=search)
+                | Q(record_id__icontains=search)
+                | Q(action__icontains=search)
+                | Q(object_key__icontains=search)
+            )
+
+        date_from = parse_lower_bound(request.query_params.get('date_from'))
+        if date_from is not None:
+            queryset = queryset.filter(created_at__gte=date_from)
+
+        date_to = parse_lower_bound(request.query_params.get('date_to'))
+        if date_to is not None:
+            queryset = queryset.filter(created_at__lte=date_to)
+
+        queryset = queryset.order_by('-created_at')
+        return success_response(
+            data=paginate_items(
+                [serialize_audit_log(log) for log in queryset],
                 request,
             )
         )

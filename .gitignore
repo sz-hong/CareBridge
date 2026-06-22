@@ -50,10 +50,15 @@ backend/celerybeat-schedule
 Thumbs.db
 desktop.ini
 
+# Node
+node_modules/
+.npm/
+
 # Byte-compiled / cache
 *.cache
 *.bak
 *.tmp
+tsconfig.tsbuildinfo
 
 # Local DLP secrets (mounted into Docker as /secrets/)
 backend/docker/secrets/*
