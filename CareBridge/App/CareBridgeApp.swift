@@ -79,6 +79,18 @@ struct CareBridgeApp: App {
                         }
                 }
             }
+            // The logged-in account's `language` is the source of truth for the
+            // whole UI: chat AND every other screen read `localeStore.code`.
+            // Sync it on login / account switch so switching accounts on one
+            // device (or a stale device UI language) can't leave the reader
+            // seeing chat translated into the wrong person's language.
+            .onChange(of: userStore.currentUser?.language) { _, newLang in
+                if let newLang,
+                   SupportedLanguage.all.contains(where: { $0.code == newLang }),
+                   newLang != localeStore.code {
+                    localeStore.code = newLang
+                }
+            }
             .environment(userStore)
             .environment(careLogStore)
             .environment(todoStore)
