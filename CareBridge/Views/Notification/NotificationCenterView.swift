@@ -68,6 +68,7 @@ struct NotificationCenterView: View {
                         .font(.system(size: 14))
                         .foregroundStyle(Color.brandTeal)
                 }
+                .disabled(store.unreadCount == 0)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
