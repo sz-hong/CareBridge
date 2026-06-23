@@ -8,6 +8,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.auth_account.models import User
+from apps.care_log.models import CareLog
 from apps.document.models import Document
 from apps.expense.models import Expense
 from apps.family.models import Family
@@ -259,6 +260,45 @@ class AdminAPIStorageAndLogsTests(TestCase):
         self.assertFalse(linked["orphan"])
         self.assertEqual(linked["linked_table"], "documents")
         self.assertTrue(orphan["orphan"])
+
+    @override_settings(
+        AWS_STORAGE_BUCKET_NAME="carebridge-storage",
+        AWS_S3_ENDPOINT_URL="https://storage.carebridge-lab.com",
+        AWS_S3_PUBLIC_ENDPOINT_URL="https://storage.carebridge-lab.com",
+    )
+    @patch("apps.admin_api.views.get_s3_client")
+    def test_storage_endpoint_links_care_log_photo_key(self, mock_client):
+        care_log = CareLog.objects.create(
+            family=self.family,
+            recorder=self.staff,
+            type=CareLog.Type.NOTE,
+            content={"note": "with photo"},
+            photo_key="care_logs/family-1/photo.jpg",
+            timestamp=timezone.now(),
+        )
+        mock_client.return_value.list_objects_v2.return_value = {
+            "KeyCount": 1,
+            "Contents": [
+                {
+                    "Key": "care_logs/family-1/photo.jpg",
+                    "Size": 300,
+                    "LastModified": timezone.now(),
+                },
+            ],
+        }
+
+        response = self.client.get("/api/v1/admin/storage/objects/")
+
+        self.assertEqual(response.status_code, 200)
+        results = response.json()["data"]["results"]
+        photo = next(
+            item
+            for item in results
+            if item["object_key"] == "care_logs/family-1/photo.jpg"
+        )
+        self.assertFalse(photo["orphan"])
+        self.assertEqual(photo["linked_table"], "care_logs")
+        self.assertEqual(photo["linked_record_id"], str(care_log.pk))
 
     @override_settings(AWS_STORAGE_BUCKET_NAME="carebridge-storage")
     def test_storage_endpoint_rejects_unknown_bucket(self):

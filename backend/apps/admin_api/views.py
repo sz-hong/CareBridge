@@ -79,6 +79,17 @@ URL_FIELD_NAMES = (
     'photo_url',
 )
 
+# Fields that store a bare S3 / MinIO object key directly (not a URL).
+# These must be linked too, otherwise their objects show up as orphans
+# in the storage dashboard even though a record references them.
+KEY_FIELD_NAMES = (
+    'photo_key',
+    'raw_image_key',
+    'redacted_image_key',
+    'raw_file_key',
+    'redacted_file_key',
+)
+
 MUTABLE_TABLES = {
     'care_logs',
     'board_requests',
@@ -987,16 +998,31 @@ def build_activity_item(table, config, instance, action):
     }
 
 
-def related_files_for_instance(table, instance):
-    files = []
-    bucket = getattr(settings, 'AWS_STORAGE_BUCKET_NAME', None)
+def object_keys_for_instance(instance):
+    """Yield every S3 / MinIO object key an instance references.
+
+    Covers both URL-bearing fields (``*_url``, parsed via
+    ``extract_key_from_url``) and fields that store a bare object key
+    directly (``*_key``).
+    """
     for field_name in URL_FIELD_NAMES:
         if not hasattr(instance, field_name):
             continue
-        url = getattr(instance, field_name)
-        key = extract_key_from_url(url)
-        if not key:
+        key = extract_key_from_url(getattr(instance, field_name))
+        if key:
+            yield key
+    for field_name in KEY_FIELD_NAMES:
+        if not hasattr(instance, field_name):
             continue
+        key = getattr(instance, field_name)
+        if key:
+            yield key
+
+
+def related_files_for_instance(table, instance):
+    files = []
+    bucket = getattr(settings, 'AWS_STORAGE_BUCKET_NAME', None)
+    for key in object_keys_for_instance(instance):
         files.append(
             enrich_related_file(
                 {
@@ -1021,11 +1047,12 @@ def collect_linked_file_map():
         **{table: config.model for table, config in TABLES.items()},
         **EXTRA_FILE_MODELS,
     }
+    file_field_names = set(URL_FIELD_NAMES) | set(KEY_FIELD_NAMES)
     for table, model in model_items.items():
         field_names = [
             field.name
             for field in model._meta.fields
-            if field.name in URL_FIELD_NAMES
+            if field.name in file_field_names
         ]
         if not field_names:
             continue
@@ -1035,9 +1062,8 @@ def collect_linked_file_map():
             if deleted_ids:
                 queryset = queryset.exclude(pk__in=deleted_ids)
         for instance in queryset:
-            for field_name in field_names:
-                key = extract_key_from_url(getattr(instance, field_name))
-                if key and key not in linked:
+            for key in object_keys_for_instance(instance):
+                if key not in linked:
                     linked[key] = {
                         'linked_table': table,
                         'linked_record_id': str(instance.pk),
