@@ -6,12 +6,14 @@ struct AIAgentView: View {
     var isModal: Bool = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dataService) private var dataService
+    @Environment(\.aiOrchestrator) private var aiOrchestrator
     @State private var messages: [AIMessage] = []
     @State private var inputText = ""
     @State private var isLoading = false
     @State private var conversationID: String?
     @State private var responseTask: Task<Void, Never>?
     @State private var selectedTool: AIToolKind?
+    @State private var selectedLocalTool: LocalAIToolKind?
     @State private var documentPreviewURL: URL?
     @FocusState private var isInputFocused: Bool
 
@@ -87,6 +89,16 @@ struct AIAgentView: View {
                         }
                     }
 
+                    Section("本機草稿") {
+                        ForEach(LocalAIToolKind.allCases) { tool in
+                            Button {
+                                selectedLocalTool = tool
+                            } label: {
+                                Label(tool.title, systemImage: tool.icon)
+                            }
+                        }
+                    }
+
                     if !messages.isEmpty {
                         Button {
                             resetChatContext()
@@ -108,6 +120,11 @@ struct AIAgentView: View {
         .sheet(item: $selectedTool) { tool in
             AIToolSheet(tool: tool) { document in
                 appendGeneratedDocument(document)
+            }
+        }
+        .sheet(item: $selectedLocalTool) { tool in
+            LocalAIToolSheet(tool: tool) { response in
+                appendLocalDraft(response)
             }
         }
         .quickLookPreview($documentPreviewURL)
@@ -401,6 +418,17 @@ struct AIAgentView: View {
     }
 
     @MainActor
+    private func appendLocalDraft(_ response: AITextTaskResponse) {
+        messages.append(
+            AIMessage(
+                id: UUID().uuidString,
+                content: response.text,
+                isUser: false,
+                timestamp: Date()
+            )
+        )
+    }
+    @MainActor
     private func appendGeneratedDocument(_ document: AIGeneratedDocument) {
         messages.append(
             AIMessage(
@@ -441,6 +469,135 @@ struct AIAgentView: View {
 
 }
 
+private enum LocalAIToolKind: String, CaseIterable, Identifiable {
+    case rewriteCareNote
+    case summarizeVisibleContent
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .rewriteCareNote: return "潤飾照護紀錄"
+        case .summarizeVisibleContent: return "摘要文字"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .rewriteCareNote: return "text.bubble"
+        case .summarizeVisibleContent: return "text.viewfinder"
+        }
+    }
+
+    var taskKind: CareBridgeAITaskKind {
+        switch self {
+        case .rewriteCareNote: return .rewriteCareNote
+        case .summarizeVisibleContent: return .summarizeVisibleContent
+        }
+    }
+
+    var placeholder: String {
+        switch self {
+        case .rewriteCareNote:
+            return "貼上尚未整理的照護紀錄草稿。"
+        case .summarizeVisibleContent:
+            return "貼上目前畫面中的聊天、任務或照護文字。"
+        }
+    }
+
+    var actionTitle: String {
+        switch self {
+        case .rewriteCareNote: return "產生草稿"
+        case .summarizeVisibleContent: return "摘要"
+        }
+    }
+}
+
+private struct LocalAIToolSheet: View {
+    let tool: LocalAIToolKind
+    let onDraftGenerated: (AITextTaskResponse) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.aiOrchestrator) private var aiOrchestrator
+    @State private var inputText = ""
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+
+    private var canRun: Bool {
+        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !isLoading
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextEditor(text: $inputText)
+                        .frame(minHeight: 140)
+                        .overlay(alignment: .topLeading) {
+                            if inputText.isEmpty {
+                                Text(tool.placeholder)
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 8)
+                                    .padding(.leading, 5)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                }
+
+                Section {
+                    Button {
+                        Task { await runTool() }
+                    } label: {
+                        HStack {
+                            if isLoading {
+                                ProgressView()
+                            }
+                            Text(tool.actionTitle)
+                        }
+                    }
+                    .disabled(!canRun)
+                }
+
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle(tool.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+            .interactiveDismissDisabled(isLoading)
+        }
+    }
+
+    @MainActor
+    private func runTool() async {
+        guard canRun else { return }
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        let task = LocalAITask(
+            kind: tool.taskKind,
+            input: inputText.trimmingCharacters(in: .whitespacesAndNewlines),
+            localeIdentifier: Locale.current.identifier
+        )
+
+        do {
+            let response = try await aiOrchestrator.runTextTask(task)
+            onDraftGenerated(response)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
 private enum AIToolKind: String, CaseIterable, Identifiable {
     case careAnalysis
     case handoverReport
