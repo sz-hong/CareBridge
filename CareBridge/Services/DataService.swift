@@ -232,6 +232,7 @@ protocol DataService {
     // Notifications
     func fetchNotifications() async throws -> [AppNotification]
     func markNotificationRead(id: String) async throws
+    func markAllNotificationsRead() async throws
 
     // Purchase Requests
     func fetchPurchaseRequests() async throws -> [PurchaseRequest]

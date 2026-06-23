@@ -29,16 +29,13 @@ struct NotificationCenterView: View {
                     .tint(Color.brandTeal)
 
                 Button {
-                    withAnimation {
-                        for i in notifications.indices {
-                            notifications[i].isRead = true
-                        }
-                    }
+                    markAllAsRead()
                 } label: {
                     Text("全部已讀")
                         .font(.system(size: 14))
                         .foregroundStyle(Color.brandTeal)
                 }
+                .disabled(unreadCount == 0)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
@@ -94,6 +91,15 @@ struct NotificationCenterView: View {
             withAnimation { notifications[index].isRead = true }
             Task { try? await service.markNotificationRead(id: notification.id) }
         }
+    }
+
+    private func markAllAsRead() {
+        withAnimation {
+            for i in notifications.indices {
+                notifications[i].isRead = true
+            }
+        }
+        Task { try? await service.markAllNotificationsRead() }
     }
 
     private func deleteNotification(_ notification: AppNotification) {

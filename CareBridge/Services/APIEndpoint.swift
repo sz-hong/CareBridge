@@ -90,6 +90,7 @@ enum APIEndpoint {
 
     static let notifications = "/notifications/"
     static let notificationDevice = "/notifications/device/"
+    static let notificationReadAll = "/notifications/read-all/"
 
     static func notificationRead(id: String) -> String {
         "/notifications/\(id)/read/"
