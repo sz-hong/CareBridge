@@ -66,13 +66,6 @@ struct NotificationCenterView: View {
                                 }
                                 .tint(Color.brandTeal)
                             }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                Button(role: .destructive) {
-                                    deleteNotification(notification)
-                                } label: {
-                                    Label("刪除", systemImage: "trash")
-                                }
-                            }
                     }
                 }
                 .listStyle(.plain)
@@ -100,12 +93,6 @@ struct NotificationCenterView: View {
             }
         }
         Task { try? await service.markAllNotificationsRead() }
-    }
-
-    private func deleteNotification(_ notification: AppNotification) {
-        withAnimation {
-            notifications.removeAll { $0.id == notification.id }
-        }
     }
 }
 

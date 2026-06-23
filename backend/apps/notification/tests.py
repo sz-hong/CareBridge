@@ -1,4 +1,5 @@
 import re
+from datetime import timedelta
 
 from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
@@ -9,7 +10,10 @@ from apps.auth_account.models import User
 from apps.family.models import Family
 from apps.medication.models import Medication
 from apps.notification.models import Device, Notification
-from apps.notification.tasks import send_medication_reminders
+from apps.notification.tasks import (
+    delete_read_notifications_task,
+    send_medication_reminders,
+)
 from apps.notification.types import NotificationType
 from core.notify import send_notification
 
@@ -71,6 +75,41 @@ class MedicationReminderTaskTests(TestCase):
         self.assertEqual(notification.type, 'medication_reminder')
         self.assertEqual(notification.data['medication_id'], str(medication.id))
         self.assertEqual(notification.data['scheduled_time'], current_time)
+
+
+class DeleteReadNotificationsTaskTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='cleanup@example.com',
+            password='password123',
+            name='Cleanup',
+            role=User.Role.FAMILY_MEMBER,
+        )
+
+    def _make(self, *, is_read, read_age_days=None):
+        notification = Notification.objects.create(
+            user=self.user,
+            type=NotificationType.CHAT_MESSAGE,
+            title='Test',
+            body='Body',
+            is_read=is_read,
+        )
+        if read_age_days is not None:
+            read_at = timezone.now() - timedelta(days=read_age_days)
+            Notification.objects.filter(pk=notification.pk).update(read_at=read_at)
+        return notification
+
+    def test_deletes_only_notifications_read_over_a_week_ago(self):
+        old_read = self._make(is_read=True, read_age_days=8)
+        recent_read = self._make(is_read=True, read_age_days=2)
+        unread = self._make(is_read=False)
+
+        deleted = delete_read_notifications_task.run()
+
+        self.assertEqual(deleted, 1)
+        self.assertFalse(Notification.objects.filter(pk=old_read.pk).exists())
+        self.assertTrue(Notification.objects.filter(pk=recent_read.pk).exists())
+        self.assertTrue(Notification.objects.filter(pk=unread.pk).exists())
 
 
 class NotificationAPIEndpointTests(TestCase):

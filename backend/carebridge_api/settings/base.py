@@ -219,6 +219,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'apps.expense.tasks.delete_expired_receipt_quarantine_files_task',
         'schedule': 3600.0,
     },
+    'delete-read-notifications-daily': {
+        'task': 'apps.notification.tasks.delete_read_notifications_task',
+        'schedule': 86400.0,
+    },
 }
 
 # ==============================================================================

@@ -105,6 +105,33 @@ def send_medication_reminders():
                 )
 
 
+READ_NOTIFICATION_RETENTION_DAYS = 7
+
+
+@shared_task
+def delete_read_notifications_task():
+    """Periodic task: delete notifications that have been read for over a week.
+
+    Keeps the notification center tidy without asking users to delete
+    manually, which would otherwise hit role-based delete permissions
+    (caregivers cannot delete). Unread notifications are always kept.
+    Should be scheduled in Celery Beat (e.g. once a day).
+    """
+    from datetime import timedelta
+    from django.utils import timezone
+    from apps.notification.models import Notification
+
+    cutoff = timezone.now() - timedelta(days=READ_NOTIFICATION_RETENTION_DAYS)
+    deleted, _ = Notification.objects.filter(
+        is_read=True, read_at__lt=cutoff,
+    ).delete()
+    if deleted:
+        logger.info(
+            'Deleted %s read notifications read before %s', deleted, cutoff,
+        )
+    return deleted
+
+
 def _time_within_window(slot_time_str, current_time_str, window_minutes=7):
     """Check if slot_time is within window_minutes of current_time."""
     try:
