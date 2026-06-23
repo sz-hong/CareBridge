@@ -8,9 +8,10 @@ import HealthKit
 class HealthKitManager {
     private let store = HKHealthStore()
 
-    var heartRate: Double = 72
-    var bloodOxygen: Double = 97.5
-    var bloodSugar: Double = 5.8
+    // nil = 尚未取得實際讀數（未授權 / 無資料）。一律不顯示假預設值。
+    var heartRate: Double?
+    var bloodOxygen: Double?
+    var bloodSugar: Double?
     var isAuthorized = false
 
     var heartRateHistory: [(String, Int)] = [
@@ -22,8 +23,14 @@ class HealthKitManager {
         ("Fri", 97.8), ("Sat", 98.2), ("Sun", 97.6)
     ]
 
-    var heartRateStatus: String { heartRate > 100 || heartRate < 55 ? "異常" : "正常" }
-    var bloodOxygenStatus: String { bloodOxygen < 94 ? "偏低" : bloodOxygen >= 98 ? "最佳" : "正常" }
+    var heartRateStatus: String {
+        guard let hr = heartRate else { return "—" }
+        return hr > 100 || hr < 55 ? "異常" : "正常"
+    }
+    var bloodOxygenStatus: String {
+        guard let o = bloodOxygen else { return "—" }
+        return o < 94 ? "偏低" : o >= 98 ? "最佳" : "正常"
+    }
 
     func requestAuthorization() async {
         guard HKHealthStore.isHealthDataAvailable() else { return }
@@ -139,12 +146,12 @@ struct HealthMonitorView: View {
                 // Current vitals summary (HealthKit 即時數值)
                 HStack(spacing: 12) {
                     vitalCard(title: "心率",
-                              value: "\(Int(healthKit.heartRate))",
+                              value: healthKit.heartRate.map { "\(Int($0))" } ?? "—",
                               unit: "bpm",
                               icon: "heart.fill", color: .red,
                               status: healthKit.heartRateStatus)
                     vitalCard(title: "血氧",
-                              value: String(format: "%.1f", healthKit.bloodOxygen),
+                              value: healthKit.bloodOxygen.map { String(format: "%.1f", $0) } ?? "—",
                               unit: "%",
                               icon: "wind", color: Color.brandTeal,
                               status: healthKit.bloodOxygenStatus)
@@ -382,6 +389,15 @@ struct HealthMonitorView: View {
         }
     }
 
+    /// 依狀態字串決定徽章顏色：異常/偏低→橘、尚未填寫/—→灰、其餘→綠。
+    private func statusColor(_ status: String) -> Color {
+        switch status {
+        case "異常", "偏低":      return .orange
+        case "尚未填寫", "—":     return .secondary
+        default:                  return .green
+        }
+    }
+
     private func vitalCard(title: String, value: String, unit: String,
                             icon: String, color: Color, status: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -394,10 +410,10 @@ struct HealthMonitorView: View {
                     .foregroundStyle(.secondary)
                 Spacer()
                 HStack(spacing: 3) {
-                    Circle().fill(.green).frame(width: 5, height: 5)
+                    Circle().fill(statusColor(status)).frame(width: 5, height: 5)
                     Text(status)
                         .font(.system(size: 11))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(statusColor(status))
                 }
             }
             Text(value)

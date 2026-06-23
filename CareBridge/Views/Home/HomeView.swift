@@ -27,19 +27,12 @@ struct HomeView: View {
     @Environment(TodoStore.self) private var todoStore
     @Environment(CalendarStore.self) private var calendarStore
     @Environment(\.dataService) private var service
-    @State private var health: HealthData = .sample
-    @State private var weeklySteps: [Int] = HealthData.weeklySteps
+    // 即時讀取本機 HealthKit 數值（與健康監測頁共用同一個 manager）。
+    // 沒有實際讀數時為 nil —— 首頁一律顯示「—」而非捏造的假值。
+    @State private var healthKit = HealthKitManager()
     @State private var showNotifications = false
     @State private var navPath = NavigationPath()
     @State private var liveSocket = HealthLiveSocket()
-    private let weekDays = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
-
-    /// 今天在 Mon-Sun 陣列中的 index（Mon=0, Sun=6）
-    private var todayWeekdayIndex: Int {
-        // Calendar.weekday: 1=Sun, 2=Mon, ..., 7=Sat
-        let weekday = Calendar.current.component(.weekday, from: Date())
-        return (weekday + 5) % 7
-    }
 
     /// 下一劑尚未服用的藥物時間字串
     private var nextDoseDescription: String {
@@ -162,14 +155,24 @@ struct HomeView: View {
                     careLogStore.load()
                     todoStore.load()
                     calendarStore.load()
-                    async let h = service.fetchHealthData(elderId: "")
-                    async let s = service.fetchWeeklySteps(elderId: "")
-                    health      = (try? await h) ?? .sample
-                    weeklySteps = (try? await s) ?? HealthData.weeklySteps
 
-                    // Live updates from any family member's HealthKit upload —
-                    // mirror the heart rate / SpO2 values into the home cards
-                    // so they refresh in real time as the watch streams data.
+                    // 1) 本機 HealthKit 即時讀數（看護／長者端有配對 Apple Watch 時）。
+                    await healthKit.requestAuthorization()
+
+                    // 2) 後端 dashboard 補上遠端家屬看不到本機 HealthKit 的情況
+                    //    （資料是別的家庭成員上傳、經後端轉發的真實讀數）。
+                    //    只在本機沒有讀數時用後端值 seed，避免覆蓋更即時的本機數據。
+                    if let backend = try? await service.fetchHealthData(elderId: "") {
+                        if healthKit.heartRate == nil, backend.heartRate > 0 {
+                            healthKit.heartRate = Double(backend.heartRate)
+                        }
+                        if healthKit.bloodOxygen == nil, backend.bloodOxygen > 0 {
+                            healthKit.bloodOxygen = backend.bloodOxygen
+                        }
+                    }
+
+                    // 3) Live updates：任何家庭成員上傳 HealthKit 後，後端會即時
+                    //    透過 WebSocket 推送，這裡把心率／血氧更新到卡片上。
                     liveSocket.onUpdate = { update in
                         applyLiveUpdate(update)
                     }
@@ -183,15 +186,37 @@ struct HomeView: View {
     private func applyLiveUpdate(_ update: HealthLiveUpdate) {
         for point in update.points {
             switch point.type {
-            case "heart_rate":
-                health.heartRate = Int(point.value)
-                health.timestamp = point.recordedAt
-            case "blood_oxygen":
-                health.bloodOxygen = point.value
-                health.timestamp = point.recordedAt
+            case "heart_rate":   healthKit.heartRate = point.value
+            case "blood_oxygen": healthKit.bloodOxygen = point.value
             default: break
             }
         }
+    }
+
+    // MARK: - Vital Status (依實際數值計算，無資料回傳中性灰)
+
+    /// 心率狀態徽章。無讀數時顯示「—」。
+    private var heartRateStatus: (text: String, color: Color) {
+        guard let bpm = healthKit.heartRate.map({ Int($0) }) else { return ("—", .secondary) }
+        if bpm > 100 { return ("HIGH", .orange) }
+        if bpm < 55  { return ("LOW", .orange) }
+        return ("STABLE", .green)
+    }
+
+    /// 血氧狀態徽章。無讀數時顯示「—」。
+    private var bloodOxygenStatus: (text: String, color: Color) {
+        guard let spo2 = healthKit.bloodOxygen else { return ("—", .secondary) }
+        if spo2 < 94  { return ("LOW", .orange) }
+        if spo2 >= 98 { return ("OPTIMAL", .green) }
+        return ("NORMAL", .green)
+    }
+
+    /// 血壓狀態徽章（取自照護日誌最新讀數）。未量測時顯示「—」。
+    private var bloodPressureStatus: (text: String, color: Color) {
+        guard let bp = latestBloodPressure else { return ("—", .secondary) }
+        if bp.systolic >= 140 || bp.diastolic >= 90 { return ("HIGH", .orange) }
+        if bp.systolic < 90 || bp.diastolic < 60 { return ("LOW", .orange) }
+        return ("NORMAL", .green)
     }
 
     // MARK: - Greeting
@@ -219,73 +244,6 @@ struct HomeView: View {
         }
     }
 
-
-    // MARK: - Activity Trend Card
-    private var activityTrendCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Activity Trend")
-                        .font(.system(size: 17, weight: .bold))
-                    Text("Movement & Steps last 7 days")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                HStack(spacing: 0) {
-                    Text("Week")
-                        .font(.system(size: 13, weight: .medium))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 6)
-                        .background(Capsule().fill(Color.brandTealLight))
-                        .foregroundStyle(Color.brandTeal)
-                    Text("Month")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 10)
-                }
-            }
-
-            // Bar chart
-            HStack(alignment: .bottom, spacing: 8) {
-                ForEach(Array(weeklySteps.enumerated()), id: \.offset) { index, steps in
-                    VStack(spacing: 4) {
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(index == todayWeekdayIndex ? Color.brandTeal : Color.brandTealLight)
-                            .frame(height: CGFloat(steps) / 35)
-                        Text(weekDays[index])
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-            }
-            .frame(height: 100)
-            .padding(.vertical, 4)
-
-            Divider()
-
-            HStack {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.up.right")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.green)
-                    Text("12% more active than last week")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                NavigationLink(value: HomeDestination.health) {
-                    Text("FULL\nREPORT")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Color.brandTeal)
-                        .multilineTextAlignment(.trailing)
-                }
-            }
-        }
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: 16).fill(.white))
-    }
 
     private var todayTodos: [TodoItem] {
         todoStore.todos.filter { todo in
@@ -391,7 +349,9 @@ struct HomeView: View {
                         Text("Pressure")
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(.primary)
-                        Text("Last check: \((latestBloodPressure?.at ?? health.timestamp).formatted(.dateTime.hour().minute()))")
+                        Text(latestBloodPressure.map {
+                            "Last check: \($0.at.formatted(.dateTime.hour().minute()))"
+                        } ?? "尚未量測")
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                     }
@@ -400,9 +360,9 @@ struct HomeView: View {
                         Text(latestBloodPressure.map { "\($0.systolic)/\($0.diastolic)" } ?? "--/--")
                             .font(.system(size: 16, weight: .bold))
                             .foregroundStyle(.primary)
-                        Text("NORMAL")
+                        Text(bloodPressureStatus.text)
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.green)
+                            .foregroundStyle(bloodPressureStatus.color)
                     }
                     Image(systemName: "chevron.right")
                         .font(.system(size: 12))
@@ -573,30 +533,21 @@ struct HomeView: View {
                 Spacer()
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(.green)
+                        .fill(heartRateStatus.color)
                         .frame(width: 6, height: 6)
-                    Text("STABLE")
+                    Text(heartRateStatus.text)
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(heartRateStatus.color)
                 }
             }
             HStack(alignment: .bottom, spacing: 6) {
-                Text("\(health.heartRate)")
+                Text(healthKit.heartRate.map { "\(Int($0))" } ?? "—")
                     .font(.system(size: 52, weight: .bold))
                 Text("bpm")
                     .font(.system(size: 18))
                     .foregroundStyle(.secondary)
                     .padding(.bottom, 8)
                 Spacer()
-                // Mini pulse graphic
-                HStack(alignment: .center, spacing: 2) {
-                    ForEach([0.3, 0.6, 1.0, 0.7, 0.5, 0.8, 0.4], id: \.self) { h in
-                        Capsule()
-                            .fill(Color(red: 1.0, green: 0.6, blue: 0.6))
-                            .frame(width: 4, height: 40 * h)
-                    }
-                }
-                .frame(height: 40)
             }
         }
         .padding(16)
@@ -615,15 +566,15 @@ struct HomeView: View {
                 Spacer()
                 HStack(spacing: 4) {
                     Circle()
-                        .fill(Color.brandTeal)
+                        .fill(bloodOxygenStatus.color)
                         .frame(width: 6, height: 6)
-                    Text("OPTIMAL")
+                    Text(bloodOxygenStatus.text)
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color.brandTeal)
+                        .foregroundStyle(bloodOxygenStatus.color)
                 }
             }
             HStack(alignment: .bottom, spacing: 6) {
-                Text("\(Int(health.bloodOxygen))")
+                Text(healthKit.bloodOxygen.map { "\(Int($0))" } ?? "—")
                     .font(.system(size: 52, weight: .bold))
                 Text("% SpO2")
                     .font(.system(size: 18))
