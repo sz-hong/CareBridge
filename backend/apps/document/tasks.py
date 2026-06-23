@@ -1,3 +1,4 @@
+import concurrent.futures
 import io
 import logging
 
@@ -22,6 +23,11 @@ PDF_RASTER_DPI = 150
 # Cap each rasterized page's width so an oversized page cannot exceed the DLP
 # image size limit; height is scaled proportionally to preserve aspect ratio.
 PDF_PAGE_MAX_WIDTH = 2000
+
+# Each PDF page is redacted by a separate Google DLP network round-trip. Running
+# them concurrently turns wall-clock from sum-of-pages into roughly the slowest
+# page. Capped so a large PDF can't open too many connections or balloon memory.
+PDF_REDACT_MAX_WORKERS = 8
 
 
 @shared_task
@@ -96,8 +102,40 @@ def delete_expired_document_quarantine_files_task():
     return {'deleted': deleted, 'errors': errors}
 
 
+def _detect_mime_type(raw_bytes, declared_mime):
+    """Sniff the real content type from magic bytes.
+
+    Clients sometimes upload images/PDFs as ``application/octet-stream``; trusting
+    that would route an image to text de-identification (which then fails on the
+    DLP content-size limit). The byte signature is authoritative; the declared
+    mime is only a fallback.
+    """
+    header = raw_bytes[:16]
+    if header.startswith(b'%PDF'):
+        return 'application/pdf'
+    if header.startswith(b'\x89PNG\r\n\x1a\n'):
+        return 'image/png'
+    if header.startswith(b'\xff\xd8\xff'):
+        return 'image/jpeg'
+    if header.startswith((b'GIF87a', b'GIF89a')):
+        return 'image/gif'
+    if header.startswith(b'BM'):
+        return 'image/bmp'
+    if header[:4] == b'RIFF' and raw_bytes[8:12] == b'WEBP':
+        return 'image/webp'
+    if raw_bytes[4:8] == b'ftyp' and raw_bytes[8:12] in (
+        b'heic', b'heix', b'mif1', b'heif',
+    ):
+        return 'image/heic'
+    declared = (declared_mime or '').lower()
+    if declared and declared != 'application/octet-stream':
+        return declared
+    return 'application/octet-stream'
+
+
 def _redact_document_bytes(raw_bytes, mime_type):
     client = get_deidentification_client()
+    mime_type = _detect_mime_type(raw_bytes, mime_type)
     if mime_type == 'application/pdf':
         return _redact_pdf_bytes(client, raw_bytes)
 
@@ -136,12 +174,20 @@ def _redact_pdf_bytes(client, raw_bytes):
     if not page_images:
         raise ValueError('PDF produced no rasterizable pages.')
 
-    redacted_pages = []
+    # Redact every page concurrently — each call is an independent DLP network
+    # round-trip, so threads overlap the waits. executor.map preserves order, so
+    # the stitched output stays in page order.
+    max_workers = max(1, min(len(page_images), PDF_REDACT_MAX_WORKERS))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        redactions = list(executor.map(
+            lambda page_png: client.redact_image(page_png, mime_type='image/png'),
+            page_images,
+        ))
+
+    redacted_pages = [redacted.bytes for redacted in redactions]
     findings = []
     high_risk = False
-    for page_png in page_images:
-        redacted = client.redact_image(page_png, mime_type='image/png')
-        redacted_pages.append(redacted.bytes)
+    for redacted in redactions:
         findings.extend(redacted.findings_as_dicts())
         high_risk = high_risk or redacted.high_risk
 

@@ -15,6 +15,7 @@ aioapns>=3.0
 pgvector>=0.2
 psycopg2-binary>=2.9
 Pillow>=10.2
+pillow-heif>=0.16  # lets PIL open iPhone HEIC/HEIF photos so they can be converted for DLP
 pdf2image>=1.17
 google-cloud-dlp>=3.21
 gunicorn>=22.0
