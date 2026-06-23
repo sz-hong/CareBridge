@@ -10,6 +10,7 @@ struct CareBridgeApp: App {
     @State private var userRole: UserRole = .family
 
     private let dataService: DataService
+    private let aiOrchestrator: AIOrchestrating
 
     @State private var userStore: UserStore
     @State private var careLogStore: CareLogStore
@@ -24,7 +25,12 @@ struct CareBridgeApp: App {
 
     init() {
         let service: DataService = APIDataService()
+        let localAIService: LocalAIService = AppleFoundationModelService()
         dataService      = service
+        aiOrchestrator   = AIOrchestrator(
+            dataService: service,
+            localAIService: localAIService
+        )
         _userStore       = State(initialValue: UserStore(service: service))
         _careLogStore    = State(initialValue: CareLogStore(service: service))
         _todoStore       = State(initialValue: TodoStore(service: service))
@@ -110,6 +116,7 @@ struct CareBridgeApp: App {
             .environment(notificationStore)
             .environment(\.locale, localeStore.locale)
             .environment(\.dataService, dataService)
+            .environment(\.aiOrchestrator, aiOrchestrator)
             .preferredColorScheme(.light)
         }
         // SwiftData 離線快取容器
