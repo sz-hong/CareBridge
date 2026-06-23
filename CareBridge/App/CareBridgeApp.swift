@@ -18,6 +18,7 @@ struct CareBridgeApp: App {
     @State private var medicationStore: MedicationStore
     @State private var localeStore = LocaleStore()
     @State private var healthSync: HealthKitSyncManager
+    @State private var notificationStore: NotificationStore
     @AppStorage("carebridge.healthSyncEnabled") private var healthSyncEnabled = false
     @Environment(\.scenePhase) private var scenePhase
 
@@ -30,6 +31,7 @@ struct CareBridgeApp: App {
         _calendarStore   = State(initialValue: CalendarStore(service: service))
         _medicationStore = State(initialValue: MedicationStore(service: service))
         _healthSync      = State(initialValue: HealthKitSyncManager(service: service))
+        _notificationStore = State(initialValue: NotificationStore(service: service))
     }
 
     var body: some Scene {
@@ -77,6 +79,13 @@ struct CareBridgeApp: App {
                                 }
                             }
                         }
+                        // 載入未讀通知數，驅動各分頁鈴鐺的紅點；回前景時刷新。
+                        .task { await notificationStore.refresh() }
+                        .onChange(of: scenePhase) { _, newPhase in
+                            if newPhase == .active {
+                                Task { await notificationStore.refresh() }
+                            }
+                        }
                 }
             }
             // The logged-in account's `language` is the source of truth for the
@@ -98,6 +107,7 @@ struct CareBridgeApp: App {
             .environment(medicationStore)
             .environment(localeStore)
             .environment(healthSync)
+            .environment(notificationStore)
             .environment(\.locale, localeStore.locale)
             .environment(\.dataService, dataService)
             .preferredColorScheme(.light)

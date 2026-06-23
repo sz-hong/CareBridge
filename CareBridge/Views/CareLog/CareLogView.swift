@@ -128,21 +128,7 @@ struct CareLogView: View {
                         .buttonStyle(.plain)
                     }
                     ToolbarItem(placement: .topBarTrailing) {
-                        HStack(spacing: 12) {
-                            Button {
-                                showNotifications = true
-                            } label: {
-                                ZStack(alignment: .topTrailing) {
-                                    Image(systemName: "bell.fill")
-                                        .font(.system(size: 20))
-                                        .foregroundStyle(Color.brandTeal)
-                                    Circle()
-                                        .fill(.red)
-                                        .frame(width: 8, height: 8)
-                                        .offset(x: 2, y: -2)
-                                }
-                            }
-                        }
+                        NotificationBellButton { showNotifications = true }
                     }
                 }
                 .overlay(alignment: .bottomTrailing) {
@@ -1252,6 +1238,7 @@ private struct CareLogPreviewHost: View {
             onPreviewPhoto: { _ in }
         )
         .environment(CareLogStore())
+        .environment(NotificationStore(service: MockDataService()))
     }
 }
 

@@ -16,6 +16,20 @@ enum APIEndpoint {
     static let healthWeeklySteps = "/health-data/weekly-steps/"
     static let healthSync = "/health-data/sync/"
     static let healthThresholds = "/health-data/thresholds/"
+    static let healthAlerts = "/health-data/alerts/"
+
+    /// 每日彙整的趨勢資料（家庭範圍，遠端家屬也適用）。
+    static func healthHistory(type: String, dateFrom: String, dateTo: String) -> String {
+        var components = URLComponents()
+        components.path = "/health-data/"
+        components.queryItems = [
+            URLQueryItem(name: "type", value: type),
+            URLQueryItem(name: "aggregation", value: "daily"),
+            URLQueryItem(name: "date_from", value: dateFrom),
+            URLQueryItem(name: "date_to", value: dateTo),
+        ]
+        return components.string ?? "/health-data/"
+    }
 
     static let chats = "/chats/"
 

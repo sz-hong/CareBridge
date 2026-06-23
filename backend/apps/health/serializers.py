@@ -60,6 +60,11 @@ class SyncHealthDataSerializer(serializers.Serializer):
 
 
 class HealthAlertSerializer(serializers.ModelSerializer):
+    # Emit floats (not DRF's default decimal-as-string) so the iOS client can
+    # decode value/threshold straight into Double, matching HealthDataSerializer.
+    value = serializers.FloatField()
+    threshold = serializers.FloatField()
+
     class Meta:
         model = HealthAlert
         fields = [

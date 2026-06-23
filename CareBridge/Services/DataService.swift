@@ -165,6 +165,10 @@ protocol DataService {
     // Health
     func fetchHealthData(elderId: String) async throws -> HealthData
     func fetchWeeklySteps(elderId: String) async throws -> [Int]
+    /// 每日彙整的健康趨勢（家庭範圍，遠端家屬也適用）。
+    func fetchHealthHistory(type: String, days: Int) async throws -> [HealthHistoryPoint]
+    /// 健康異常紀錄。
+    func fetchHealthAlerts() async throws -> [HealthAlert]
     /// Batch upload HealthKit samples to the backend. Idempotent —
     /// safe to retry; backend dedupes by (family, type, recorded_at).
     func syncHealthSamples(_ samples: [HealthSyncItem]) async throws -> HealthSyncResult
