@@ -29,16 +29,13 @@ struct NotificationCenterView: View {
                     .tint(Color.brandTeal)
 
                 Button {
-                    withAnimation {
-                        for i in notifications.indices {
-                            notifications[i].isRead = true
-                        }
-                    }
+                    markAllAsRead()
                 } label: {
                     Text("全部已讀")
                         .font(.system(size: 14))
                         .foregroundStyle(Color.brandTeal)
                 }
+                .disabled(unreadCount == 0)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
@@ -69,13 +66,6 @@ struct NotificationCenterView: View {
                                 }
                                 .tint(Color.brandTeal)
                             }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                Button(role: .destructive) {
-                                    deleteNotification(notification)
-                                } label: {
-                                    Label("刪除", systemImage: "trash")
-                                }
-                            }
                     }
                 }
                 .listStyle(.plain)
@@ -96,10 +86,13 @@ struct NotificationCenterView: View {
         }
     }
 
-    private func deleteNotification(_ notification: AppNotification) {
+    private func markAllAsRead() {
         withAnimation {
-            notifications.removeAll { $0.id == notification.id }
+            for i in notifications.indices {
+                notifications[i].isRead = true
+            }
         }
+        Task { try? await service.markAllNotificationsRead() }
     }
 }
 

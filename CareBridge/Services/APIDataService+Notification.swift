@@ -7,6 +7,9 @@ extension APIDataService {
     func markNotificationRead(id: String) async throws {
         let _: EmptyResponse = try await put(path: APIEndpoint.notificationRead(id: id))
     }
+    func markAllNotificationsRead() async throws {
+        let _: EmptyResponse = try await put(path: APIEndpoint.notificationReadAll)
+    }
 
     func registerPushToken(_ token: String) async throws {
         let deviceName = UIDevice.current.name

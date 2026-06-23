@@ -195,6 +195,7 @@ class MockDataService: DataService {
     // MARK: - Notifications
     func fetchNotifications() async throws -> [AppNotification] { AppNotification.samples }
     func markNotificationRead(id: String) async throws { }
+    func markAllNotificationsRead() async throws { }
 
     // MARK: - Purchase Requests
     func fetchPurchaseRequests() async throws -> [PurchaseRequest] { PurchaseRequest.samples }
