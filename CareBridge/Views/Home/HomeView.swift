@@ -118,19 +118,7 @@ struct HomeView: View {
                         .buttonStyle(.plain)
                     }
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            showNotifications = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "bell.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundStyle(Color.brandTeal)
-                                Circle()
-                                    .fill(.red)
-                                    .frame(width: 8, height: 8)
-                                    .offset(x: 2, y: -2)
-                            }
-                        }
+                        NotificationBellButton { showNotifications = true }
                     }
                 }
                 .navigationDestination(for: HomeDestination.self) { dest in
@@ -607,5 +595,6 @@ private struct HomePreviewHost: View {
         .environment(CalendarStore(service: svc))
         .environment(TodoStore(service: svc))
         .environment(UserStore(service: svc))
+        .environment(NotificationStore(service: svc))
     }
 }

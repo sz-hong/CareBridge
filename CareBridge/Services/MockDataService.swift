@@ -53,6 +53,8 @@ class MockDataService: DataService {
     // MARK: - Health
     func fetchHealthData(elderId: String) async throws -> HealthData { .sample }
     func fetchWeeklySteps(elderId: String) async throws -> [Int] { HealthData.weeklySteps }
+    func fetchHealthHistory(type: String, days: Int) async throws -> [HealthHistoryPoint] { [] }
+    func fetchHealthAlerts() async throws -> [HealthAlert] { [] }
     func syncHealthSamples(_ samples: [HealthSyncItem]) async throws -> HealthSyncResult {
         HealthSyncResult(synced: samples.count, duplicates: 0)
     }
@@ -195,6 +197,7 @@ class MockDataService: DataService {
     // MARK: - Notifications
     func fetchNotifications() async throws -> [AppNotification] { AppNotification.samples }
     func markNotificationRead(id: String) async throws { }
+    func markAllNotificationsRead() async throws { }
 
     // MARK: - Purchase Requests
     func fetchPurchaseRequests() async throws -> [PurchaseRequest] { PurchaseRequest.samples }

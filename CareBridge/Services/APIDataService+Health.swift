@@ -5,6 +5,26 @@ extension APIDataService {
     func fetchHealthData(elderId: String) async throws -> HealthData { try await get(path: APIEndpoint.healthDashboard) }
     func fetchWeeklySteps(elderId: String) async throws -> [Int] { try await get(path: APIEndpoint.healthWeeklySteps) }
 
+    /// 過去 `days` 天的每日彙整趨勢（單一 type）。
+    func fetchHealthHistory(type: String, days: Int) async throws -> [HealthHistoryPoint] {
+        let fmt = DateFormatter()
+        fmt.calendar = Calendar(identifier: .gregorian)
+        fmt.locale = Locale(identifier: "en_US_POSIX")
+        fmt.dateFormat = "yyyy-MM-dd"
+        let to = Date()
+        let from = Calendar.current.date(byAdding: .day, value: -(days - 1), to: to) ?? to
+        return try await get(path: APIEndpoint.healthHistory(
+            type: type,
+            dateFrom: fmt.string(from: from),
+            dateTo: fmt.string(from: to),
+        ))
+    }
+
+    /// 家庭的健康異常紀錄（最新在前）。
+    func fetchHealthAlerts() async throws -> [HealthAlert] {
+        try await get(path: APIEndpoint.healthAlerts)
+    }
+
     func syncHealthSamples(_ samples: [HealthSyncItem]) async throws -> HealthSyncResult {
         // Backend expects {"data": [...]}; response envelope is unwrapped by APIClient.
         struct Body: Encodable { let data: [HealthSyncItem] }

@@ -200,6 +200,93 @@ struct HealthData: Identifiable, Codable {
     }
 }
 
+// MARK: - Flexible ISO8601 parsing
+
+/// 後端 DRF 以 iso-8601 輸出，model datetime 常帶微秒（fractional seconds），
+/// 但 `JSONDecoder.dateDecodingStrategy = .iso8601` 不吃微秒。健康趨勢/異常
+/// 的時間欄位是必填、不能靜默 fallback 成 now，所以這裡用容錯解析器。
+enum FlexibleISO8601 {
+    private static let withFraction: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static let plain: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+    static func date(from string: String) -> Date? {
+        withFraction.date(from: string) ?? plain.date(from: string)
+    }
+}
+
+// MARK: - Health History (daily-aggregated trend)
+
+/// 一天的彙整讀數，對應後端 `GET /health-data/?aggregation=daily` 的單筆。
+/// 來源是家庭範圍的後端資料，所以遠端家屬也能看到趨勢（不依賴本機 HealthKit）。
+struct HealthHistoryPoint: Codable, Identifiable {
+    let type: String
+    let period: Date     // API: period（ISO8601 當日 00:00）
+    let avgValue: Double // API: avg_value → convertFromSnakeCase → avgValue
+    var id: Date { period }
+
+    enum CodingKeys: String, CodingKey { case type, period, avgValue }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        type = try c.decode(String.self, forKey: .type)
+        avgValue = try c.decode(Double.self, forKey: .avgValue)
+        let periodString = try c.decode(String.self, forKey: .period)
+        guard let parsed = FlexibleISO8601.date(from: periodString) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .period, in: c,
+                debugDescription: "Unparseable ISO8601 date: \(periodString)")
+        }
+        period = parsed
+    }
+}
+
+// MARK: - Health Alert (真實異常紀錄)
+
+/// 後端 `HealthAlert` —— 數值超出家庭警戒值時自動建立。取代健康監測頁原本
+/// 寫死的「異常紀錄」清單。
+struct HealthAlert: Codable, Identifiable {
+    let id: String
+    let type: String       // heart_rate / blood_oxygen
+    let value: Double
+    let threshold: Double
+    let severity: String   // warning / critical
+    let recordedAt: Date
+    let createdAt: Date
+    let acknowledgedAt: Date?
+
+    /// 是否已被某位家庭成員確認。
+    var isAcknowledged: Bool { acknowledgedAt != nil }
+
+    enum CodingKeys: String, CodingKey {
+        case id, type, value, threshold, severity, recordedAt, createdAt, acknowledgedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        type = try c.decode(String.self, forKey: .type)
+        value = try c.decode(Double.self, forKey: .value)
+        threshold = try c.decode(Double.self, forKey: .threshold)
+        severity = try c.decode(String.self, forKey: .severity)
+        recordedAt = FlexibleISO8601.date(
+            from: (try? c.decode(String.self, forKey: .recordedAt)) ?? "") ?? Date()
+        createdAt = FlexibleISO8601.date(
+            from: (try? c.decode(String.self, forKey: .createdAt)) ?? "") ?? Date()
+        if let ackString = try? c.decodeIfPresent(String.self, forKey: .acknowledgedAt) {
+            acknowledgedAt = FlexibleISO8601.date(from: ackString)
+        } else {
+            acknowledgedAt = nil
+        }
+    }
+}
+
 // MARK: - Supported Languages
 // Must stay aligned with backend `core.translation.SUPPORTED_LANGUAGES`.
 enum SupportedLanguage {

@@ -1,24 +1,57 @@
 import SwiftUI
 
+/// 全 App 共享的通知狀態來源。鈴鐺的未讀紅點與通知中心都讀這裡，
+/// 所以標記已讀後紅點會即時消失（不再永遠亮著）。
+@Observable
+final class NotificationStore {
+    private let service: DataService
+    var notifications: [AppNotification] = []
+
+    var unreadCount: Int { notifications.reduce(0) { $0 + ($1.isRead ? 0 : 1) } }
+
+    init(service: DataService) { self.service = service }
+
+    func refresh() async {
+        let fetched = try? await service.fetchNotifications()
+        await MainActor.run {
+            if let fetched { notifications = fetched }
+        }
+    }
+
+    func markRead(_ id: String) {
+        guard let i = notifications.firstIndex(where: { $0.id == id }),
+              !notifications[i].isRead else { return }
+        notifications[i].isRead = true
+        Task { try? await service.markNotificationRead(id: id) }
+    }
+
+    func markAllRead() {
+        guard unreadCount > 0 else { return }
+        for i in notifications.indices where !notifications[i].isRead {
+            notifications[i].isRead = true
+        }
+        Task { try? await service.markAllNotificationsRead() }
+    }
+
+    func remove(_ id: String) {
+        notifications.removeAll { $0.id == id }
+    }
+}
+
 struct NotificationCenterView: View {
-    @Environment(\.dataService) private var service
-    @State private var notifications: [AppNotification] = []
+    @Environment(NotificationStore.self) private var store
     @State private var showUnreadOnly = false
 
     var displayedNotifications: [AppNotification] {
-        showUnreadOnly ? notifications.filter { !$0.isRead } : notifications
-    }
-
-    var unreadCount: Int {
-        notifications.filter { !$0.isRead }.count
+        showUnreadOnly ? store.notifications.filter { !$0.isRead } : store.notifications
     }
 
     var body: some View {
         VStack(spacing: 0) {
             // Header controls
             HStack {
-                if unreadCount > 0 {
-                    Text("\(unreadCount) 則未讀")
+                if store.unreadCount > 0 {
+                    Text("\(store.unreadCount) 則未讀")
                         .font(.system(size: 14))
                         .foregroundStyle(.secondary)
                 }
@@ -29,11 +62,7 @@ struct NotificationCenterView: View {
                     .tint(Color.brandTeal)
 
                 Button {
-                    withAnimation {
-                        for i in notifications.indices {
-                            notifications[i].isRead = true
-                        }
-                    }
+                    withAnimation { store.markAllRead() }
                 } label: {
                     Text("全部已讀")
                         .font(.system(size: 14))
@@ -63,7 +92,7 @@ struct NotificationCenterView: View {
                             .listRowBackground(notification.isRead ? Color.clear : Color.brandTealLight.opacity(0.3))
                             .swipeActions(edge: .leading) {
                                 Button {
-                                    markAsRead(notification)
+                                    withAnimation { store.markRead(notification.id) }
                                 } label: {
                                     Label("標記已讀", systemImage: "checkmark")
                                 }
@@ -71,7 +100,7 @@ struct NotificationCenterView: View {
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
-                                    deleteNotification(notification)
+                                    withAnimation { store.remove(notification.id) }
                                 } label: {
                                     Label("刪除", systemImage: "trash")
                                 }
@@ -84,22 +113,34 @@ struct NotificationCenterView: View {
         .background(Color.brandBackground)
         .navigationTitle("通知中心")
         .navigationBarTitleDisplayMode(.large)
-        .task {
-            notifications = (try? await service.fetchNotifications()) ?? []
-        }
+        .task { await store.refresh() }
     }
+}
 
-    private func markAsRead(_ notification: AppNotification) {
-        if let index = notifications.firstIndex(where: { $0.id == notification.id }) {
-            withAnimation { notifications[index].isRead = true }
-            Task { try? await service.markNotificationRead(id: notification.id) }
-        }
-    }
+// MARK: - Notification Bell (toolbar button with live unread dot)
 
-    private func deleteNotification(_ notification: AppNotification) {
-        withAnimation {
-            notifications.removeAll { $0.id == notification.id }
+/// 共用的鈴鐺按鈕：只有真的有未讀時才顯示紅點，取代各頁原本「永遠亮」的寫死紅點。
+struct NotificationBellButton: View {
+    @Environment(NotificationStore.self) private var store
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "bell.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(Color.brandTeal)
+                if store.unreadCount > 0 {
+                    Circle()
+                        .fill(.red)
+                        .frame(width: 8, height: 8)
+                        .offset(x: 2, y: -2)
+                }
+            }
         }
+        .accessibilityLabel(
+            store.unreadCount > 0 ? "通知，\(store.unreadCount) 則未讀" : "通知"
+        )
     }
 }
 
@@ -148,4 +189,6 @@ struct NotificationRow: View {
     NavigationStack {
         NotificationCenterView()
     }
+    .environment(NotificationStore(service: MockDataService()))
+    .environment(LocaleStore())
 }

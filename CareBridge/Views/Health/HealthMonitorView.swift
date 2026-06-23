@@ -14,15 +14,6 @@ class HealthKitManager {
     var bloodSugar: Double?
     var isAuthorized = false
 
-    var heartRateHistory: [(String, Int)] = [
-        ("Mon", 74), ("Tue", 78), ("Wed", 82), ("Thu", 112),
-        ("Fri", 76), ("Sat", 72), ("Sun", 71)
-    ]
-    var bloodOxygenHistory: [(String, Double)] = [
-        ("Mon", 97.5), ("Tue", 98.0), ("Wed", 96.8), ("Thu", 95.2),
-        ("Fri", 97.8), ("Sat", 98.2), ("Sun", 97.6)
-    ]
-
     var heartRateStatus: String {
         guard let hr = heartRate else { return "—" }
         return hr > 100 || hr < 55 ? "異常" : "正常"
@@ -54,13 +45,6 @@ class HealthKitManager {
         if let v = hrV   { heartRate = v }
         if let v = spo2V { bloodOxygen = v * 100 }
         if let v = bgV   { bloodSugar = v }
-
-        if let hist = await fetchWeekly(.heartRate, unit: HKUnit(from: "count/min")) {
-            heartRateHistory = hist.map { ($0.0, Int($0.1)) }
-        }
-        if let hist = await fetchWeekly(.oxygenSaturation, unit: .percent()) {
-            bloodOxygenHistory = hist.map { ($0.0, $0.1 * 100) }
-        }
     }
 
     private func fetchLatest(_ id: HKQuantityTypeIdentifier, unit: HKUnit) async -> Double? {
@@ -74,20 +58,6 @@ class HealthKitManager {
         }
     }
 
-    private func fetchWeekly(_ id: HKQuantityTypeIdentifier, unit: HKUnit) async -> [(String, Double)]? {
-        guard let type = HKQuantityType.quantityType(forIdentifier: id) else { return nil }
-        let weekAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date())!
-        let predicate = HKQuery.predicateForSamples(withStart: weekAgo, end: Date())
-        let fmt = DateFormatter(); fmt.dateFormat = "E"
-        return await withCheckedContinuation { cont in
-            let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)
-            let q = HKSampleQuery(sampleType: type, predicate: predicate, limit: HKObjectQueryNoLimit, sortDescriptors: [sort]) { _, samples, _ in
-                guard let s = samples as? [HKQuantitySample], !s.isEmpty else { cont.resume(returning: nil); return }
-                cont.resume(returning: s.map { (fmt.string(from: $0.startDate), $0.quantity.doubleValue(for: unit)) })
-            }
-            store.execute(q)
-        }
-    }
 }
 
 // MARK: - Health Monitor View
@@ -99,6 +69,10 @@ struct HealthMonitorView: View {
     @State private var healthKit = HealthKitManager()
     @State private var liveSocket = HealthLiveSocket()
     @State private var liveBanner: String?
+    // 趨勢圖與異常紀錄改抓後端真實資料（家庭範圍，遠端家屬也適用）。
+    @State private var heartRateTrend: [HealthHistoryPoint] = []
+    @State private var bloodOxygenTrend: [HealthHistoryPoint] = []
+    @State private var alerts: [HealthAlert] = []
     @AppStorage("carebridge.healthSyncEnabled") private var healthSyncEnabled = false
     @Environment(CareLogStore.self) private var careLogStore
     @Environment(HealthKitSyncManager.self) private var healthSync
@@ -184,91 +158,108 @@ struct HealthMonitorView: View {
                 }
                 .padding(.horizontal, 16)
 
-                // Heart Rate Chart（HealthKit 歷史資料）— 折線圖樣式
+                // Heart Rate Chart（後端每日彙整）— 折線圖樣式
+                let hrSeries = chartSeries(heartRateTrend)
                 chartCard(title: "心率趨勢", subtitle: "過去7天 (bpm)",
-                          hasAnomaly: healthKit.heartRateHistory.contains(where: { $0.1 > 100 })) {
-                    Chart {
-                        // 折線
-                        ForEach(healthKit.heartRateHistory, id: \.0) { day, rate in
-                            LineMark(x: .value("Day", day),
-                                     y: .value("BPM", rate))
-                            .foregroundStyle(Color.brandTeal)
-                            .lineStyle(StrokeStyle(lineWidth: 2.5))
-                            .interpolationMethod(.catmullRom)
+                          hasAnomaly: hrSeries.contains(where: { $0.1 > 100 })) {
+                    if hrSeries.isEmpty {
+                        emptyChart
+                    } else {
+                        Chart {
+                            // 折線
+                            ForEach(hrSeries, id: \.0) { day, rate in
+                                LineMark(x: .value("Day", day),
+                                         y: .value("BPM", rate))
+                                .foregroundStyle(Color.brandTeal)
+                                .lineStyle(StrokeStyle(lineWidth: 2.5))
+                                .interpolationMethod(.catmullRom)
+                            }
+                            // 線下淡色區
+                            ForEach(hrSeries, id: \.0) { day, rate in
+                                AreaMark(x: .value("Day", day),
+                                         yStart: .value("Min", 40),
+                                         yEnd: .value("BPM", rate))
+                                .foregroundStyle(Color.brandTeal.opacity(0.12))
+                                .interpolationMethod(.catmullRom)
+                            }
+                            // 每日點，異常時換紅
+                            ForEach(hrSeries, id: \.0) { day, rate in
+                                PointMark(x: .value("Day", day),
+                                          y: .value("BPM", rate))
+                                .foregroundStyle(rate > 100 ? Color.red : Color.brandTeal)
+                                .symbolSize(60)
+                            }
+                            // 警戒線
+                            RuleMark(y: .value("Upper", 100))
+                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
+                                .foregroundStyle(.red.opacity(0.5))
+                            RuleMark(y: .value("Lower", 60))
+                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
+                                .foregroundStyle(.red.opacity(0.5))
                         }
-                        // 線下淡色區
-                        ForEach(healthKit.heartRateHistory, id: \.0) { day, rate in
-                            AreaMark(x: .value("Day", day),
-                                     yStart: .value("Min", 40),
-                                     yEnd: .value("BPM", rate))
-                            .foregroundStyle(Color.brandTeal.opacity(0.12))
-                            .interpolationMethod(.catmullRom)
-                        }
-                        // 每日點，異常時換紅
-                        ForEach(healthKit.heartRateHistory, id: \.0) { day, rate in
-                            PointMark(x: .value("Day", day),
-                                      y: .value("BPM", rate))
-                            .foregroundStyle(rate > 100 ? Color.red : Color.brandTeal)
-                            .symbolSize(60)
-                        }
-                        // 警戒線
-                        RuleMark(y: .value("Upper", 100))
-                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
-                            .foregroundStyle(.red.opacity(0.5))
-                        RuleMark(y: .value("Lower", 60))
-                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
-                            .foregroundStyle(.red.opacity(0.5))
+                        .frame(height: 160)
+                        .chartYScale(domain: 40...140)
+                        .clipped()
+                        .compositingGroup()
                     }
-                    .frame(height: 160)
-                    .chartYScale(domain: 40...140)
-                    .clipped()
-                    .compositingGroup()
                 }
 
-                // Blood Oxygen Chart（HealthKit 歷史資料）
+                // Blood Oxygen Chart（後端每日彙整）
+                let spo2Series = chartSeries(bloodOxygenTrend)
                 chartCard(title: "血氧趨勢", subtitle: "過去7天 (%)",
-                          hasAnomaly: healthKit.bloodOxygenHistory.contains(where: { $0.1 < 95 })) {
-                    Chart {
-                        ForEach(healthKit.bloodOxygenHistory, id: \.0) { day, value in
-                            LineMark(x: .value("Day", day),
-                                     y: .value("SpO2", value))
-                            .foregroundStyle(Color.brandTeal)
-                            .lineStyle(StrokeStyle(lineWidth: 2))
-                            AreaMark(x: .value("Day", day),
-                                     yStart: .value("Min", 93),
-                                     yEnd: .value("SpO2", value))
-                            .foregroundStyle(Color.brandTeal.opacity(0.1))
-                            PointMark(x: .value("Day", day),
-                                      y: .value("SpO2", value))
-                            .foregroundStyle(value < 95 ? .red : Color.brandTeal)
-                            .symbolSize(60)
+                          hasAnomaly: spo2Series.contains(where: { $0.1 < 95 })) {
+                    if spo2Series.isEmpty {
+                        emptyChart
+                    } else {
+                        Chart {
+                            ForEach(spo2Series, id: \.0) { day, value in
+                                LineMark(x: .value("Day", day),
+                                         y: .value("SpO2", value))
+                                .foregroundStyle(Color.brandTeal)
+                                .lineStyle(StrokeStyle(lineWidth: 2))
+                                AreaMark(x: .value("Day", day),
+                                         yStart: .value("Min", 93),
+                                         yEnd: .value("SpO2", value))
+                                .foregroundStyle(Color.brandTeal.opacity(0.1))
+                                PointMark(x: .value("Day", day),
+                                          y: .value("SpO2", value))
+                                .foregroundStyle(value < 95 ? .red : Color.brandTeal)
+                                .symbolSize(60)
+                            }
+                            RuleMark(y: .value("Lower", 93))
+                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
+                                .foregroundStyle(.red.opacity(0.5))
                         }
-                        RuleMark(y: .value("Lower", 93))
-                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
-                            .foregroundStyle(.red.opacity(0.5))
+                        .frame(height: 160)
+                        .chartYScale(domain: 90...100)
+                        .clipped()
+                        .compositingGroup()
                     }
-                    .frame(height: 160)
-                    .chartYScale(domain: 90...100)
-                    .clipped()
-                    .compositingGroup()
                 }
 
-                // Anomaly history
+                // Anomaly history（後端真實 HealthAlert）
                 VStack(alignment: .leading, spacing: 12) {
                     Text("異常紀錄")
                         .font(.system(size: 17, weight: .bold))
-                    anomalyRow(
-                        title: "心率異常",
-                        detail: "心率達到 112 bpm（Thu）",
-                        time: "2天前",
-                        isConfirmed: true
-                    )
-                    anomalyRow(
-                        title: "血氧偏低",
-                        detail: "血氧降至 95.2%（Thu）",
-                        time: "2天前",
-                        isConfirmed: false
-                    )
+                    if alerts.isEmpty {
+                        HStack(spacing: 10) {
+                            Image(systemName: "checkmark.circle")
+                                .foregroundStyle(.green)
+                            Text("目前沒有異常紀錄")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 4)
+                    } else {
+                        ForEach(alerts) { alert in
+                            anomalyRow(
+                                title: alertTitle(alert),
+                                detail: alertDetail(alert),
+                                time: alert.recordedAt.formatted(.relative(presentation: .named)),
+                                isConfirmed: alert.isAcknowledged
+                            )
+                        }
+                    }
                 }
                 .padding(16)
                 .background(RoundedRectangle(cornerRadius: 16).fill(.white))
@@ -287,6 +278,9 @@ struct HealthMonitorView: View {
             // （免費 Apple Developer 帳號無 background delivery 時的兜底）
             await syncHealthIfCurrentOwner()
 
+            // 趨勢圖與異常紀錄抓後端真實資料。
+            await loadTrends()
+
             // Live updates: any family member's HealthKit upload via the
             // /health-data/sync/ endpoint will be fanned out by the backend
             // through ws/health/. Apply incoming points to the local state
@@ -300,6 +294,7 @@ struct HealthMonitorView: View {
             // 下拉重新整理：手動 trigger HealthKit sync + 等 server 回 WS 推送
             await syncHealthIfCurrentOwner()
             await healthKit.loadLatestValues()
+            await loadTrends()
         }
         .onDisappear { liveSocket.disconnect() }
         .overlay(alignment: .top) {
@@ -335,6 +330,63 @@ struct HealthMonitorView: View {
         } else {
             healthSyncEnabled = false
         }
+    }
+
+    /// 抓後端每日彙整趨勢 + 異常紀錄（家庭範圍，遠端家屬也能看到）。
+    private func loadTrends() async {
+        async let hr = service.fetchHealthHistory(type: "heart_rate", days: 7)
+        async let spo2 = service.fetchHealthHistory(type: "blood_oxygen", days: 7)
+        async let al = service.fetchHealthAlerts()
+        heartRateTrend = (try? await hr) ?? []
+        bloodOxygenTrend = (try? await spo2) ?? []
+        alerts = (try? await al) ?? []
+    }
+
+    /// 把每日彙整點轉成圖表用的 (星期, 數值) 序列。
+    private func chartSeries(_ points: [HealthHistoryPoint]) -> [(String, Double)] {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "E"
+        return points
+            .sorted { $0.period < $1.period }
+            .map { (fmt.string(from: $0.period), $0.avgValue) }
+    }
+
+    /// 趨勢資料為空時的佔位（避免顯示空白座標軸）。
+    private var emptyChart: some View {
+        HStack {
+            Spacer()
+            VStack(spacing: 8) {
+                Image(systemName: "chart.line.uptrend.xyaxis")
+                    .font(.system(size: 28))
+                    .foregroundStyle(.secondary)
+                Text("尚無趨勢資料")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .frame(height: 160)
+    }
+
+    private func alertUnit(_ type: String) -> String {
+        switch type {
+        case "heart_rate":   return "bpm"
+        case "blood_oxygen": return "%"
+        default:             return ""
+        }
+    }
+
+    private func alertTitle(_ alert: HealthAlert) -> String {
+        let name = localizedTypeName(alert.type)
+        return alert.severity == "critical" ? "\(name)嚴重異常" : "\(name)異常"
+    }
+
+    private func alertDetail(_ alert: HealthAlert) -> String {
+        let unit = alertUnit(alert.type)
+        func fmt(_ v: Double) -> String {
+            v == v.rounded() ? "\(Int(v))" : String(format: "%.1f", v)
+        }
+        return "\(localizedTypeName(alert.type)) \(fmt(alert.value))\(unit)（警戒值 \(fmt(alert.threshold))\(unit)）"
     }
 
     private var rangeSelector: some View {

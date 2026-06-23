@@ -72,21 +72,7 @@ struct ChatListView: View {
                     .buttonStyle(.plain)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 12) {
-                        Button {
-                            showNotifications = true
-                        } label: {
-                            ZStack(alignment: .topTrailing) {
-                                Image(systemName: "bell.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundStyle(Color.brandTeal)
-                                Circle()
-                                    .fill(.red)
-                                    .frame(width: 8, height: 8)
-                                    .offset(x: 2, y: -2)
-                            }
-                        }
-                    }
+                    NotificationBellButton { showNotifications = true }
                 }
             }
             .navigationDestination(for: ChatRoom.self) { room in
@@ -688,4 +674,5 @@ struct MessageBubble: View {
 
 #Preview {
     ChatListView(showProfile: .constant(false), isInChatDetail: .constant(false), userRole: .family)
+        .environment(NotificationStore(service: MockDataService()))
 }
