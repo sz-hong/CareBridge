@@ -65,6 +65,7 @@ class HealthKitManager {
 struct HealthMonitorView: View {
     @State private var selectedRange = 0 // 0=日, 1=週, 2=月
     private let rangeLabels = ["日", "週", "月"]
+    private let demoData = HealthMonitorDemoData.self
     @State private var showThresholdSettings = false
     @State private var healthKit = HealthKitManager()
     @State private var liveSocket = HealthLiveSocket()
@@ -135,25 +136,20 @@ struct HealthMonitorView: View {
                 // 血壓 + 血糖 取自照護日誌 (.vital) 最新填寫值。
                 // 還沒填過就顯示 "—"。空狀態不顯示「正常」假狀態。
                 HStack(spacing: 12) {
-                    let bp = latestVital(\.bloodPressureSystolic)
-                    let bpd = latestVital(\.bloodPressureDiastolic)
                     vitalCard(
                         title: "血壓",
-                        value: (bp != nil && bpd != nil)
-                            ? "\(bp!.value)/\(bpd!.value)"
-                            : "—",
+                        value: bloodPressureDisplayValue,
                         unit: "mmHg",
                         icon: "waveform.path.ecg", color: .blue,
-                        status: bp == nil ? "尚未填寫" : "正常"
+                        status: bloodPressureDisplayStatus
                     )
 
-                    let sugar = latestVital(\.bloodSugar)
                     vitalCard(
                         title: "血糖",
-                        value: sugar.map { String(format: "%.1f", $0.value) } ?? "—",
+                        value: bloodSugarDisplayValue,
                         unit: "mmol/L",
                         icon: "drop.fill", color: .orange,
-                        status: sugar == nil ? "尚未填寫" : "正常"
+                        status: bloodSugarDisplayStatus
                     )
                 }
                 .padding(.horizontal, 16)
@@ -241,7 +237,7 @@ struct HealthMonitorView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("異常紀錄")
                         .font(.system(size: 17, weight: .bold))
-                    if alerts.isEmpty {
+                    if displayedAlerts.isEmpty {
                         HStack(spacing: 10) {
                             Image(systemName: "checkmark.circle")
                                 .foregroundStyle(.green)
@@ -251,7 +247,7 @@ struct HealthMonitorView: View {
                         }
                         .padding(.vertical, 4)
                     } else {
-                        ForEach(alerts) { alert in
+                        ForEach(displayedAlerts) { alert in
                             anomalyRow(
                                 title: alertTitle(alert),
                                 detail: alertDetail(alert),
@@ -272,6 +268,11 @@ struct HealthMonitorView: View {
         .navigationTitle("健康監測")
         .navigationBarTitleDisplayMode(.large)
         .task {
+            if demoData.isEnabled {
+                await applyDemoHealthData()
+                return
+            }
+
             await healthKit.requestAuthorization()
 
             // 進入頁面時主動 trigger 一次 HealthKit → backend sync
@@ -291,6 +292,11 @@ struct HealthMonitorView: View {
             liveSocket.connect()
         }
         .refreshable {
+            if demoData.isEnabled {
+                await applyDemoHealthData()
+                return
+            }
+
             // 下拉重新整理：手動 trigger HealthKit sync + 等 server 回 WS 推送
             await syncHealthIfCurrentOwner()
             await healthKit.loadLatestValues()
@@ -321,6 +327,49 @@ struct HealthMonitorView: View {
         .sheet(isPresented: $showThresholdSettings) {
             HealthThresholdSettingsView()
         }
+    }
+
+    private var bloodPressureDisplayValue: String {
+        if demoData.isEnabled {
+            return "\(demoData.bloodPressureSystolic)/\(demoData.bloodPressureDiastolic)"
+        }
+
+        let systolic = latestVital(\.bloodPressureSystolic)
+        let diastolic = latestVital(\.bloodPressureDiastolic)
+        guard let systolic, let diastolic else { return "—" }
+        return "\(systolic.value)/\(diastolic.value)"
+    }
+
+    private var bloodPressureDisplayStatus: String {
+        if demoData.isEnabled { return "正常" }
+        return latestVital(\.bloodPressureSystolic) == nil ? "尚未填寫" : "正常"
+    }
+
+    private var bloodSugarDisplayValue: String {
+        if demoData.isEnabled {
+            return String(format: "%.1f", demoData.bloodSugar)
+        }
+        return latestVital(\.bloodSugar).map { String(format: "%.1f", $0.value) } ?? "—"
+    }
+
+    private var bloodSugarDisplayStatus: String {
+        if demoData.isEnabled { return "正常" }
+        return latestVital(\.bloodSugar) == nil ? "尚未填寫" : "正常"
+    }
+
+    private var displayedAlerts: [HealthAlert] {
+        demoData.isEnabled ? demoData.alerts : alerts
+    }
+
+    @MainActor
+    private func applyDemoHealthData() {
+        healthKit.heartRate = demoData.heartRate
+        healthKit.bloodOxygen = demoData.bloodOxygen
+        healthKit.bloodSugar = demoData.bloodSugar
+        heartRateTrend = demoData.heartRateTrend
+        bloodOxygenTrend = demoData.bloodOxygenTrend
+        alerts = demoData.alerts
+        liveBanner = nil
     }
 
     private func syncHealthIfCurrentOwner() async {
@@ -542,6 +591,104 @@ struct HealthMonitorView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Health Monitor Demo Data
+
+private enum HealthMonitorDemoData {
+    /// 健康監測暫時使用展示資料。之後要接回真實 HealthKit / backend，
+    /// 只要改成 `false`，不用重拆畫面邏輯。
+    static let isEnabled = true
+
+    static let heartRate = 76.0
+    static let bloodOxygen = 97.8
+    static let bloodPressureSystolic = 122
+    static let bloodPressureDiastolic = 78
+    static let bloodSugar = 5.6
+
+    static var heartRateTrend: [HealthHistoryPoint] {
+        trend(type: "heart_rate", values: [72, 75, 73, 81, 104, 82, 76])
+    }
+
+    static var bloodOxygenTrend: [HealthHistoryPoint] {
+        trend(type: "blood_oxygen", values: [97.5, 97.1, 96.9, 95.8, 94.2, 96.6, 97.8])
+    }
+
+    static var alerts: [HealthAlert] {
+        [
+            HealthAlert(
+                id: "demo-spo2-warning",
+                type: "blood_oxygen",
+                value: 94.2,
+                threshold: 95,
+                severity: "warning",
+                recordedAt: date(daysAgo: 2, hour: 21, minute: 18),
+                createdAt: date(daysAgo: 2, hour: 21, minute: 19),
+                acknowledgedAt: date(daysAgo: 2, hour: 21, minute: 45)
+            ),
+            HealthAlert(
+                id: "demo-heart-rate-warning",
+                type: "heart_rate",
+                value: 104,
+                threshold: 100,
+                severity: "warning",
+                recordedAt: date(daysAgo: 1, hour: 8, minute: 12),
+                createdAt: date(daysAgo: 1, hour: 8, minute: 13),
+                acknowledgedAt: nil
+            )
+        ]
+    }
+
+    private static func trend(type: String, values: [Double]) -> [HealthHistoryPoint] {
+        values.enumerated().map { index, value in
+            HealthHistoryPoint(
+                type: type,
+                period: date(daysAgo: values.count - index - 1),
+                avgValue: value
+            )
+        }
+    }
+
+    private static func date(daysAgo: Int, hour: Int = 9, minute: Int = 0) -> Date {
+        let calendar = Calendar.current
+        let base = calendar.date(byAdding: .day, value: -daysAgo, to: Date()) ?? Date()
+        return calendar.date(
+            bySettingHour: hour,
+            minute: minute,
+            second: 0,
+            of: base
+        ) ?? base
+    }
+}
+
+private extension HealthHistoryPoint {
+    init(type: String, period: Date, avgValue: Double) {
+        self.type = type
+        self.period = period
+        self.avgValue = avgValue
+    }
+}
+
+private extension HealthAlert {
+    init(
+        id: String,
+        type: String,
+        value: Double,
+        threshold: Double,
+        severity: String,
+        recordedAt: Date,
+        createdAt: Date,
+        acknowledgedAt: Date?
+    ) {
+        self.id = id
+        self.type = type
+        self.value = value
+        self.threshold = threshold
+        self.severity = severity
+        self.recordedAt = recordedAt
+        self.createdAt = createdAt
+        self.acknowledgedAt = acknowledgedAt
     }
 }
 
