@@ -71,7 +71,20 @@ struct APIClient {
             throw APIError.emptyResponse
         }
 
-        let apiResponse = try decoder.decode(APIResponse<T>.self, from: data)
+        let apiResponse: APIResponse<T>
+        do {
+            apiResponse = try decoder.decode(APIResponse<T>.self, from: data)
+        } catch {
+            #if DEBUG
+            let responseBody = String(data: data, encoding: .utf8) ?? "<non-UTF8>"
+            print(
+                "[APIClient] decode failed for \(T.self): "
+                + "\(String(reflecting: error))\n"
+                + "[APIClient] response body: \(responseBody.prefix(4_000))"
+            )
+            #endif
+            throw error
+        }
         guard let result = apiResponse.data else {
             if T.self == EmptyResponse.self {
                 return EmptyResponse() as! T
