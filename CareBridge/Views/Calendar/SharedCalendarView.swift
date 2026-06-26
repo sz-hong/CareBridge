@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SharedCalendarView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(CalendarStore.self) private var calendarStore
     @Environment(TodoStore.self) private var todoStore
     @Environment(LocaleStore.self) private var localeStore
@@ -51,93 +52,7 @@ struct SharedCalendarView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
-                // Month header
-                HStack {
-                    Button {
-                        selectedDate = calendar.date(byAdding: .month, value: -1, to: selectedDate) ?? selectedDate
-                    } label: {
-                        Image(systemName: "chevron.left")
-                            .foregroundStyle(Color.brandTeal)
-                    }
-                    Spacer()
-                    Text(monthFormatter.string(from: selectedDate))
-                        .font(.system(size: 18, weight: .bold))
-                    Spacer()
-                    Button {
-                        selectedDate = calendar.date(byAdding: .month, value: 1, to: selectedDate) ?? selectedDate
-                    } label: {
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(Color.brandTeal)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-
-                // Weekday headers
-                HStack(spacing: 0) {
-                    ForEach(["日", "一", "二", "三", "四", "五", "六"], id: \.self) { day in
-                        Text(day)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity)
-                    }
-                }
-                .padding(.horizontal, 12)
-
-                // Calendar grid
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 8) {
-                    ForEach(Array(daysInMonth.enumerated()), id: \.offset) { _, date in
-                        if let date = date {
-                            DayCell(
-                                date: date,
-                                isSelected: calendar.isDate(date, inSameDayAs: selectedDate),
-                                isToday: calendar.isDateInToday(date),
-                                hasEvent: hasAnythingOn(date)
-                            ) {
-                                selectedDate = date
-                            }
-                        } else {
-                            Color.clear.frame(height: 40)
-                        }
-                    }
-                }
-                .padding(.horizontal, 12)
-
-                Divider()
-
-                // Selected day events + todos
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(selectedDate.formatted(date: .complete, time: .omitted))
-                        .font(.system(size: 15, weight: .semibold))
-                        .padding(.horizontal, 16)
-
-                    if selectedDayEvents.isEmpty && selectedDayTodos.isEmpty {
-                        Text("今日無行程")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                    } else {
-                        // Events first (chronological), then todos
-                        ForEach(selectedDayEvents.sorted { $0.date < $1.date }) { event in
-                            EventRow(event: event)
-                                .padding(.horizontal, 16)
-                        }
-                        ForEach(selectedDayTodos) { todo in
-                            CalendarTodoRow(todo: todo) {
-                                toggleTodo(todo)
-                            }
-                            .padding(.horizontal, 16)
-                        }
-                    }
-                }
-                .padding(.vertical, 8)
-                .background(RoundedRectangle(cornerRadius: 16).fill(.white))
-                .padding(.horizontal, 16)
-
-                Spacer(minLength: 20)
-            }
+            calendarContent
         }
         .background(Color.brandBackground)
         .navigationTitle("共享行事曆")
@@ -167,8 +82,8 @@ struct SharedCalendarView: View {
                         .foregroundStyle(.white)
                 }
             }
-            .padding(.trailing, 20)
-            .padding(.bottom, 24)
+            .padding(.trailing, usesWideLayout ? 32 : 20)
+            .padding(.bottom, usesWideLayout ? 28 : 24)
         }
         .sheet(isPresented: $showAddSheet) {
             switch addType {
@@ -186,6 +101,125 @@ struct SharedCalendarView: View {
             calendarStore.load()
             todoStore.load()
         }
+    }
+
+    @ViewBuilder
+    private var calendarContent: some View {
+        if usesWideLayout {
+            HStack(alignment: .top, spacing: 20) {
+                calendarCard
+                    .frame(maxWidth: 640)
+                selectedDayAgendaCard
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 16)
+            .frame(maxWidth: 1180)
+            .frame(maxWidth: .infinity)
+        } else {
+            VStack(spacing: 16) {
+                calendarCore
+
+                Divider()
+
+                selectedDayAgendaCard
+                    .padding(.horizontal, 16)
+
+                Spacer(minLength: 20)
+            }
+        }
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
+
+    private var calendarCard: some View {
+        calendarCore
+            .padding(.vertical, 16)
+            .background(RoundedRectangle(cornerRadius: 18).fill(.white))
+    }
+
+    private var calendarCore: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Button {
+                    selectedDate = calendar.date(byAdding: .month, value: -1, to: selectedDate) ?? selectedDate
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .foregroundStyle(Color.brandTeal)
+                }
+                Spacer()
+                Text(monthFormatter.string(from: selectedDate))
+                    .font(.system(size: 18, weight: .bold))
+                Spacer()
+                Button {
+                    selectedDate = calendar.date(byAdding: .month, value: 1, to: selectedDate) ?? selectedDate
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .foregroundStyle(Color.brandTeal)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, usesWideLayout ? 0 : 8)
+
+            HStack(spacing: 0) {
+                ForEach(["日", "一", "二", "三", "四", "五", "六"], id: \.self) { day in
+                    Text(day)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(.horizontal, 12)
+
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: usesWideLayout ? 12 : 8) {
+                ForEach(Array(daysInMonth.enumerated()), id: \.offset) { _, date in
+                    if let date {
+                        DayCell(
+                            date: date,
+                            isSelected: calendar.isDate(date, inSameDayAs: selectedDate),
+                            isToday: calendar.isDateInToday(date),
+                            hasEvent: hasAnythingOn(date)
+                        ) {
+                            selectedDate = date
+                        }
+                    } else {
+                        Color.clear.frame(height: usesWideLayout ? 50 : 40)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+        }
+    }
+
+    private var selectedDayAgendaCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(selectedDate.formatted(date: .complete, time: .omitted))
+                .font(.system(size: 15, weight: .semibold))
+                .padding(.horizontal, 16)
+
+            if selectedDayEvents.isEmpty && selectedDayTodos.isEmpty {
+                Text("今日無行程")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+            } else {
+                ForEach(selectedDayEvents.sorted { $0.date < $1.date }) { event in
+                    EventRow(event: event)
+                        .padding(.horizontal, 16)
+                }
+                ForEach(selectedDayTodos) { todo in
+                    CalendarTodoRow(todo: todo) {
+                        toggleTodo(todo)
+                    }
+                    .padding(.horizontal, 16)
+                }
+            }
+        }
+        .padding(.vertical, 12)
+        .background(RoundedRectangle(cornerRadius: 16).fill(.white))
     }
 
     private func toggleTodo(_ todo: TodoItem) {
@@ -244,6 +278,7 @@ struct CalendarTodoRow: View {
 // MARK: - Add Event View (lightweight inline form)
 struct AddEventView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let defaultDate: Date
     let onAdd: (CalendarEvent) -> Void
 
@@ -257,6 +292,10 @@ struct AddEventView: View {
         self.defaultDate = defaultDate
         self.onAdd = onAdd
         _date = State(initialValue: defaultDate)
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
     var body: some View {
@@ -274,6 +313,8 @@ struct AddEventView: View {
                     .pickerStyle(.segmented)
                 }
             }
+            .frame(maxWidth: usesWideLayout ? 640 : .infinity)
+            .frame(maxWidth: .infinity)
             .navigationTitle("新增行程")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

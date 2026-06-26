@@ -6,6 +6,7 @@ struct CareLogView: View {
     let userRole: UserRole
     let previewedPhotoID: String?
     let onPreviewPhoto: (PhotoPreviewItem) -> Void
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(CareLogStore.self) private var careLogStore
     @Environment(LocaleStore.self) private var localeStore
     @State private var selectedFilter: CareLogType? = nil
@@ -38,132 +39,168 @@ struct CareLogView: View {
 
     var body: some View {
         ZStack {
-            NavigationStack {
-                VStack(spacing: 0) {
-                    // Filter chips + calendar header
-                    headerSection
-
-                    ScrollView {
-                        LazyVStack(spacing: 0, pinnedViews: []) {
-                            if careLogStore.isTimelineLoading
-                                && careLogStore.timelineEntries.isEmpty {
-                                ProgressView()
-                                    .padding(.top, 32)
-                            }
-
-                            if let errorMessage = careLogStore.timelineErrorMessage {
-                                Text(errorMessage)
-                                    .font(.footnote)
-                                    .foregroundStyle(.red)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 16)
-                                    .padding(.top, 12)
-                            }
-
-                            ForEach(groupedEntries, id: \.0) { dateString, dayEntries in
-                                VStack(alignment: .leading, spacing: 0) {
-                                    // Date header
-                                    Text("TODAY  \(dateString)")
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundStyle(.secondary)
-                                        .padding(.horizontal, 16)
-                                        .padding(.top, 16)
-                                        .padding(.bottom, 8)
-
-                                    // Timeline entries
-                                    ForEach(dayEntries) { entry in
-                                        TimelineEntryRow(
-                                            entry: entry,
-                                            previewedPhotoID: previewedPhotoID,
-                                            onPreviewPhoto: onPreviewPhoto
-                                        )
-                                    }
-                                }
-                            }
-
-                            if !careLogStore.isTimelineLoading,
-                               careLogStore.timelineEntries.isEmpty,
-                               careLogStore.timelineErrorMessage == nil {
-                                ContentUnavailableView(
-                                    "這天沒有照護日誌",
-                                    systemImage: "doc.text.magnifyingglass"
-                                )
-                                .padding(.top, 24)
-                            }
-
-                            if careLogStore.isLoadingMoreTimeline {
-                                ProgressView()
-                                    .padding(.vertical, 20)
-                            } else if careLogStore.timelineHasMore {
-                                Color.clear
-                                    .frame(height: 1)
-                                    .task {
-                                        await careLogStore.loadMoreTimeline()
-                                    }
-                            }
-
-                            Spacer(minLength: 32)
-                        }
-                    }
-                    .background(Color.brandBackground)
-                    .refreshable {
-                        await careLogStore.loadTimeline(
-                            date: selectedDate,
-                            type: selectedFilter,
-                            forceRefresh: true
-                        )
-                    }
-                }
-                .background(Color.brandBackground)
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button { showProfile = true } label: {
-                            HStack(spacing: 0) {
-                                Image(systemName: "person.circle.fill")
-                                    .font(.system(size: 24, weight: .bold))
-                                    .foregroundStyle(Color.brandTeal)
-                                Text("CareBridge")
-                                    .font(.system(size: 20, weight: .bold))
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        NotificationBellButton { showNotifications = true }
-                    }
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    Button {
-                        showAddEntry = true
-                    } label: {
-                        ZStack {
-                            Circle()
-                                .fill(Color.brandTeal)
-                                .frame(width: 52, height: 52)
-                            Image(systemName: "plus")
-                                .font(.system(size: 22, weight: .bold))
-                                .foregroundStyle(.white)
-                        }
-                    }
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 20)
-                }
-                .sheet(isPresented: $showAddEntry) {
-                    AddCareLogView(userRole: userRole) { newEntry, photo in
-                        try await careLogStore.addEntry(newEntry, photo: photo)
-                    }
-                }
-                .navigationDestination(isPresented: $showNotifications) {
-                    NotificationCenterView()
-                }
-                .task { careLogStore.load() }
-                .task(id: timelineQueryID) {
-                    await careLogStore.loadTimeline(
-                        date: selectedDate,
-                        type: selectedFilter
-                    )
+            if usesWideLayout {
+                careLogRoot
+            } else {
+                NavigationStack {
+                    careLogRoot
                 }
             }
+        }
+    }
+
+    private var careLogRoot: some View {
+        careLogContent
+            .background(Color.brandBackground)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showProfile = true } label: {
+                        HStack(spacing: 0) {
+                            Image(systemName: "person.circle.fill")
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundStyle(Color.brandTeal)
+                            Text("CareBridge")
+                                .font(.system(size: 20, weight: .bold))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    NotificationBellButton { showNotifications = true }
+                }
+            }
+            .toolbarBackground(usesWideLayout ? .hidden : .automatic, for: .navigationBar)
+            .overlay(alignment: .bottomTrailing) {
+                Button {
+                    showAddEntry = true
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(Color.brandTeal)
+                            .frame(width: 52, height: 52)
+                        Image(systemName: "plus")
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                }
+                .padding(.trailing, usesWideLayout ? 32 : 20)
+                .padding(.bottom, usesWideLayout ? 28 : 20)
+            }
+            .sheet(isPresented: $showAddEntry) {
+                AddCareLogView(userRole: userRole) { newEntry, photo in
+                    try await careLogStore.addEntry(newEntry, photo: photo)
+                }
+            }
+            .navigationDestination(isPresented: $showNotifications) {
+                NotificationCenterView()
+            }
+            .task { careLogStore.load() }
+            .task(id: timelineQueryID) {
+                await careLogStore.loadTimeline(
+                    date: selectedDate,
+                    type: selectedFilter
+                )
+            }
+    }
+
+    @ViewBuilder
+    private var careLogContent: some View {
+        if usesWideLayout {
+            VStack(spacing: 0) {
+                headerSection
+                    .frame(maxWidth: 780)
+
+                timelineScroll
+                    .frame(maxWidth: 780)
+            }
+            .padding(.top, -24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        } else {
+            VStack(spacing: 0) {
+                // Filter chips + calendar header
+                headerSection
+
+                timelineScroll
+            }
+        }
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
+
+    private var timelineScroll: some View {
+        ScrollView {
+            LazyVStack(spacing: 0, pinnedViews: []) {
+                if careLogStore.isTimelineLoading
+                    && careLogStore.timelineEntries.isEmpty {
+                    ProgressView()
+                        .padding(.top, 32)
+                }
+
+                if let errorMessage = careLogStore.timelineErrorMessage {
+                    Text(errorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                }
+
+                ForEach(groupedEntries, id: \.0) { dateString, dayEntries in
+                    VStack(alignment: .leading, spacing: 0) {
+                        // Date header
+                        Text("TODAY  \(dateString)")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 16)
+                            .padding(.bottom, 8)
+
+                        // Timeline entries
+                        ForEach(dayEntries) { entry in
+                            TimelineEntryRow(
+                                entry: entry,
+                                previewedPhotoID: previewedPhotoID,
+                                onPreviewPhoto: onPreviewPhoto
+                            )
+                        }
+                    }
+                }
+
+                if !careLogStore.isTimelineLoading,
+                   careLogStore.timelineEntries.isEmpty,
+                   careLogStore.timelineErrorMessage == nil {
+                    ContentUnavailableView(
+                        "這天沒有照護日誌",
+                        systemImage: "doc.text.magnifyingglass"
+                    )
+                    .padding(.top, 24)
+                }
+
+                if careLogStore.isLoadingMoreTimeline {
+                    ProgressView()
+                        .padding(.vertical, 20)
+                } else if careLogStore.timelineHasMore {
+                    Color.clear
+                        .frame(height: 1)
+                        .task {
+                            await careLogStore.loadMoreTimeline()
+                        }
+                }
+
+                Spacer(minLength: 32)
+            }
+            .frame(maxWidth: usesWideLayout ? 780 : .infinity)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Color.brandBackground)
+        .refreshable {
+            await careLogStore.loadTimeline(
+                date: selectedDate,
+                type: selectedFilter,
+                forceRefresh: true
+            )
         }
     }
 
@@ -707,6 +744,7 @@ struct TimelineEntryRow: View {
 // MARK: - Add Care Log View
 struct AddCareLogView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let userRole: UserRole
     let onAdd: (CareLogEntry, UIImage?) async throws -> Void
 
@@ -778,6 +816,10 @@ struct AddCareLogView: View {
         case activityDuration
     }
 
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
+
     private var availableRecordTypes: [CareLogType] {
         // 「備註」類型已由 chat / Todo 取代，新增紀錄時不再提供。
         CareLogType.allCases.filter { $0 != .note }
@@ -789,6 +831,8 @@ struct AddCareLogView: View {
                 Form {
                     recordForm
                 }
+                .frame(maxWidth: usesWideLayout ? 720 : .infinity)
+                .frame(maxWidth: .infinity)
                 .scrollDismissesKeyboard(.interactively)
                 .navigationTitle("新增紀錄")
                 .navigationBarTitleDisplayMode(.inline)

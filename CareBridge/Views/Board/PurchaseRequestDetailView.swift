@@ -8,9 +8,14 @@ struct PurchaseRequestDetailView: View {
     let userRole: UserRole
     @Environment(\.dataService) private var service
     @Environment(LocaleStore.self) private var localeStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var request: PurchaseRequest?
     @State private var isLoading = true
     @State private var replyText = ""
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
 
     var body: some View {
         Group {
@@ -25,7 +30,9 @@ struct PurchaseRequestDetailView: View {
                             approvalSection(req)
                         }
                     }
-                    .padding(16)
+                    .frame(maxWidth: usesWideLayout ? 760 : .infinity)
+                    .padding(usesWideLayout ? 24 : 16)
+                    .frame(maxWidth: .infinity)
                 }
             } else {
                 ContentUnavailableView("找不到此採購需求", systemImage: "cart")

@@ -10,9 +10,14 @@ struct LeaveRequestDetailView: View {
     @Environment(\.dataService) private var service
     @Environment(UserStore.self) private var userStore
     @Environment(LocaleStore.self) private var localeStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var request: LeaveRequest?
     @State private var isLoading = true
     @State private var hasVoted = false
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
 
     private var dateFmt: DateFormatter {
         LocalizedFormatters.shortDateWithWeekday(for: localeStore.locale)
@@ -29,7 +34,9 @@ struct LeaveRequestDetailView: View {
                         leaveInfoCard(req)
                         votingSection(req)
                     }
-                    .padding(16)
+                    .frame(maxWidth: usesWideLayout ? 760 : .infinity)
+                    .padding(usesWideLayout ? 24 : 16)
+                    .frame(maxWidth: .infinity)
                 }
             } else {
                 ContentUnavailableView("找不到此請假申請", systemImage: "calendar")

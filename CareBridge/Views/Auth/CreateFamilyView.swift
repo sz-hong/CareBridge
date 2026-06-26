@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CreateFamilyView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dataService) private var dataService
     @Environment(UserStore.self) private var userStore
     @Binding var userRole: UserRole
@@ -87,6 +88,8 @@ struct CreateFamilyView: View {
                     .disabled(!canCreate || isCreating)
                 }
             }
+            .frame(maxWidth: usesWideLayout ? 640 : .infinity)
+            .frame(maxWidth: .infinity)
             .navigationTitle("建立新家庭")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -96,6 +99,10 @@ struct CreateFamilyView: View {
                 }
             }
         }
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
     private func performCreate() async {

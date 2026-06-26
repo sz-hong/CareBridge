@@ -3,6 +3,7 @@ import SwiftUI
 struct FirstAidView: View {
     var isModal: Bool = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dataService) private var service
     @State private var searchText = ""
     @State private var selectedScenario: FirstAidScenario?
@@ -17,11 +18,7 @@ struct FirstAidView: View {
             searchBar
 
             LazyVGrid(
-                columns: [
-                    GridItem(.flexible()),
-                    GridItem(.flexible()),
-                    GridItem(.flexible())
-                ],
+                columns: firstAidColumns,
                 spacing: 12
             ) {
                 ForEach(scenarios) { scenario in
@@ -52,7 +49,8 @@ struct FirstAidView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, usesWideLayout ? 32 : 16)
+            .frame(maxWidth: usesWideLayout ? 900 : .infinity)
 
             if let aiAnswer {
                 firstAidAnswerGuide(answer: aiAnswer)
@@ -85,6 +83,7 @@ struct FirstAidView: View {
             .buttonStyle(.plain)
             .padding(.horizontal, 16)
             .padding(.bottom, 24)
+            .frame(maxWidth: usesWideLayout ? 640 : .infinity)
         }
         .background(Color.brandBackground)
         .navigationTitle("急救指南")
@@ -107,6 +106,17 @@ struct FirstAidView: View {
         .task {
             scenarios = (try? await service.fetchFirstAidScenarios()) ?? []
         }
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
+
+    private var firstAidColumns: [GridItem] {
+        Array(
+            repeating: GridItem(.flexible(), spacing: 12),
+            count: usesWideLayout ? 4 : 3
+        )
     }
 
     private var searchBar: some View {
@@ -139,8 +149,9 @@ struct FirstAidView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
-        .padding(.horizontal, 16)
+        .padding(.horizontal, usesWideLayout ? 32 : 16)
         .padding(.vertical, 12)
+        .frame(maxWidth: usesWideLayout ? 900 : .infinity)
     }
 
     private func firstAidGuide(scenario: FirstAidScenario) -> some View {
@@ -183,8 +194,9 @@ struct FirstAidView: View {
         }
         .background(.white)
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .padding(.horizontal, 16)
+        .padding(.horizontal, usesWideLayout ? 32 : 16)
         .padding(.top, 12)
+        .frame(maxWidth: usesWideLayout ? 900 : .infinity)
     }
 
     private func firstAidAnswerGuide(answer: FirstAidAnswer) -> some View {
@@ -221,8 +233,9 @@ struct FirstAidView: View {
         }
         .background(.white)
         .clipShape(RoundedRectangle(cornerRadius: 16))
-        .padding(.horizontal, 16)
+        .padding(.horizontal, usesWideLayout ? 32 : 16)
         .padding(.top, 12)
+        .frame(maxWidth: usesWideLayout ? 900 : .infinity)
     }
 
     private var disclaimer: some View {
@@ -250,6 +263,7 @@ struct FirstAidView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 32)
+        .frame(maxWidth: usesWideLayout ? 900 : .infinity)
     }
 
     private func errorGuide(message: String) -> some View {
@@ -264,7 +278,8 @@ struct FirstAidView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 28)
-        .padding(.horizontal, 16)
+        .padding(.horizontal, usesWideLayout ? 32 : 16)
+        .frame(maxWidth: usesWideLayout ? 900 : .infinity)
     }
 
     @MainActor

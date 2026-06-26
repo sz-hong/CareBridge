@@ -60,11 +60,59 @@ class HealthKitManager {
 
 }
 
+private enum HealthMonitorDemoData {
+    struct DemoAlert: Identifiable {
+        let id: String
+        let title: String
+        let detail: String
+        let time: String
+        let isConfirmed: Bool
+    }
+
+    static let heartRateSeries: [(String, Double)] = [
+        ("一", 76),
+        ("二", 82),
+        ("三", 88),
+        ("四", 94),
+        ("五", 102),
+        ("六", 86),
+        ("日", 79),
+    ]
+
+    static let bloodOxygenSeries: [(String, Double)] = [
+        ("一", 98),
+        ("二", 97),
+        ("三", 96),
+        ("四", 95),
+        ("五", 94),
+        ("六", 96),
+        ("日", 97),
+    ]
+
+    static let alerts: [DemoAlert] = [
+        DemoAlert(
+            id: "demo-heart-rate-warning",
+            title: "心率異常",
+            detail: "心率 102bpm（警戒值 100bpm）",
+            time: "今天",
+            isConfirmed: false
+        ),
+        DemoAlert(
+            id: "demo-blood-oxygen-warning",
+            title: "血氧異常",
+            detail: "血氧 94%（警戒值 95%）",
+            time: "昨天",
+            isConfirmed: true
+        ),
+    ]
+}
+
 // MARK: - Health Monitor View
 
 struct HealthMonitorView: View {
     @State private var selectedRange = 0 // 0=日, 1=週, 2=月
     private let rangeLabels = ["日", "週", "月"]
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private let demoData = HealthMonitorDemoData.self
     @State private var showThresholdSettings = false
     @State private var healthKit = HealthKitManager()
@@ -110,159 +158,7 @@ struct HealthMonitorView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
-                // Range selector — custom segmented control with explicit
-                // clipping; iOS 26 Liquid Glass tinting was leaking the
-                // selected-segment fill outside the row before.
-                rangeSelector
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-
-                // Current vitals summary (HealthKit 即時數值)
-                HStack(spacing: 12) {
-                    vitalCard(title: "心率",
-                              value: healthKit.heartRate.map { "\(Int($0))" } ?? "—",
-                              unit: "bpm",
-                              icon: "heart.fill", color: .red,
-                              status: healthKit.heartRateStatus)
-                    vitalCard(title: "血氧",
-                              value: healthKit.bloodOxygen.map { String(format: "%.1f", $0) } ?? "—",
-                              unit: "%",
-                              icon: "wind", color: Color.brandTeal,
-                              status: healthKit.bloodOxygenStatus)
-                }
-                .padding(.horizontal, 16)
-
-                // 血壓 + 血糖 取自照護日誌 (.vital) 最新填寫值。
-                // 還沒填過就顯示 "—"。空狀態不顯示「正常」假狀態。
-                HStack(spacing: 12) {
-                    vitalCard(
-                        title: "血壓",
-                        value: bloodPressureDisplayValue,
-                        unit: "mmHg",
-                        icon: "waveform.path.ecg", color: .blue,
-                        status: bloodPressureDisplayStatus
-                    )
-
-                    vitalCard(
-                        title: "血糖",
-                        value: bloodSugarDisplayValue,
-                        unit: "mmol/L",
-                        icon: "drop.fill", color: .orange,
-                        status: bloodSugarDisplayStatus
-                    )
-                }
-                .padding(.horizontal, 16)
-
-                // Heart Rate Chart（後端每日彙整）— 折線圖樣式
-                let hrSeries = chartSeries(heartRateTrend)
-                chartCard(title: "心率趨勢", subtitle: "過去7天 (bpm)",
-                          hasAnomaly: hrSeries.contains(where: { $0.1 > 100 })) {
-                    if hrSeries.isEmpty {
-                        emptyChart
-                    } else {
-                        Chart {
-                            // 折線
-                            ForEach(hrSeries, id: \.0) { day, rate in
-                                LineMark(x: .value("Day", day),
-                                         y: .value("BPM", rate))
-                                .foregroundStyle(Color.brandTeal)
-                                .lineStyle(StrokeStyle(lineWidth: 2.5))
-                                .interpolationMethod(.catmullRom)
-                            }
-                            // 線下淡色區
-                            ForEach(hrSeries, id: \.0) { day, rate in
-                                AreaMark(x: .value("Day", day),
-                                         yStart: .value("Min", 40),
-                                         yEnd: .value("BPM", rate))
-                                .foregroundStyle(Color.brandTeal.opacity(0.12))
-                                .interpolationMethod(.catmullRom)
-                            }
-                            // 每日點，異常時換紅
-                            ForEach(hrSeries, id: \.0) { day, rate in
-                                PointMark(x: .value("Day", day),
-                                          y: .value("BPM", rate))
-                                .foregroundStyle(rate > 100 ? Color.red : Color.brandTeal)
-                                .symbolSize(60)
-                            }
-                            // 警戒線
-                            RuleMark(y: .value("Upper", 100))
-                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
-                                .foregroundStyle(.red.opacity(0.5))
-                            RuleMark(y: .value("Lower", 60))
-                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
-                                .foregroundStyle(.red.opacity(0.5))
-                        }
-                        .frame(height: 160)
-                        .chartYScale(domain: 40...140)
-                        .clipped()
-                        .compositingGroup()
-                    }
-                }
-
-                // Blood Oxygen Chart（後端每日彙整）
-                let spo2Series = chartSeries(bloodOxygenTrend)
-                chartCard(title: "血氧趨勢", subtitle: "過去7天 (%)",
-                          hasAnomaly: spo2Series.contains(where: { $0.1 < 95 })) {
-                    if spo2Series.isEmpty {
-                        emptyChart
-                    } else {
-                        Chart {
-                            ForEach(spo2Series, id: \.0) { day, value in
-                                LineMark(x: .value("Day", day),
-                                         y: .value("SpO2", value))
-                                .foregroundStyle(Color.brandTeal)
-                                .lineStyle(StrokeStyle(lineWidth: 2))
-                                AreaMark(x: .value("Day", day),
-                                         yStart: .value("Min", 93),
-                                         yEnd: .value("SpO2", value))
-                                .foregroundStyle(Color.brandTeal.opacity(0.1))
-                                PointMark(x: .value("Day", day),
-                                          y: .value("SpO2", value))
-                                .foregroundStyle(value < 95 ? .red : Color.brandTeal)
-                                .symbolSize(60)
-                            }
-                            RuleMark(y: .value("Lower", 93))
-                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
-                                .foregroundStyle(.red.opacity(0.5))
-                        }
-                        .frame(height: 160)
-                        .chartYScale(domain: 90...100)
-                        .clipped()
-                        .compositingGroup()
-                    }
-                }
-
-                // Anomaly history（後端真實 HealthAlert）
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("異常紀錄")
-                        .font(.system(size: 17, weight: .bold))
-                    if displayedAlerts.isEmpty {
-                        HStack(spacing: 10) {
-                            Image(systemName: "checkmark.circle")
-                                .foregroundStyle(.green)
-                            Text("目前沒有異常紀錄")
-                                .font(.system(size: 14))
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.vertical, 4)
-                    } else {
-                        ForEach(displayedAlerts) { alert in
-                            anomalyRow(
-                                title: alertTitle(alert),
-                                detail: alertDetail(alert),
-                                time: alert.recordedAt.formatted(.relative(presentation: .named)),
-                                isConfirmed: alert.isAcknowledged
-                            )
-                        }
-                    }
-                }
-                .padding(16)
-                .background(RoundedRectangle(cornerRadius: 16).fill(.white))
-                .padding(.horizontal, 16)
-
-                Spacer(minLength: 20)
-            }
+            healthContent
         }
         .background(Color.brandBackground)
         .navigationTitle("健康監測")
@@ -329,47 +225,233 @@ struct HealthMonitorView: View {
         }
     }
 
-    private var bloodPressureDisplayValue: String {
-        if demoData.isEnabled {
-            return "\(demoData.bloodPressureSystolic)/\(demoData.bloodPressureDiastolic)"
+    @ViewBuilder
+    private var healthContent: some View {
+        if usesWideLayout {
+            VStack(spacing: 20) {
+                rangeSelector
+                    .frame(width: 360)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), spacing: 14) {
+                    heartRateVitalCard
+                    bloodOxygenVitalCard
+                    bloodPressureVitalCard
+                    bloodSugarVitalCard
+                }
+
+                HStack(alignment: .top, spacing: 20) {
+                    heartRateChartCard
+                    bloodOxygenChartCard
+                }
+
+                anomalySection
+
+                Spacer(minLength: 24)
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 16)
+            .frame(maxWidth: 1180)
+            .frame(maxWidth: .infinity)
+        } else {
+            VStack(spacing: 16) {
+                // Range selector — custom segmented control with explicit
+                // clipping; iOS 26 Liquid Glass tinting was leaking the
+                // selected-segment fill outside the row before.
+                rangeSelector
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+
+                HStack(spacing: 12) {
+                    heartRateVitalCard
+                    bloodOxygenVitalCard
+                }
+                .padding(.horizontal, 16)
+
+                HStack(spacing: 12) {
+                    bloodPressureVitalCard
+                    bloodSugarVitalCard
+                }
+                .padding(.horizontal, 16)
+
+                heartRateChartCard
+                    .padding(.horizontal, 16)
+
+                bloodOxygenChartCard
+                    .padding(.horizontal, 16)
+
+                anomalySection
+                    .padding(.horizontal, 16)
+
+                Spacer(minLength: 20)
+            }
         }
-
-        let systolic = latestVital(\.bloodPressureSystolic)
-        let diastolic = latestVital(\.bloodPressureDiastolic)
-        guard let systolic, let diastolic else { return "—" }
-        return "\(systolic.value)/\(diastolic.value)"
     }
 
-    private var bloodPressureDisplayStatus: String {
-        if demoData.isEnabled { return "正常" }
-        return latestVital(\.bloodPressureSystolic) == nil ? "尚未填寫" : "正常"
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
-    private var bloodSugarDisplayValue: String {
-        if demoData.isEnabled {
-            return String(format: "%.1f", demoData.bloodSugar)
+    private var heartRateVitalCard: some View {
+        vitalCard(
+            title: "心率",
+            value: healthKit.heartRate.map { "\(Int($0))" } ?? "—",
+            unit: "bpm",
+            icon: "heart.fill",
+            color: .red,
+            status: healthKit.heartRateStatus
+        )
+    }
+
+    private var bloodOxygenVitalCard: some View {
+        vitalCard(
+            title: "血氧",
+            value: healthKit.bloodOxygen.map { String(format: "%.1f", $0) } ?? "—",
+            unit: "%",
+            icon: "wind",
+            color: Color.brandTeal,
+            status: healthKit.bloodOxygenStatus
+        )
+    }
+
+    private var bloodPressureVitalCard: some View {
+        let bp = latestVital(\.bloodPressureSystolic)
+        let bpd = latestVital(\.bloodPressureDiastolic)
+        return vitalCard(
+            title: "血壓",
+            value: (bp != nil && bpd != nil)
+                ? "\(bp!.value)/\(bpd!.value)"
+                : "—",
+            unit: "mmHg",
+            icon: "waveform.path.ecg",
+            color: .blue,
+            status: bp == nil ? "尚未填寫" : "正常"
+        )
+    }
+
+    private var bloodSugarVitalCard: some View {
+        let sugar = latestVital(\.bloodSugar)
+        return vitalCard(
+            title: "血糖",
+            value: sugar.map { String(format: "%.1f", $0.value) } ?? "—",
+            unit: "mmol/L",
+            icon: "drop.fill",
+            color: .orange,
+            status: sugar == nil ? "尚未填寫" : "正常"
+        )
+    }
+
+    private var heartRateChartCard: some View {
+        let apiSeries = chartSeries(heartRateTrend)
+        let hrSeries = apiSeries.isEmpty ? demoData.heartRateSeries : apiSeries
+        return chartCard(
+            title: "心率趨勢",
+            subtitle: "過去7天 (bpm)",
+            hasAnomaly: hrSeries.contains(where: { $0.1 > 100 })
+        ) {
+            if hrSeries.isEmpty {
+                emptyChart
+            } else {
+                Chart {
+                    ForEach(hrSeries, id: \.0) { day, rate in
+                        LineMark(x: .value("Day", day), y: .value("BPM", rate))
+                            .foregroundStyle(Color.brandTeal)
+                            .lineStyle(StrokeStyle(lineWidth: 2.5))
+                            .interpolationMethod(.catmullRom)
+                    }
+                    ForEach(hrSeries, id: \.0) { day, rate in
+                        AreaMark(
+                            x: .value("Day", day),
+                            yStart: .value("Min", 40),
+                            yEnd: .value("BPM", rate)
+                        )
+                        .foregroundStyle(Color.brandTeal.opacity(0.12))
+                        .interpolationMethod(.catmullRom)
+                    }
+                    ForEach(hrSeries, id: \.0) { day, rate in
+                        PointMark(x: .value("Day", day), y: .value("BPM", rate))
+                            .foregroundStyle(rate > 100 ? Color.red : Color.brandTeal)
+                            .symbolSize(60)
+                    }
+                    RuleMark(y: .value("Upper", 100))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
+                        .foregroundStyle(.red.opacity(0.5))
+                    RuleMark(y: .value("Lower", 60))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
+                        .foregroundStyle(.red.opacity(0.5))
+                }
+                .frame(height: usesWideLayout ? 220 : 160)
+                .chartYScale(domain: 40...140)
+                .clipped()
+                .compositingGroup()
+            }
         }
-        return latestVital(\.bloodSugar).map { String(format: "%.1f", $0.value) } ?? "—"
     }
 
-    private var bloodSugarDisplayStatus: String {
-        if demoData.isEnabled { return "正常" }
-        return latestVital(\.bloodSugar) == nil ? "尚未填寫" : "正常"
+    private var bloodOxygenChartCard: some View {
+        let apiSeries = chartSeries(bloodOxygenTrend)
+        let spo2Series = apiSeries.isEmpty ? demoData.bloodOxygenSeries : apiSeries
+        return chartCard(
+            title: "血氧趨勢",
+            subtitle: "過去7天 (%)",
+            hasAnomaly: spo2Series.contains(where: { $0.1 < 95 })
+        ) {
+            if spo2Series.isEmpty {
+                emptyChart
+            } else {
+                Chart {
+                    ForEach(spo2Series, id: \.0) { day, value in
+                        LineMark(x: .value("Day", day), y: .value("SpO2", value))
+                            .foregroundStyle(Color.brandTeal)
+                            .lineStyle(StrokeStyle(lineWidth: 2))
+                        AreaMark(
+                            x: .value("Day", day),
+                            yStart: .value("Min", 93),
+                            yEnd: .value("SpO2", value)
+                        )
+                        .foregroundStyle(Color.brandTeal.opacity(0.1))
+                        PointMark(x: .value("Day", day), y: .value("SpO2", value))
+                            .foregroundStyle(value < 95 ? .red : Color.brandTeal)
+                            .symbolSize(60)
+                    }
+                    RuleMark(y: .value("Lower", 93))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
+                        .foregroundStyle(.red.opacity(0.5))
+                }
+                .frame(height: usesWideLayout ? 220 : 160)
+                .chartYScale(domain: 90...100)
+                .clipped()
+                .compositingGroup()
+            }
+        }
     }
 
-    private var displayedAlerts: [HealthAlert] {
-        demoData.isEnabled ? demoData.alerts : alerts
-    }
-
-    @MainActor
-    private func applyDemoHealthData() {
-        healthKit.heartRate = demoData.heartRate
-        healthKit.bloodOxygen = demoData.bloodOxygen
-        healthKit.bloodSugar = demoData.bloodSugar
-        heartRateTrend = demoData.heartRateTrend
-        bloodOxygenTrend = demoData.bloodOxygenTrend
-        alerts = demoData.alerts
-        liveBanner = nil
+    private var anomalySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("異常紀錄")
+                .font(.system(size: 17, weight: .bold))
+            if alerts.isEmpty {
+                ForEach(demoData.alerts) { alert in
+                    anomalyRow(
+                        title: alert.title,
+                        detail: alert.detail,
+                        time: alert.time,
+                        isConfirmed: alert.isConfirmed
+                    )
+                }
+            } else {
+                ForEach(alerts) { alert in
+                    anomalyRow(
+                        title: alertTitle(alert),
+                        detail: alertDetail(alert),
+                        time: alert.recordedAt.formatted(.relative(presentation: .named)),
+                        isConfirmed: alert.isAcknowledged
+                    )
+                }
+            }
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 16).fill(.white))
     }
 
     private func syncHealthIfCurrentOwner() async {
@@ -696,6 +778,7 @@ private extension HealthAlert {
 struct HealthThresholdSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dataService) private var service
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var heartRateMax: Double = 100
     @State private var heartRateMin: Double = 55
     @State private var bloodOxygenMin: Double = 94
@@ -704,6 +787,10 @@ struct HealthThresholdSettingsView: View {
     @State private var bloodSugarMax: Double = 7.8
     @State private var isSaving = false
     @State private var errorMessage: String? = nil
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
 
     var body: some View {
         NavigationStack {
@@ -804,6 +891,8 @@ struct HealthThresholdSettingsView: View {
                 }
                 }
             }
+            .frame(maxWidth: usesWideLayout ? 640 : .infinity)
+            .frame(maxWidth: .infinity)
             .navigationTitle("警戒值設定")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

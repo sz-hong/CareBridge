@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MessageBoardView: View {
     var userRole: UserRole = .family
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dataService) private var service
     @State private var requests: [PurchaseRequest] = []
     @State private var selectedCategory = "全部"
@@ -23,7 +24,8 @@ struct MessageBoardView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, usesWideLayout ? 32 : 16)
+                .frame(maxWidth: usesWideLayout ? 900 : .infinity)
             }
             .padding(.vertical, 10)
 
@@ -42,8 +44,10 @@ struct MessageBoardView: View {
                     }
                     Spacer(minLength: 20)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+                .padding(.horizontal, usesWideLayout ? 32 : 16)
+                .padding(.top, usesWideLayout ? 16 : 8)
+                .frame(maxWidth: usesWideLayout ? 900 : .infinity)
+                .frame(maxWidth: .infinity)
             }
         }
         .background(Color.brandBackground)
@@ -75,6 +79,10 @@ struct MessageBoardView: View {
         }
     }
 
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
+
     private func updateStatus(_ request: PurchaseRequest, to status: String) {
         if let index = requests.firstIndex(where: { $0.id == request.id }) {
             withAnimation {
@@ -99,6 +107,7 @@ struct MessageBoardView: View {
 struct AddPurchaseRequestView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dataService) private var service
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let onAdd: (PurchaseRequest) -> Void
 
     @State private var itemName = ""
@@ -110,6 +119,10 @@ struct AddPurchaseRequestView: View {
     private let categories = ["食品", "日用品", "醫療用品", "其他"]
 
     private var canSubmit: Bool { !itemName.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
 
     var body: some View {
         NavigationStack {
@@ -129,6 +142,8 @@ struct AddPurchaseRequestView: View {
                         .frame(height: 80)
                 }
             }
+            .frame(maxWidth: usesWideLayout ? 640 : .infinity)
+            .frame(maxWidth: .infinity)
             .navigationTitle("新增採購需求")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

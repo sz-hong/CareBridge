@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct AIAgentView: View {
     var isModal: Bool = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dataService) private var dataService
     @Environment(\.aiOrchestrator) private var aiOrchestrator
     @State private var messages: [AIMessage] = []
@@ -48,6 +49,8 @@ struct AIAgentView: View {
                         }
                     }
                     .padding(.vertical, 20)
+                    .frame(maxWidth: usesWideLayout ? 820 : .infinity)
+                    .frame(maxWidth: .infinity)
                 }
                 .background(Color.brandBackground)
                 .scrollDismissesKeyboard(.interactively)
@@ -128,6 +131,10 @@ struct AIAgentView: View {
             }
         }
         .quickLookPreview($documentPreviewURL)
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
     private var aiWelcome: some View {
@@ -252,6 +259,7 @@ struct AIAgentView: View {
         }
         .aiThinkingBeam(active: isLoading, cornerRadius: 24)
         .shadow(color: .black.opacity(0.06), radius: 12, y: 4)
+        .frame(maxWidth: usesWideLayout ? 760 : .infinity)
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(.ultraThinMaterial)
@@ -518,6 +526,7 @@ private struct LocalAIToolSheet: View {
     let onDraftGenerated: (AITextTaskResponse) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.aiOrchestrator) private var aiOrchestrator
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var inputText = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -525,6 +534,10 @@ private struct LocalAIToolSheet: View {
     private var canRun: Bool {
         !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !isLoading
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
     var body: some View {
@@ -565,6 +578,8 @@ private struct LocalAIToolSheet: View {
                     }
                 }
             }
+            .frame(maxWidth: usesWideLayout ? 640 : .infinity)
+            .frame(maxWidth: .infinity)
             .navigationTitle(tool.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -635,6 +650,7 @@ private struct AIToolSheet: View {
     let onDocumentGenerated: (AIGeneratedDocument) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dataService) private var dataService
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var days = 7
     @State private var reportDate = Date()
     @State private var subsidyFormType = "long_term_care"
@@ -651,6 +667,10 @@ private struct AIToolSheet: View {
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter
     }()
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
 
     var body: some View {
         NavigationStack {
@@ -680,6 +700,8 @@ private struct AIToolSheet: View {
                     }
                 }
             }
+            .frame(maxWidth: usesWideLayout ? 640 : .infinity)
+            .frame(maxWidth: .infinity)
             .navigationTitle(tool.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -804,6 +826,11 @@ struct AIMessageBubble: View {
     let message: AIMessage
     let isThinking: Bool
     let onDocumentPreview: (AIGeneratedDocument) -> Void
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
+    private var maxBubbleWidth: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular ? 560 : 320
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -819,6 +846,7 @@ struct AIMessageBubble: View {
                             RoundedRectangle(cornerRadius: 20)
                                 .fill(Color.brandTeal)
                         )
+                        .frame(maxWidth: maxBubbleWidth, alignment: .trailing)
 
                     messageTime
                 }
@@ -895,6 +923,7 @@ struct AIMessageBubble: View {
                         )
                 }
                 .shadow(color: .black.opacity(0.04), radius: 8, y: 3)
+                .frame(maxWidth: maxBubbleWidth, alignment: .leading)
 
                 Spacer(minLength: 28)
             }

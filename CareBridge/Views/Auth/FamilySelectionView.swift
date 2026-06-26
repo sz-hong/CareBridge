@@ -6,6 +6,7 @@ import SwiftUI
 struct FamilySelectionView: View {
     @Binding var isLoggedIn: Bool
     @Binding var userRole: UserRole
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(UserStore.self) private var userStore
     @State private var showJoinFamily = false
     @State private var showCreateFamily = false
@@ -83,6 +84,8 @@ struct FamilySelectionView: View {
 
                     Spacer(minLength: 40)
                 }
+                .frame(maxWidth: usesWideLayout ? 560 : .infinity)
+                .frame(maxWidth: .infinity)
             }
             .scrollIndicators(.hidden)
         }
@@ -93,6 +96,10 @@ struct FamilySelectionView: View {
         .sheet(isPresented: $showCreateFamily) {
             CreateFamilyView(userRole: $userRole)
         }
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
     private func optionCard(icon: String, iconColor: Color, title: String,

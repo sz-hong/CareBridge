@@ -14,6 +14,7 @@ enum MoreDestination: Hashable {
 struct MoreView: View {
     @Binding var showProfile: Bool
     let userRole: UserRole
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     struct FeatureItem: Identifiable {
         let id = UUID()
@@ -47,7 +48,7 @@ struct MoreView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                LazyVGrid(columns: featureColumns, spacing: usesWideLayout ? 16 : 12) {
                     ForEach(features) { feature in
                         NavigationLink(value: feature.destination) {
                             FeatureCard(item: feature)
@@ -55,8 +56,10 @@ struct MoreView: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+                .padding(.horizontal, usesWideLayout ? 32 : 16)
+                .padding(.top, usesWideLayout ? 16 : 8)
+                .frame(maxWidth: usesWideLayout ? 980 : .infinity)
+                .frame(maxWidth: .infinity)
                 Spacer(minLength: 20)
             }
             .background(Color.brandBackground)
@@ -94,6 +97,17 @@ struct MoreView: View {
                 NotificationCenterView()
             }
         }
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
+
+    private var featureColumns: [GridItem] {
+        Array(
+            repeating: GridItem(.flexible(), spacing: usesWideLayout ? 16 : 12),
+            count: usesWideLayout ? 3 : 2
+        )
     }
 }
 

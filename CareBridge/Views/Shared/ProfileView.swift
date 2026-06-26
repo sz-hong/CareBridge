@@ -4,6 +4,7 @@ struct ProfileView: View {
     @Binding var isLoggedIn: Bool
     let userRole: UserRole
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(UserStore.self) private var userStore
     @Environment(LocaleStore.self) private var localeStore
     @Environment(\.dataService) private var service
@@ -197,6 +198,8 @@ struct ProfileView: View {
                     }
                 }
             }
+            .frame(maxWidth: usesWideLayout ? 720 : .infinity)
+            .frame(maxWidth: .infinity)
             .navigationTitle("個人資料")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -241,6 +244,10 @@ struct ProfileView: View {
                 await refreshHealthBinding()
             }
         }
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
     // MARK: - Health Binding Helpers
@@ -352,10 +359,15 @@ struct EditProfileView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(UserStore.self) private var userStore
     @Environment(\.dataService) private var service
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var name = ""
     @State private var phone = ""
     @State private var isSaving = false
     @FocusState private var isPhoneFocused: Bool
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
 
     var body: some View {
         NavigationStack {
@@ -387,6 +399,8 @@ struct EditProfileView: View {
                     .padding(.vertical, 8)
                 }
             }
+            .frame(maxWidth: usesWideLayout ? 640 : .infinity)
+            .frame(maxWidth: .infinity)
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("編輯個人資料")
             .navigationBarTitleDisplayMode(.inline)
@@ -435,7 +449,12 @@ struct EditProfileView: View {
 struct FamilyMembersView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(UserStore.self) private var userStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let userRole: UserRole
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
 
     var body: some View {
         NavigationStack {
@@ -480,6 +499,8 @@ struct FamilyMembersView: View {
                     }
                 }
             }
+            .frame(maxWidth: usesWideLayout ? 720 : .infinity)
+            .frame(maxWidth: .infinity)
             .navigationTitle("家庭成員")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -495,6 +516,7 @@ struct FamilyMembersView: View {
 // MARK: - Notification Preferences View
 struct NotificationPreferencesView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var medicationReminder = true
     @State private var careLogUpdate = true
     @State private var sosAlert = true
@@ -503,6 +525,10 @@ struct NotificationPreferencesView: View {
     @State private var chatMessage = true
     @State private var leaveRequest = false
     @State private var purchaseRequest = false
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
 
     var body: some View {
         NavigationStack {
@@ -530,6 +556,8 @@ struct NotificationPreferencesView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .frame(maxWidth: usesWideLayout ? 640 : .infinity)
+            .frame(maxWidth: .infinity)
             .tint(Color.brandTeal)
             .navigationTitle("通知設定")
             .navigationBarTitleDisplayMode(.inline)
