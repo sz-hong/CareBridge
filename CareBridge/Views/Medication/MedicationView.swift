@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MedicationView: View {
     var userRole: UserRole = .family
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(MedicationStore.self) private var medStore
     @Environment(CareLogStore.self) private var careLogStore
     @State private var showAddMedication = false
@@ -18,26 +19,7 @@ struct MedicationView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
-                todaySummaryCard
-
-                // Medication list — title only; family role uses the floating
-                // bottom-right "+" button instead of an inline header button.
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("目前用藥清單")
-                        .font(.system(size: 17, weight: .bold))
-
-                    ForEach(activeMedications) { med in
-                        MedicationRow(medication: med)
-                    }
-                }
-                .padding(16)
-                .background(RoundedRectangle(cornerRadius: 16).fill(.white))
-                .padding(.horizontal, 16)
-
-                Spacer(minLength: 20)
-            }
-            .padding(.top, 8)
+            medicationContent
         }
         .background(Color.brandBackground)
         .navigationTitle("用藥管理")
@@ -57,8 +39,8 @@ struct MedicationView: View {
                             .foregroundStyle(.white)
                     }
                 }
-                .padding(.trailing, 20)
-                .padding(.bottom, 24)
+                .padding(.trailing, usesWideLayout ? 32 : 20)
+                .padding(.bottom, usesWideLayout ? 28 : 24)
             }
         }
         .sheet(isPresented: $showAddMedication) {
@@ -67,6 +49,50 @@ struct MedicationView: View {
             }
         }
         .task { medStore.load() }
+    }
+
+    @ViewBuilder
+    private var medicationContent: some View {
+        if usesWideLayout {
+            HStack(alignment: .top, spacing: 20) {
+                todaySummaryCard
+                    .frame(maxWidth: 420)
+                medicationListCard
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 16)
+            .frame(maxWidth: 1180)
+            .frame(maxWidth: .infinity)
+        } else {
+            VStack(spacing: 16) {
+                todaySummaryCard
+                    .padding(.horizontal, 16)
+
+                medicationListCard
+                    .padding(.horizontal, 16)
+
+                Spacer(minLength: 20)
+            }
+            .padding(.top, 8)
+        }
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
+
+    private var medicationListCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("目前用藥清單")
+                .font(.system(size: 17, weight: .bold))
+
+            ForEach(activeMedications) { med in
+                MedicationRow(medication: med)
+            }
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 16).fill(.white))
     }
 
     // MARK: - Today's Summary
@@ -112,7 +138,6 @@ struct MedicationView: View {
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 16).fill(.white))
-        .padding(.horizontal, 16)
     }
 
     private func doseRow(index: Int, dose: DoseEntry) -> some View {
@@ -278,6 +303,7 @@ struct MedicationRow: View {
 // MARK: - Add Medication View
 struct AddMedicationView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let onAdd: (Medication) -> Void
 
     @State private var name = ""
@@ -304,6 +330,10 @@ struct AddMedicationView: View {
         case 2: return [timeFmt.string(from: time1), timeFmt.string(from: time2), timeFmt.string(from: time3)]
         default: return [timeFmt.string(from: time1)]
         }
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
     var body: some View {
@@ -343,6 +373,8 @@ struct AddMedicationView: View {
                         .lineLimit(2...4)
                 }
             }
+            .frame(maxWidth: usesWideLayout ? 640 : .infinity)
+            .frame(maxWidth: .infinity)
             .navigationTitle("新增藥物")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

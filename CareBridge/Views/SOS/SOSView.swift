@@ -50,6 +50,7 @@ class LocationManager: NSObject, CLLocationManagerDelegate {
 struct SOSView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dataService) private var service
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var isConfirming = false
     @State private var countdown = 5
     @State private var isTriggered = false
@@ -57,6 +58,10 @@ struct SOSView: View {
     @State private var errorMessage: String? = nil
     @State private var timerTask: Task<Void, Never>? = nil
     @State private var locationManager = LocationManager()
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
 
     var body: some View {
         NavigationStack {
@@ -160,6 +165,9 @@ struct SOSView: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 32)
         }
+        .frame(maxWidth: usesWideLayout ? 680 : .infinity)
+        .padding(.horizontal, usesWideLayout ? 32 : 0)
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Countdown Logic
@@ -284,9 +292,13 @@ struct SOSView: View {
                     .background(RoundedRectangle(cornerRadius: 14).fill(.white))
             }
             .buttonStyle(.plain)
+            .frame(maxWidth: usesWideLayout ? 520 : .infinity)
             .padding(.horizontal, 32)
             .padding(.bottom, 40)
         }
+        .frame(maxWidth: usesWideLayout ? 720 : .infinity)
+        .padding(.horizontal, usesWideLayout ? 32 : 0)
+        .frame(maxWidth: .infinity)
     }
 }
 

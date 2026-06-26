@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct TodoView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(TodoStore.self) private var todoStore
     @State private var showAddTodo = false
     @State private var filter = 0 // 0=全部, 1=待處理, 2=已完成
@@ -24,8 +25,9 @@ struct TodoView: View {
                 Text("已完成").tag(2)
             }
             .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, usesWideLayout ? 32 : 16)
             .padding(.vertical, 12)
+            .frame(maxWidth: usesWideLayout ? 640 : .infinity)
 
             if pendingCount > 0 && filter != 2 {
                 HStack {
@@ -37,8 +39,9 @@ struct TodoView: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, usesWideLayout ? 32 : 16)
                 .padding(.bottom, 8)
+                .frame(maxWidth: usesWideLayout ? 900 : .infinity)
             }
 
             List {
@@ -54,6 +57,8 @@ struct TodoView: View {
             }
             .listStyle(.plain)
             .background(Color.brandBackground)
+            .frame(maxWidth: usesWideLayout ? 900 : .infinity)
+            .frame(maxWidth: .infinity)
         }
         .background(Color.brandBackground)
         .navigationTitle("代辦事項")
@@ -73,8 +78,8 @@ struct TodoView: View {
                         .foregroundStyle(.white)
                 }
             }
-            .padding(.trailing, 20)
-            .padding(.bottom, 24)
+            .padding(.trailing, usesWideLayout ? 32 : 20)
+            .padding(.bottom, usesWideLayout ? 28 : 24)
         }
         .sheet(isPresented: $showAddTodo) {
             AddTodoView { newTodo in
@@ -84,6 +89,10 @@ struct TodoView: View {
             }
         }
         .task { todoStore.load() }
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
     private func toggleTodo(_ todo: TodoItem) {
@@ -178,6 +187,7 @@ struct TodoRow: View {
 struct AddTodoView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(UserStore.self) private var userStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let onAdd: (TodoItem) -> Void
 
     @State private var title = ""
@@ -194,6 +204,10 @@ struct AddTodoView: View {
     private var selectedAssigneeName: String { selectedAssignee?.name ?? "" }
     private var selectedAssigneeId: String? { selectedAssignee?.id }
     private var canSave: Bool { !title.isEmpty && selectedAssigneeId != nil }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
 
     var body: some View {
         NavigationStack {
@@ -241,6 +255,8 @@ struct AddTodoView: View {
                     }
                 }
             }
+            .frame(maxWidth: usesWideLayout ? 640 : .infinity)
+            .frame(maxWidth: .infinity)
             .navigationTitle("新增代辦")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

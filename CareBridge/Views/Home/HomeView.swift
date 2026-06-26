@@ -21,6 +21,7 @@ struct HomeView: View {
     let userRole: UserRole
     let previewedPhotoID: String?
     let onPreviewPhoto: (PhotoPreviewItem) -> Void
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(UserStore.self) private var userStore
     @Environment(MedicationStore.self) private var medicationStore
     @Environment(CareLogStore.self) private var careLogStore
@@ -81,25 +82,7 @@ struct HomeView: View {
         ZStack {
             NavigationStack(path: $navPath) {
                 ScrollView {
-                    VStack(spacing: 20) {
-                        // Greeting
-                        greetingSection
-
-                        // Vitals 移到最上方 — Apple Watch 即時推播的核心數據
-                        heartRateCard
-
-                        bloodOxygenCard
-
-                        // Today's Tasks
-                        todayTasksCard
-
-                        // Photos captured in today's care logs
-                        todayPhotoAlbumCard
-
-                        Spacer(minLength: 20)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
+                    homeContent
                 }
                 .background(Color.brandBackground)
                 .scrollIndicators(.hidden)
@@ -169,6 +152,54 @@ struct HomeView: View {
                 .onDisappear { liveSocket.disconnect() }
             }
         }
+    }
+
+    @ViewBuilder
+    private var homeContent: some View {
+        if usesWideLayout {
+            VStack(spacing: 24) {
+                greetingSection
+
+                HStack(spacing: 20) {
+                    heartRateCard
+                    bloodOxygenCard
+                }
+
+                HStack(alignment: .top, spacing: 20) {
+                    todayTasksCard
+                    todayPhotoAlbumCard
+                }
+
+                Spacer(minLength: 24)
+            }
+            .padding(.horizontal, 32)
+            .padding(.top, 16)
+            .frame(maxWidth: 1180)
+            .frame(maxWidth: .infinity)
+        } else {
+            VStack(spacing: 20) {
+                greetingSection
+
+                // Vitals 移到最上方 — Apple Watch 即時推播的核心數據
+                heartRateCard
+
+                bloodOxygenCard
+
+                // Today's Tasks
+                todayTasksCard
+
+                // Photos captured in today's care logs
+                todayPhotoAlbumCard
+
+                Spacer(minLength: 20)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+        }
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
     private func applyLiveUpdate(_ update: HealthLiveUpdate) {

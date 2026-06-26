@@ -4,6 +4,7 @@ struct SignUpView: View {
     @Binding var isLoggedIn: Bool
     @Binding var userRole: UserRole
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dataService) private var service
     @Environment(UserStore.self) private var userStore
 
@@ -190,6 +191,8 @@ struct SignUpView: View {
 
                     Spacer(minLength: 20)
                 }
+                .frame(maxWidth: usesWideLayout ? 560 : .infinity)
+                .frame(maxWidth: .infinity)
             }
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
@@ -208,6 +211,10 @@ struct SignUpView: View {
     }
 
     // MARK: - Subviews
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
 
     private func inputField<Content: View>(label: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 6) {

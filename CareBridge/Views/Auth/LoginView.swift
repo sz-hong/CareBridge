@@ -12,6 +12,7 @@ struct LoginView: View {
     @State private var errorMessage: String?
 
     @Environment(\.dataService) private var service
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(UserStore.self) private var userStore
     @Environment(LocaleStore.self) private var localeStore
 
@@ -228,6 +229,8 @@ struct LoginView: View {
 
                     Spacer(minLength: 20)
                 }
+                .frame(maxWidth: usesWideLayout ? 560 : .infinity)
+                .frame(maxWidth: .infinity)
             }
             .scrollIndicators(.hidden)
         }
@@ -242,6 +245,10 @@ struct LoginView: View {
     private var canLogin: Bool {
         !email.trimmingCharacters(in: .whitespaces).isEmpty &&
         !password.isEmpty
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
     private func performLogin() async {
@@ -313,8 +320,13 @@ struct LoginView: View {
 // MARK: - Forgot Password View
 struct ForgotPasswordView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var email = ""
     @State private var isSent = false
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
 
     var body: some View {
         NavigationStack {
@@ -383,7 +395,9 @@ struct ForgotPasswordView: View {
 
                 Spacer()
             }
+            .frame(maxWidth: usesWideLayout ? 560 : .infinity)
             .padding(.horizontal, 24)
+            .frame(maxWidth: .infinity)
             .navigationTitle("忘記密碼")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

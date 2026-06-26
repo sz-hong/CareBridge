@@ -4,6 +4,7 @@ struct JoinFamilyView: View {
     @Binding var isLoggedIn: Bool
     @Binding var userRole: UserRole
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dataService) private var service
     @Environment(UserStore.self) private var userStore
     @State private var selectedRole: UserRole = .family
@@ -206,6 +207,8 @@ struct JoinFamilyView: View {
 
                     Spacer(minLength: 40)
                 }
+                .frame(maxWidth: usesWideLayout ? 560 : .infinity)
+                .frame(maxWidth: .infinity)
             }
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
@@ -219,6 +222,10 @@ struct JoinFamilyView: View {
             }
             .sharedBackgroundVisibility(.hidden)
         }
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
     private func performJoin() async {

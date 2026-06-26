@@ -2,6 +2,7 @@ import SwiftUI
 
 struct LeaveManagementView: View {
     var userRole: UserRole = .family
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dataService) private var service
     @State private var requests: [LeaveRequest] = []
     @State private var showAddRequest = false
@@ -31,7 +32,8 @@ struct LeaveManagementView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, usesWideLayout ? 32 : 16)
+                .frame(maxWidth: usesWideLayout ? 900 : .infinity)
             }
             .padding(.vertical, 10)
 
@@ -46,9 +48,10 @@ struct LeaveManagementView: View {
                         .foregroundStyle(.orange)
                     Spacer()
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, usesWideLayout ? 32 : 16)
                 .padding(.vertical, 10)
                 .background(Color.orange.opacity(0.1))
+                .frame(maxWidth: usesWideLayout ? 900 : .infinity)
             }
 
             List {
@@ -67,6 +70,8 @@ struct LeaveManagementView: View {
                 }
             }
             .listStyle(.plain)
+            .frame(maxWidth: usesWideLayout ? 900 : .infinity)
+            .frame(maxWidth: .infinity)
         }
         .background(Color.brandBackground)
         .navigationTitle("請假管理")
@@ -97,6 +102,10 @@ struct LeaveManagementView: View {
         // server-side auto-resolution that happened in the detail flow.
         .onAppear { Task { await reload() } }
         .refreshable { await reload() }
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
     private func reload() async {
@@ -191,6 +200,7 @@ struct LeaveRequestRow: View {
 struct AddLeaveRequestView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dataService) private var service
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let onAdd: (LeaveRequest) -> Void
 
     @State private var leaveType = "事假"
@@ -199,6 +209,10 @@ struct AddLeaveRequestView: View {
     @State private var reason = ""
     @State private var isSubmitting = false
     private let types = ["事假", "病假", "緊急"]
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
 
     var body: some View {
         NavigationStack {
@@ -220,6 +234,8 @@ struct AddLeaveRequestView: View {
                         .frame(height: 100)
                 }
             }
+            .frame(maxWidth: usesWideLayout ? 640 : .infinity)
+            .frame(maxWidth: .infinity)
             .navigationTitle("請假申請")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

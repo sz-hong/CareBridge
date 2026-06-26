@@ -39,6 +39,7 @@ final class NotificationStore {
 }
 
 struct NotificationCenterView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(NotificationStore.self) private var store
     @State private var showUnreadOnly = false
 
@@ -70,8 +71,9 @@ struct NotificationCenterView: View {
                 }
                 .disabled(store.unreadCount == 0)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, usesWideLayout ? 32 : 16)
             .padding(.vertical, 8)
+            .frame(maxWidth: usesWideLayout ? 900 : .infinity)
 
             Divider()
 
@@ -86,6 +88,8 @@ struct NotificationCenterView: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
+                .frame(maxWidth: usesWideLayout ? 900 : .infinity)
+                .frame(maxWidth: .infinity)
             } else {
                 List {
                     ForEach(displayedNotifications) { notification in
@@ -109,12 +113,18 @@ struct NotificationCenterView: View {
                     }
                 }
                 .listStyle(.plain)
+                .frame(maxWidth: usesWideLayout ? 900 : .infinity)
+                .frame(maxWidth: .infinity)
             }
         }
         .background(Color.brandBackground)
         .navigationTitle("通知中心")
         .navigationBarTitleDisplayMode(.large)
         .task { await store.refresh() }
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 }
 

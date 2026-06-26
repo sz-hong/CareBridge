@@ -4,6 +4,7 @@ struct ChatListView: View {
     @Binding var showProfile: Bool
     @Binding var isInChatDetail: Bool
     let userRole: UserRole
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dataService) private var service
     @State private var showNotifications = false
     @State private var chatRooms: [ChatRoom] = []
@@ -53,7 +54,10 @@ struct ChatListView: View {
                     Spacer(minLength: 20)
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 8)
+                .padding(.horizontal, usesWideLayout ? 16 : 0)
+                .padding(.top, usesWideLayout ? 16 : 8)
+                .frame(maxWidth: usesWideLayout ? 760 : .infinity)
+                .frame(maxWidth: .infinity)
             }
             .background(Color.brandBackground)
             .scrollIndicators(.hidden)
@@ -93,6 +97,10 @@ struct ChatListView: View {
             }
         }
         .toolbarVisibility(navPath.count > 0 ? .hidden : .visible, for: .tabBar)
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 }
 
@@ -256,6 +264,7 @@ class ChatWebSocket {
 struct ChatDetailView: View {
     let room: ChatRoom
     let userRole: UserRole
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dataService) private var service
     @Environment(UserStore.self) private var userStore
     @Environment(\.scenePhase) private var scenePhase
@@ -296,8 +305,10 @@ struct ChatDetailView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, usesWideLayout ? 24 : 16)
                     .padding(.vertical, 12)
+                    .frame(maxWidth: usesWideLayout ? 820 : .infinity)
+                    .frame(maxWidth: .infinity)
                 }
                 .onChange(of: messages.count) { _, _ in
                     if let last = messages.last {
@@ -369,6 +380,10 @@ struct ChatDetailView: View {
         }
     }
 
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
+
     // MARK: - Input Bar
     private var inputBar: some View {
         HStack(spacing: 12) {
@@ -417,6 +432,8 @@ struct ChatDetailView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .frame(maxWidth: usesWideLayout ? 820 : .infinity)
+        .frame(maxWidth: .infinity)
         .background(.regularMaterial)
     }
 
@@ -507,8 +524,17 @@ struct RequestCardBubble: View {
     let message: ChatMessage
     let userRole: UserRole
     let onTap: () -> Void
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var isPurchase: Bool { message.messageType == "purchase_request" }
+    private var maxCardWidth: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular ? 360 : 260
+    }
+    private var displayContent: String {
+        message.content
+            .replacingOccurrences(of: "📦 ", with: "")
+            .replacingOccurrences(of: "📋 ", with: "")
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -544,7 +570,7 @@ struct RequestCardBubble: View {
                                 Text(isPurchase ? "採購需求" : "請假申請")
                                     .font(.system(size: 13, weight: .bold))
                                     .foregroundStyle(.primary)
-                                Text(message.content.replacing(/^[📦📋]\s*/, with: ""))
+                                Text(displayContent)
                                     .font(.system(size: 12))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(2)
@@ -562,7 +588,7 @@ struct RequestCardBubble: View {
                         }
                     }
                     .padding(12)
-                    .frame(maxWidth: 260, alignment: .leading)
+                    .frame(maxWidth: maxCardWidth, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 14).fill(Color(.systemBackground)))
                     .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(.systemGray4), lineWidth: 0.5))
                 }
@@ -598,9 +624,14 @@ struct MessageBubble: View {
     // caregiver see their own input translated to Chinese instead of seeing
     // family messages translated into the language they actually chose.
     @Environment(LocaleStore.self) private var localeStore
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     private var translatedText: String? {
         message.translation(for: localeStore.code)
+    }
+
+    private var maxBubbleWidth: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular ? 520 : 280
     }
 
     var body: some View {
@@ -637,6 +668,7 @@ struct MessageBubble: View {
                                       ? Color.brandTeal
                                       : Color(.systemBackground))
                         )
+                        .frame(maxWidth: maxBubbleWidth, alignment: message.isMe ? .trailing : .leading)
 
                     if let translated = translatedText {
                         Text(translated)
@@ -648,6 +680,7 @@ struct MessageBubble: View {
                                 RoundedRectangle(cornerRadius: 14)
                                     .fill(Color(.systemGray6))
                             )
+                            .frame(maxWidth: maxBubbleWidth, alignment: message.isMe ? .trailing : .leading)
                     }
                 }
 

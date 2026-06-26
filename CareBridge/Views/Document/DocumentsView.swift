@@ -3,6 +3,7 @@ import QuickLook
 import UniformTypeIdentifiers
 
 struct DocumentsView: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dataService) private var service
     @State private var documents: [AppDocument] = []
     @State private var selectedCategory = "全部"
@@ -43,7 +44,8 @@ struct DocumentsView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, usesWideLayout ? 32 : 16)
+                .frame(maxWidth: usesWideLayout ? 900 : .infinity)
             }
             .padding(.vertical, 10)
 
@@ -58,6 +60,8 @@ struct DocumentsView: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
+                .frame(maxWidth: usesWideLayout ? 900 : .infinity)
+                .frame(maxWidth: .infinity)
             } else {
                 List {
                     ForEach(filteredDocuments) { doc in
@@ -78,6 +82,8 @@ struct DocumentsView: View {
                 }
                 .listStyle(.plain)
                 .quickLookPreview($previewLocalURL)
+                .frame(maxWidth: usesWideLayout ? 980 : .infinity)
+                .frame(maxWidth: .infinity)
             }
         }
         .background(Color.brandBackground)
@@ -102,8 +108,8 @@ struct DocumentsView: View {
                         .foregroundStyle(.white)
                 }
             }
-            .padding(.trailing, 20)
-            .padding(.bottom, 20)
+            .padding(.trailing, usesWideLayout ? 32 : 20)
+            .padding(.bottom, usesWideLayout ? 28 : 20)
             .accessibilityLabel("上傳文件")
         }
         .sheet(isPresented: $showUpload) {
@@ -126,6 +132,10 @@ struct DocumentsView: View {
         } message: {
             Text(previewError ?? "")
         }
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
     // MARK: - Preview
@@ -406,6 +416,7 @@ private struct DocumentDeidStatusBadge: View {
 struct UploadDocumentView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dataService) private var service
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let onUpload: (AppDocument) -> Void
 
     @State private var title = ""
@@ -421,6 +432,10 @@ struct UploadDocumentView: View {
         ("insurance", "保險"), ("medical", "醫療"),
         ("id_document", "證件"), ("contract", "合約"), ("other", "其他")
     ]
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
 
     var body: some View {
         NavigationStack {
@@ -464,7 +479,8 @@ struct UploadDocumentView: View {
                     ))
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal, 16)
+                .frame(maxWidth: usesWideLayout ? 640 : .infinity)
+                .padding(.horizontal, usesWideLayout ? 0 : 16)
 
                 Form {
                     Section("文件標題") {
@@ -478,7 +494,9 @@ struct UploadDocumentView: View {
                         }
                     }
                 }
+                .frame(maxWidth: usesWideLayout ? 640 : .infinity)
             }
+            .frame(maxWidth: .infinity)
             .navigationTitle("上傳文件")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

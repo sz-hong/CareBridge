@@ -8,6 +8,7 @@ import UIKit
 struct SpendingView: View {
     @Binding var showProfile: Bool
     let userRole: UserRole
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.dataService) private var service
     @State private var expenses: [Expense] = []
     @State private var summary: SpendingSummary? = nil
@@ -36,14 +37,12 @@ struct SpendingView: View {
                         }
                         Spacer()
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
+                    .padding(.horizontal, usesWideLayout ? 32 : 16)
+                    .padding(.top, usesWideLayout ? 16 : 8)
+                    .frame(maxWidth: usesWideLayout ? 1180 : .infinity)
+                    .frame(maxWidth: .infinity)
 
-                    // Monthly total card
-                    monthlyCard
-
-                    // Recent transactions
-                    recentTransactions
+                    spendingContent
 
                     Spacer(minLength: 80)
                 }
@@ -94,8 +93,8 @@ struct SpendingView: View {
                     }
                 }
                 .disabled(receiptStage != .idle)
-                .padding(.trailing, 20)
-                .padding(.bottom, 20)
+                .padding(.trailing, usesWideLayout ? 32 : 20)
+                .padding(.bottom, usesWideLayout ? 28 : 20)
                 .accessibilityLabel("新增記帳")
             }
             // 直接開啟原生文件掃描器
@@ -138,6 +137,31 @@ struct SpendingView: View {
                 summary  = try? await s
             }
         }
+    }
+
+    @ViewBuilder
+    private var spendingContent: some View {
+        if usesWideLayout {
+            HStack(alignment: .top, spacing: 20) {
+                monthlyCard
+                    .frame(maxWidth: 420)
+                recentTransactions
+            }
+            .padding(.horizontal, 32)
+            .frame(maxWidth: 1180)
+            .frame(maxWidth: .infinity)
+        } else {
+            VStack(spacing: 20) {
+                monthlyCard
+                    .padding(.horizontal, 16)
+                recentTransactions
+                    .padding(.horizontal, 16)
+            }
+        }
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
     // MARK: - CSV Export
@@ -287,7 +311,6 @@ struct SpendingView: View {
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 16).fill(.white))
-        .padding(.horizontal, 16)
     }
 
     // MARK: - Recent Transactions
@@ -318,7 +341,6 @@ struct SpendingView: View {
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 16).fill(.white))
-        .padding(.horizontal, 16)
     }
 }
 
@@ -650,6 +672,7 @@ private enum ScanStage {
 struct ReceiptScannerView: View {
     var onAdd: (Expense) -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
     @State private var showCamera = false
     @State private var selectedPhotoItem: PhotosPickerItem? = nil
@@ -658,6 +681,10 @@ struct ReceiptScannerView: View {
     @State private var stage: ScanStage = .idle
     @State private var ocrResult: OCRResult? = nil
     @State private var showOCRConfirmation = false
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
 
     var body: some View {
         NavigationStack {
@@ -706,6 +733,7 @@ struct ReceiptScannerView: View {
                     }
                 }
                 .frame(height: 300)
+                .frame(maxWidth: usesWideLayout ? 560 : .infinity)
                 .padding(.horizontal, 32)
 
                 Text("自動去背 + Vision OCR 辨識金額與品項")
@@ -737,6 +765,8 @@ struct ReceiptScannerView: View {
 
                 Spacer()
             }
+            .frame(maxWidth: usesWideLayout ? 640 : .infinity)
+            .frame(maxWidth: .infinity)
             .navigationTitle("掃描發票")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -824,6 +854,7 @@ private struct CheckerboardBackground: View {
 struct OCRConfirmationView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dataService) private var service
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     let ocrResult: OCRResult
     let onSave: (Expense) -> Void
 
@@ -838,6 +869,10 @@ struct OCRConfirmationView: View {
     @FocusState private var isAmountFocused: Bool
 
     private let categories: [String] = Expense.allCategoryCodes
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
 
     init(ocrResult: OCRResult, onSave: @escaping (Expense) -> Void) {
         self.ocrResult = ocrResult
@@ -916,6 +951,8 @@ struct OCRConfirmationView: View {
                     }
                 }
             }
+            .frame(maxWidth: usesWideLayout ? 640 : .infinity)
+            .frame(maxWidth: .infinity)
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("確認收據資訊")
             .navigationBarTitleDisplayMode(.inline)
@@ -995,6 +1032,7 @@ struct ShareSheet: UIViewControllerRepresentable {
 // MARK: - All Expenses View
 struct AllExpensesView: View {
     @Environment(\.dataService) private var service
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var expenses: [Expense] = []
 
     private let dateFormatter: DateFormatter = {
@@ -1002,6 +1040,10 @@ struct AllExpensesView: View {
         f.dateFormat = "yyyy/M/d"
         return f
     }()
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
 
     var body: some View {
         List(expenses) { expense in
@@ -1014,6 +1056,8 @@ struct AllExpensesView: View {
             .listRowSeparatorTint(Color(.systemGray5))
         }
         .listStyle(.plain)
+        .frame(maxWidth: usesWideLayout ? 900 : .infinity)
+        .frame(maxWidth: .infinity)
         .background(Color.brandBackground)
         .navigationTitle("消費記錄")
         .navigationBarTitleDisplayMode(.large)
@@ -1027,10 +1071,15 @@ struct AllExpensesView: View {
 struct ExpenseDetailView: View {
     let expense: Expense
     @Environment(\.dataService) private var service
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     /// 進入這個畫面時才向 backend 拿 presigned image URL —— list 端點為了
     /// 省下每筆 SigV4 簽名請求已經不回傳，這裡才補拉。
     @State private var resolvedImageUrl: String?
     @State private var isFetchingImage = false
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
 
     var body: some View {
         ScrollView {
@@ -1053,7 +1102,9 @@ struct ExpenseDetailView: View {
                 .background(RoundedRectangle(cornerRadius: 16).fill(.white))
                 .padding(.horizontal, 16)
             }
+            .frame(maxWidth: usesWideLayout ? 760 : .infinity)
             .padding(.vertical, 16)
+            .frame(maxWidth: .infinity)
         }
         .background(Color.brandBackground)
         .navigationTitle("消費詳情")
