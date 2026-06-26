@@ -60,53 +60,6 @@ class HealthKitManager {
 
 }
 
-private enum HealthMonitorDemoData {
-    struct DemoAlert: Identifiable {
-        let id: String
-        let title: String
-        let detail: String
-        let time: String
-        let isConfirmed: Bool
-    }
-
-    static let heartRateSeries: [(String, Double)] = [
-        ("一", 76),
-        ("二", 82),
-        ("三", 88),
-        ("四", 94),
-        ("五", 102),
-        ("六", 86),
-        ("日", 79),
-    ]
-
-    static let bloodOxygenSeries: [(String, Double)] = [
-        ("一", 98),
-        ("二", 97),
-        ("三", 96),
-        ("四", 95),
-        ("五", 94),
-        ("六", 96),
-        ("日", 97),
-    ]
-
-    static let alerts: [DemoAlert] = [
-        DemoAlert(
-            id: "demo-heart-rate-warning",
-            title: "心率異常",
-            detail: "心率 102bpm（警戒值 100bpm）",
-            time: "今天",
-            isConfirmed: false
-        ),
-        DemoAlert(
-            id: "demo-blood-oxygen-warning",
-            title: "血氧異常",
-            detail: "血氧 94%（警戒值 95%）",
-            time: "昨天",
-            isConfirmed: true
-        ),
-    ]
-}
-
 // MARK: - Health Monitor View
 
 struct HealthMonitorView: View {
@@ -165,7 +118,7 @@ struct HealthMonitorView: View {
         .navigationBarTitleDisplayMode(.large)
         .task {
             if demoData.isEnabled {
-                await applyDemoHealthData()
+                applyDemoHealthData()
                 return
             }
 
@@ -189,7 +142,7 @@ struct HealthMonitorView: View {
         }
         .refreshable {
             if demoData.isEnabled {
-                await applyDemoHealthData()
+                applyDemoHealthData()
                 return
             }
 
@@ -315,6 +268,17 @@ struct HealthMonitorView: View {
     }
 
     private var bloodPressureVitalCard: some View {
+        if demoData.isEnabled {
+            return vitalCard(
+                title: "血壓",
+                value: "\(demoData.bloodPressureSystolic)/\(demoData.bloodPressureDiastolic)",
+                unit: "mmHg",
+                icon: "waveform.path.ecg",
+                color: .blue,
+                status: "正常"
+            )
+        }
+
         let bp = latestVital(\.bloodPressureSystolic)
         let bpd = latestVital(\.bloodPressureDiastolic)
         return vitalCard(
@@ -330,6 +294,17 @@ struct HealthMonitorView: View {
     }
 
     private var bloodSugarVitalCard: some View {
+        if demoData.isEnabled {
+            return vitalCard(
+                title: "血糖",
+                value: String(format: "%.1f", demoData.bloodSugar),
+                unit: "mmol/L",
+                icon: "drop.fill",
+                color: .orange,
+                status: "正常"
+            )
+        }
+
         let sugar = latestVital(\.bloodSugar)
         return vitalCard(
             title: "血糖",
@@ -342,8 +317,10 @@ struct HealthMonitorView: View {
     }
 
     private var heartRateChartCard: some View {
-        let apiSeries = chartSeries(heartRateTrend)
-        let hrSeries = apiSeries.isEmpty ? demoData.heartRateSeries : apiSeries
+        let points = heartRateTrend.isEmpty && demoData.isEnabled
+            ? demoData.heartRateTrend
+            : heartRateTrend
+        let hrSeries = chartSeries(points)
         return chartCard(
             title: "心率趨勢",
             subtitle: "過去7天 (bpm)",
@@ -389,8 +366,10 @@ struct HealthMonitorView: View {
     }
 
     private var bloodOxygenChartCard: some View {
-        let apiSeries = chartSeries(bloodOxygenTrend)
-        let spo2Series = apiSeries.isEmpty ? demoData.bloodOxygenSeries : apiSeries
+        let points = bloodOxygenTrend.isEmpty && demoData.isEnabled
+            ? demoData.bloodOxygenTrend
+            : bloodOxygenTrend
+        let spo2Series = chartSeries(points)
         return chartCard(
             title: "血氧趨勢",
             subtitle: "過去7天 (%)",
@@ -427,20 +406,24 @@ struct HealthMonitorView: View {
     }
 
     private var anomalySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let visibleAlerts = alerts.isEmpty && demoData.isEnabled
+            ? demoData.alerts
+            : alerts
+
+        return VStack(alignment: .leading, spacing: 12) {
             Text("異常紀錄")
                 .font(.system(size: 17, weight: .bold))
-            if alerts.isEmpty {
-                ForEach(demoData.alerts) { alert in
-                    anomalyRow(
-                        title: alert.title,
-                        detail: alert.detail,
-                        time: alert.time,
-                        isConfirmed: alert.isConfirmed
-                    )
+            if visibleAlerts.isEmpty {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle")
+                        .foregroundStyle(.green)
+                    Text("目前沒有異常紀錄")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
                 }
+                .padding(.vertical, 4)
             } else {
-                ForEach(alerts) { alert in
+                ForEach(visibleAlerts) { alert in
                     anomalyRow(
                         title: alertTitle(alert),
                         detail: alertDetail(alert),
@@ -452,6 +435,17 @@ struct HealthMonitorView: View {
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 16).fill(.white))
+    }
+
+    @MainActor
+    private func applyDemoHealthData() {
+        healthKit.heartRate = demoData.heartRate
+        healthKit.bloodOxygen = demoData.bloodOxygen
+        healthKit.bloodSugar = demoData.bloodSugar
+        heartRateTrend = demoData.heartRateTrend
+        bloodOxygenTrend = demoData.bloodOxygenTrend
+        alerts = demoData.alerts
+        liveBanner = nil
     }
 
     private func syncHealthIfCurrentOwner() async {
