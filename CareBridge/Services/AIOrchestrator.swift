@@ -29,22 +29,47 @@ final class AIOrchestrator: AIOrchestrating {
 
         switch target {
         case .localApple:
-            let text = try await localAIService.generateText(for: task)
-            return AITextTaskResponse(
-                text: text,
-                source: .localAppleFoundationModel,
-                requiresUserConfirmation: task.requiresUserConfirmation
-            )
+            do {
+                let text = try await localAIService.generateText(for: task)
+                #if DEBUG
+                print("[AIOrchestrator] response source: Apple Foundation Models")
+                #endif
+                return AITextTaskResponse(
+                    text: text,
+                    source: .localAppleFoundationModel,
+                    requiresUserConfirmation: task.requiresUserConfirmation
+                )
+            } catch {
+                guard !Task.isCancelled else {
+                    throw CancellationError()
+                }
+                #if DEBUG
+                print(
+                    "[AIOrchestrator] local generation failed; "
+                    + "falling back to backend: \(error)"
+                )
+                #endif
+                return try await backendResponse(for: task)
+            }
         case .backend:
-            let message = try await dataService.sendAIMessage(
-                content: task.backendPrompt
-            )
-            return AITextTaskResponse(
-                text: message.content,
-                source: .backend,
-                requiresUserConfirmation: task.requiresUserConfirmation
-            )
+            return try await backendResponse(for: task)
         }
+    }
+
+    private func backendResponse(
+        for task: LocalAITask
+    ) async throws -> AITextTaskResponse {
+        let message = try await dataService.sendAIMessage(
+            content: task.backendPrompt
+        )
+        #if DEBUG
+        print("[AIOrchestrator] response source: backend")
+        #endif
+        return AITextTaskResponse(
+            text: message.content,
+            source: .backend,
+            requiresUserConfirmation: task.requiresUserConfirmation
+        )
     }
 }
 

@@ -11,6 +11,86 @@ extension APIDataService {
         }
     }
 
+    struct AIChatResponsePayload: Codable, Equatable {
+        let conversationID: String?
+        let reply: String
+        let tokensUsed: Int?
+
+        private enum CodingKeys: String, CodingKey {
+            case conversationID
+            case reply
+            case content
+            case message
+            case text
+            case tokensUsed
+            case id
+        }
+
+        private struct NestedMessage: Decodable {
+            let content: String?
+            let text: String?
+        }
+
+        init(from decoder: Decoder) throws {
+            if let singleValue = try? decoder.singleValueContainer(),
+               let text = try? singleValue.decode(String.self),
+               !text.isEmpty {
+                conversationID = nil
+                reply = text
+                tokensUsed = nil
+                return
+            }
+
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            conversationID =
+                (try? container.decodeIfPresent(String.self, forKey: .conversationID))
+                ?? (try? container.decodeIfPresent(String.self, forKey: .id))
+            tokensUsed = try? container.decodeIfPresent(Int.self, forKey: .tokensUsed)
+
+            let directReply =
+                (try? container.decodeIfPresent(String.self, forKey: .reply))
+                ?? (try? container.decodeIfPresent(String.self, forKey: .content))
+                ?? (try? container.decodeIfPresent(String.self, forKey: .message))
+                ?? (try? container.decodeIfPresent(String.self, forKey: .text))
+            let nestedReply: NestedMessage?
+            if let decoded = try? container.decodeIfPresent(
+                NestedMessage.self,
+                forKey: .message
+            ) {
+                nestedReply = decoded
+            } else {
+                nestedReply = nil
+            }
+            let resolvedReply =
+                directReply
+                ?? nestedReply?.content
+                ?? nestedReply?.text
+
+            guard let resolvedReply, !resolvedReply.isEmpty else {
+                throw DecodingError.keyNotFound(
+                    CodingKeys.reply,
+                    DecodingError.Context(
+                        codingPath: decoder.codingPath,
+                        debugDescription:
+                            "Expected AI response text in reply, content, "
+                            + "message, or text."
+                    )
+                )
+            }
+            reply = resolvedReply
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encodeIfPresent(
+                conversationID,
+                forKey: .conversationID
+            )
+            try container.encode(reply, forKey: .reply)
+            try container.encodeIfPresent(tokensUsed, forKey: .tokensUsed)
+        }
+    }
+
     struct FirstAidQueryRequestBody: Encodable {
         let query: String
     }
@@ -41,7 +121,16 @@ private extension Data {
 extension APIDataService {
     // MARK: - AI
     func sendAIMessage(content: String) async throws -> AIMessage {
-        try await post(path: APIEndpoint.aiChat, body: ["message": content])
+        let response: AIChatResponsePayload = try await post(
+            path: APIEndpoint.aiChat,
+            body: ["message": content]
+        )
+        return AIMessage(
+            id: response.conversationID ?? UUID().uuidString,
+            content: response.reply,
+            isUser: false,
+            timestamp: Date()
+        )
     }
 
     func fetchCareAnalysis(days: Int) async throws -> AICareAnalysisResponse {

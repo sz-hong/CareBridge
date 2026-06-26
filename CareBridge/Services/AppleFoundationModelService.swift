@@ -12,6 +12,12 @@ final class AppleFoundationModelService: LocalAIService {
         }
 
         let model = SystemLanguageModel()
+        #if DEBUG
+        print(
+            "[FoundationModels] availability: "
+            + String(describing: model.availability)
+        )
+        #endif
         if case .available = model.availability {
             return true
         }

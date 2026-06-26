@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 struct CareLogView: View {
     @Binding var showProfile: Bool
@@ -750,9 +751,14 @@ struct AddCareLogView: View {
     @State private var selectedType: CareLogType = .vital  // 預設改為生理數值（移除備註後）
     @State private var recordDate = Date()
     @State private var selectedPhoto: UIImage?
+    @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var previewedPhoto: PhotoPreviewItem?
+    @State private var showPhotoSourceOptions = false
+    @State private var showPhotoLibrary = false
     @State private var showCamera = false
     @State private var showCameraUnavailable = false
+    @State private var isLoadingPhoto = false
+    @State private var photoSelectionErrorMessage: String?
     @State private var isSaving = false
     @State private var saveErrorMessage: String?
     @FocusState private var focusedNumericField: NumericField?
@@ -848,7 +854,7 @@ struct AddCareLogView: View {
                             }
                         }
                         .tint(Color.brandTeal)
-                        .disabled(isSaving)
+                        .disabled(isSaving || isLoadingPhoto)
                     }
                     ToolbarItemGroup(placement: .keyboard) {
                         if focusedNumericField != nil {
@@ -864,16 +870,46 @@ struct AddCareLogView: View {
                 .fullScreenCover(isPresented: $showCamera) {
                     CareLogCameraView { image in
                         selectedPhoto = image
+                        selectedPhotoItem = nil
                         showCamera = false
                     } onCancel: {
                         showCamera = false
                     }
                     .ignoresSafeArea()
                 }
+                .photosPicker(
+                    isPresented: $showPhotoLibrary,
+                    selection: $selectedPhotoItem,
+                    matching: .images
+                )
+                .onChange(of: selectedPhotoItem) { _, item in
+                    guard item != nil else { return }
+                    Task {
+                        await loadSelectedPhoto(item)
+                    }
+                }
                 .alert("無法使用相機", isPresented: $showCameraUnavailable) {
                     Button("確定", role: .cancel) {}
                 } message: {
                     Text("請確認裝置有相機，並在系統設定中允許 CareBridge 使用相機。")
+                }
+                .alert(
+                    "無法載入照片",
+                    isPresented: Binding(
+                        get: { photoSelectionErrorMessage != nil },
+                        set: {
+                            if !$0 {
+                                photoSelectionErrorMessage = nil
+                            }
+                        }
+                    )
+                ) {
+                    Button("確定", role: .cancel) {}
+                } message: {
+                    Text(
+                        photoSelectionErrorMessage
+                            ?? "無法讀取所選照片，請重新選擇。"
+                    )
                 }
                 .alert(
                     "儲存失敗",
@@ -948,34 +984,83 @@ struct AddCareLogView: View {
                 .accessibilityLabel("預覽準備上傳的照護照片")
                 .accessibilityHint("點兩下放大照片")
 
+                photoSourceButton
+
+                Button(role: .destructive) {
+                    previewedPhoto = nil
+                    selectedPhotoItem = nil
+                    self.selectedPhoto = nil
+                } label: {
+                    Label("移除", systemImage: "trash")
+                }
+                .disabled(isLoadingPhoto)
+            } else if isLoadingPhoto {
                 HStack {
-                    Button {
-                        openCamera()
-                    } label: {
-                        Label("重新拍攝", systemImage: "camera.rotate")
-                    }
-
                     Spacer()
-
-                    Button(role: .destructive) {
-                        previewedPhoto = nil
-                        self.selectedPhoto = nil
-                    } label: {
-                        Label("移除", systemImage: "trash")
-                    }
+                    ProgressView()
+                    Spacer()
                 }
             } else {
-                Button {
-                    openCamera()
-                } label: {
-                    Label("拍照", systemImage: "camera.fill")
-                        .foregroundStyle(Color.brandTeal)
-                }
+                photoSourceButton
             }
         } header: {
             Text("照片（選填）")
         } footer: {
-            Text("照片不是必填；選擇拍照後才會上傳。")
+            Text("照片不是必填；拍照或從相簿選擇後才會上傳。")
+        }
+    }
+
+    private var photoSourceButton: some View {
+        Button {
+            focusedNumericField = nil
+            showPhotoSourceOptions = true
+        } label: {
+            Label("拍照", systemImage: "camera.fill")
+                .foregroundStyle(Color.brandTeal)
+        }
+        .confirmationDialog(
+            "照片（選填）",
+            isPresented: $showPhotoSourceOptions,
+            titleVisibility: .hidden
+        ) {
+            Button("拍照") {
+                openCamera()
+            }
+            Button("從相簿選擇") {
+                showPhotoLibrary = true
+            }
+            Button("取消", role: .cancel) {}
+        }
+        .disabled(isLoadingPhoto || isSaving)
+    }
+
+    @MainActor
+    private func loadSelectedPhoto(_ item: PhotosPickerItem?) async {
+        guard let item else { return }
+        isLoadingPhoto = true
+        photoSelectionErrorMessage = nil
+
+        defer {
+            isLoadingPhoto = false
+            selectedPhotoItem = nil
+        }
+
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: data) else {
+                photoSelectionErrorMessage = String(
+                    localized: "無法讀取所選照片，請重新選擇。"
+                )
+                return
+            }
+            previewedPhoto = nil
+            selectedPhoto = image
+        } catch is CancellationError {
+            return
+        } catch {
+            photoSelectionErrorMessage = String(
+                localized: "無法讀取所選照片，請重新選擇。"
+            )
         }
     }
 
@@ -1155,7 +1240,7 @@ struct AddCareLogView: View {
     // MARK: - Save
     @MainActor
     private func saveEntry() async {
-        guard !isSaving else { return }
+        guard !isSaving, !isLoadingPhoto else { return }
         isSaving = true
         defer { isSaving = false }
 

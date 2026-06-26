@@ -71,6 +71,54 @@ struct APIDataServiceAITests {
         #expect(payload["conversation_id"] == nil)
     }
 
+    @Test func decodesSynchronousAIChatResponsePayload() throws {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let response = try decoder.decode(
+            APIDataService.AIChatResponsePayload.self,
+            from: Data(
+                """
+                {
+                  "conversation_id": "conversation-123",
+                  "reply": "整理後的照護草稿",
+                  "tokens_used": 24
+                }
+                """.utf8
+            )
+        )
+
+        #expect(response.conversationID == "conversation-123")
+        #expect(response.reply == "整理後的照護草稿")
+        #expect(response.tokensUsed == 24)
+    }
+
+    @Test(
+        "Decodes compatible AI response shapes",
+        arguments: [
+            (#"{"reply":"reply shape"}"#, "reply shape"),
+            (#"{"content":"content shape"}"#, "content shape"),
+            (#"{"message":"message shape"}"#, "message shape"),
+            (#"{"text":"text shape"}"#, "text shape"),
+            (#"{"message":{"content":"nested shape"}}"#, "nested shape"),
+            (#""plain string shape""#, "plain string shape"),
+        ]
+    )
+    func decodesCompatibleAIResponseShapes(
+        json: String,
+        expectedReply: String
+    ) throws {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+
+        let response = try decoder.decode(
+            APIDataService.AIChatResponsePayload.self,
+            from: Data(json.utf8)
+        )
+
+        #expect(response.reply == expectedReply)
+    }
+
     @Test func encodesFirstAidQueryRequestBody() throws {
         let data = try APIDataService.firstAidQueryRequestBody(query: "chest pain")
         let payload = try #require(
