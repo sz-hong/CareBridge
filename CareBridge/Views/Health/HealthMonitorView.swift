@@ -60,12 +60,60 @@ class HealthKitManager {
 
 }
 
+private enum HealthMonitorDemoData {
+    struct DemoAlert: Identifiable {
+        let id: String
+        let title: String
+        let detail: String
+        let time: String
+        let isConfirmed: Bool
+    }
+
+    static let heartRateSeries: [(String, Double)] = [
+        ("一", 76),
+        ("二", 82),
+        ("三", 88),
+        ("四", 94),
+        ("五", 102),
+        ("六", 86),
+        ("日", 79),
+    ]
+
+    static let bloodOxygenSeries: [(String, Double)] = [
+        ("一", 98),
+        ("二", 97),
+        ("三", 96),
+        ("四", 95),
+        ("五", 94),
+        ("六", 96),
+        ("日", 97),
+    ]
+
+    static let alerts: [DemoAlert] = [
+        DemoAlert(
+            id: "demo-heart-rate-warning",
+            title: "心率異常",
+            detail: "心率 102bpm（警戒值 100bpm）",
+            time: "今天",
+            isConfirmed: false
+        ),
+        DemoAlert(
+            id: "demo-blood-oxygen-warning",
+            title: "血氧異常",
+            detail: "血氧 94%（警戒值 95%）",
+            time: "昨天",
+            isConfirmed: true
+        ),
+    ]
+}
+
 // MARK: - Health Monitor View
 
 struct HealthMonitorView: View {
     @State private var selectedRange = 0 // 0=日, 1=週, 2=月
     private let rangeLabels = ["日", "週", "月"]
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    private let demoData = HealthMonitorDemoData.self
     @State private var showThresholdSettings = false
     @State private var healthKit = HealthKitManager()
     @State private var liveSocket = HealthLiveSocket()
@@ -284,7 +332,8 @@ struct HealthMonitorView: View {
     }
 
     private var heartRateChartCard: some View {
-        let hrSeries = chartSeries(heartRateTrend)
+        let apiSeries = chartSeries(heartRateTrend)
+        let hrSeries = apiSeries.isEmpty ? demoData.heartRateSeries : apiSeries
         return chartCard(
             title: "心率趨勢",
             subtitle: "過去7天 (bpm)",
@@ -330,7 +379,8 @@ struct HealthMonitorView: View {
     }
 
     private var bloodOxygenChartCard: some View {
-        let spo2Series = chartSeries(bloodOxygenTrend)
+        let apiSeries = chartSeries(bloodOxygenTrend)
+        let spo2Series = apiSeries.isEmpty ? demoData.bloodOxygenSeries : apiSeries
         return chartCard(
             title: "血氧趨勢",
             subtitle: "過去7天 (%)",
@@ -371,14 +421,14 @@ struct HealthMonitorView: View {
             Text("異常紀錄")
                 .font(.system(size: 17, weight: .bold))
             if alerts.isEmpty {
-                HStack(spacing: 10) {
-                    Image(systemName: "checkmark.circle")
-                        .foregroundStyle(.green)
-                    Text("目前沒有異常紀錄")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
+                ForEach(demoData.alerts) { alert in
+                    anomalyRow(
+                        title: alert.title,
+                        detail: alert.detail,
+                        time: alert.time,
+                        isConfirmed: alert.isConfirmed
+                    )
                 }
-                .padding(.vertical, 4)
             } else {
                 ForEach(alerts) { alert in
                     anomalyRow(
