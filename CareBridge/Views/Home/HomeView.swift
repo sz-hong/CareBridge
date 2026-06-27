@@ -27,6 +27,7 @@ struct HomeView: View {
     @Environment(TodoStore.self) private var todoStore
     @Environment(CalendarStore.self) private var calendarStore
     @Environment(\.dataService) private var service
+    @Environment(\.scenePhase) private var scenePhase
     // 即時讀取本機 HealthKit 數值（與健康監測頁共用同一個 manager）。
     // 沒有實際讀數時為 nil —— 首頁一律顯示「—」而非捏造的假值。
     @State private var healthKit = HealthKitManager()
@@ -150,14 +151,8 @@ struct HomeView: View {
                     // 2) 後端 dashboard 補上遠端家屬看不到本機 HealthKit 的情況
                     //    （資料是別的家庭成員上傳、經後端轉發的真實讀數）。
                     //    只在本機沒有讀數時用後端值 seed，避免覆蓋更即時的本機數據。
-                    if let backend = try? await service.fetchHealthData(elderId: "") {
-                        if healthKit.heartRate == nil, backend.heartRate > 0 {
-                            healthKit.heartRate = Double(backend.heartRate)
-                        }
-                        if healthKit.bloodOxygen == nil, backend.bloodOxygen > 0 {
-                            healthKit.bloodOxygen = backend.bloodOxygen
-                        }
-                    }
+                    await seedBackendHealthDataIfNeeded(overwriteExisting: false)
+
 
                     // 3) Live updates：任何家庭成員上傳 HealthKit 後，後端會即時
                     //    透過 WebSocket 推送，這裡把心率／血氧更新到卡片上。
@@ -165,6 +160,19 @@ struct HomeView: View {
                         applyLiveUpdate(update)
                     }
                     liveSocket.connect()
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    if newPhase == .active {
+                        medicationStore.load()
+                        careLogStore.load()
+                        todoStore.load()
+                        calendarStore.load()
+                        liveSocket.reconnectIfNeeded()
+                        Task {
+                            await healthKit.loadLatestValues()
+                            await seedBackendHealthDataIfNeeded(overwriteExisting: true)
+                        }
+                    }
                 }
                 .onDisappear { liveSocket.disconnect() }
             }
@@ -177,6 +185,17 @@ struct HomeView: View {
             case "heart_rate":   healthKit.heartRate = point.value
             case "blood_oxygen": healthKit.bloodOxygen = point.value
             default: break
+            }
+        }
+    }
+
+    private func seedBackendHealthDataIfNeeded(overwriteExisting: Bool) async {
+        if let backend = try? await service.fetchHealthData(elderId: "") {
+            if overwriteExisting || healthKit.heartRate == nil, backend.heartRate > 0 {
+                healthKit.heartRate = Double(backend.heartRate)
+            }
+            if overwriteExisting || healthKit.bloodOxygen == nil, backend.bloodOxygen > 0 {
+                healthKit.bloodOxygen = backend.bloodOxygen
             }
         }
     }

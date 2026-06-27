@@ -1,56 +1,206 @@
 import Foundation
 
-/// WebSocket client for `/ws/health/`. Listens for live health updates pushed
-/// by the backend whenever any family member's iPhone uploads new HealthKit
-/// samples. Delivers `HealthLiveUpdate` payloads to `onUpdate` on the main
-/// thread for the SwiftUI view to consume.
+protocol HealthWebSocketTasking: AnyObject {
+    func resume()
+    func cancel(with closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?)
+    func receive(
+        completionHandler: @escaping @Sendable (Result<URLSessionWebSocketTask.Message, Error>) -> Void
+    )
+    func sendPing(pongReceiveHandler: @escaping @Sendable (Error?) -> Void)
+}
+
+final class URLSessionHealthWebSocketTask: HealthWebSocketTasking {
+    private let task: URLSessionWebSocketTask
+
+    init(task: URLSessionWebSocketTask) {
+        self.task = task
+    }
+
+    func resume() {
+        task.resume()
+    }
+
+    func cancel(with closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
+        task.cancel(with: closeCode, reason: reason)
+    }
+
+    func receive(
+        completionHandler: @escaping @Sendable (Result<URLSessionWebSocketTask.Message, Error>) -> Void
+    ) {
+        task.receive { result in
+            completionHandler(result)
+        }
+    }
+
+    func sendPing(pongReceiveHandler: @escaping @Sendable (Error?) -> Void) {
+        task.sendPing { error in
+            pongReceiveHandler(error)
+        }
+    }
+}
+
+protocol HealthSocketScheduling: AnyObject {
+    func schedule(after delay: TimeInterval, _ work: @escaping @Sendable () -> Void)
+}
+
+final class DispatchHealthSocketScheduler: HealthSocketScheduling {
+    func schedule(after delay: TimeInterval, _ work: @escaping @Sendable () -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            work()
+        }
+    }
+}
+
+/// WebSocket client for `/ws/health/`. It keeps the live health feed connected
+/// across token refreshes, foreground resumes, and transient network drops.
+@MainActor
 @Observable
 final class HealthLiveSocket {
-    private var task: URLSessionWebSocketTask?
+    private var task: HealthWebSocketTasking?
+    private var isClosing = false
+    private var retryCount = 0
+
     var isConnected = false
     var onUpdate: ((HealthLiveUpdate) -> Void)?
 
+    private let tokenProvider: @MainActor () -> String?
+    private let makeTask: @MainActor (URL) -> HealthWebSocketTasking
+    private let scheduler: HealthSocketScheduling
+    private let heartbeatInterval: TimeInterval
+
     private let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
-        d.keyDecodingStrategy = .convertFromSnakeCase
-        return d
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return decoder
     }()
 
-    func connect() {
-        guard !isConnected else { return }
-        var urlString = "\(AppConfig.wsBaseURL)/health/"
-        if let token = KeychainService.accessToken {
-            urlString += "?token=\(token)"
-        }
-        guard let url = URL(string: urlString) else { return }
+    init(
+        tokenProvider: @escaping @MainActor () -> String? = { KeychainService.accessToken },
+        makeTask: @escaping @MainActor (URL) -> HealthWebSocketTasking = { url in
+            URLSessionHealthWebSocketTask(task: URLSession.shared.webSocketTask(with: url))
+        },
+        scheduler: HealthSocketScheduling = DispatchHealthSocketScheduler(),
+        heartbeatInterval: TimeInterval = 30
+    ) {
+        self.tokenProvider = tokenProvider
+        self.makeTask = makeTask
+        self.scheduler = scheduler
+        self.heartbeatInterval = heartbeatInterval
+    }
 
-        task = URLSession.shared.webSocketTask(with: url)
-        task?.resume()
-        isConnected = true
-        receiveLoop()
+    func connect() {
+        isClosing = false
+        guard !isConnected, task == nil else { return }
+        openSocket()
+    }
+
+    func reconnectIfNeeded() {
+        guard !isConnected else { return }
+        connect()
     }
 
     func disconnect() {
+        isClosing = true
+        retryCount = 0
         task?.cancel(with: .goingAway, reason: nil)
+        task = nil
         isConnected = false
     }
 
-    private func receiveLoop() {
-        task?.receive { [weak self] result in
-            switch result {
-            case .success(.string(let text)):
-                if let data = text.data(using: .utf8),
-                   let update = try? self?.decoder.decode(HealthLiveUpdate.self, from: data) {
-                    DispatchQueue.main.async { self?.onUpdate?(update) }
+    private func openSocket() {
+        guard let url = makeURL() else { return }
+        let nextTask = makeTask(url)
+        task = nextTask
+        isConnected = true
+        nextTask.resume()
+        receiveLoop(on: nextTask)
+        scheduleHeartbeat(for: nextTask)
+    }
+
+    private func makeURL() -> URL? {
+        guard let token = tokenProvider(), !token.isEmpty,
+              var components = URLComponents(string: "\(AppConfig.wsBaseURL)/health/") else {
+            return nil
+        }
+        components.queryItems = [URLQueryItem(name: "token", value: token)]
+        return components.url
+    }
+
+    private func receiveLoop(on currentTask: HealthWebSocketTasking) {
+        currentTask.receive { [weak self, weak currentTask] result in
+            Task { @MainActor [weak self, weak currentTask] in
+                guard let self,
+                      let currentTask,
+                      self.task === currentTask,
+                      !self.isClosing else { return }
+
+                switch result {
+                case .success(.string(let text)):
+                    self.retryCount = 0
+                    if let data = text.data(using: .utf8),
+                       let update = try? self.decoder.decode(HealthLiveUpdate.self, from: data) {
+                        self.onUpdate?(update)
+                    }
+                    self.receiveLoop(on: currentTask)
+                case .success(.data):
+                    self.retryCount = 0
+                    self.receiveLoop(on: currentTask)
+                case .failure:
+                    self.handleSocketFailure()
+                @unknown default:
+                    self.handleSocketFailure()
                 }
-                self?.receiveLoop()
-            case .success(.data):
-                self?.receiveLoop()
-            case .failure:
-                DispatchQueue.main.async { self?.isConnected = false }
-            @unknown default:
-                break
+            }
+        }
+    }
+
+    private func scheduleHeartbeat(for currentTask: HealthWebSocketTasking) {
+        scheduler.schedule(after: heartbeatInterval) { [weak self, weak currentTask] in
+            Task { @MainActor [weak self, weak currentTask] in
+                guard let self,
+                      let currentTask,
+                      self.task === currentTask,
+                      self.isConnected,
+                      !self.isClosing else { return }
+
+                currentTask.sendPing { [weak self, weak currentTask] error in
+                    Task { @MainActor [weak self, weak currentTask] in
+                        guard let self,
+                              let currentTask,
+                              self.task === currentTask,
+                              !self.isClosing else { return }
+                        if error == nil {
+                            self.retryCount = 0
+                            self.scheduleHeartbeat(for: currentTask)
+                        } else {
+                            self.handleSocketFailure()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func handleSocketFailure() {
+        guard !isClosing else { return }
+        guard isConnected || task != nil else { return }
+        task?.cancel(with: .goingAway, reason: nil)
+        task = nil
+        isConnected = false
+        scheduleReconnect()
+    }
+
+    private func scheduleReconnect() {
+        let delay = min(pow(2.0, Double(retryCount)), 16.0)
+        retryCount += 1
+        scheduler.schedule(after: delay) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      !self.isClosing,
+                      !self.isConnected,
+                      self.task == nil else { return }
+                self.openSocket()
             }
         }
     }
@@ -76,7 +226,7 @@ struct HealthLivePoint: Codable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case id, family, type, value, unit
-        case deviceId   = "deviceId"   // already converted by .convertFromSnakeCase
+        case deviceId   = "deviceId"
         case source
         case recordedAt = "recordedAt"
         case createdAt  = "createdAt"

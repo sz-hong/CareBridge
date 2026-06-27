@@ -973,6 +973,10 @@ class UserStore {
         }
     }
 
+    func clearSession() {
+        state.finish(with: UserStoreData(currentUser: nil, familyMembers: []))
+    }
+
     /// Fire-and-forget compatibility wrapper for existing SwiftUI call sites.
     func load() {
         Task { @MainActor in

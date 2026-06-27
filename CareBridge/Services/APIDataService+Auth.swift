@@ -6,7 +6,7 @@ extension APIDataService {
     /// stored (user has never logged in on this device) or the refresh call
     /// fails (refresh token expired or revoked).
     func loginWithStoredRefreshToken() async throws -> UserProfile {
-        guard KeychainService.refreshToken != nil else {
+        guard tokenStore.refreshToken != nil else {
             throw APIError.unauthorized
         }
         let ok = await refreshAccessToken()
@@ -26,19 +26,19 @@ extension APIDataService {
                       phone: phone, language: language)
         )
         authToken = result.tokens.access
-        KeychainService.accessToken  = result.tokens.access
-        KeychainService.refreshToken = result.tokens.refresh
+        tokenStore.accessToken = result.tokens.access
+        tokenStore.refreshToken = result.tokens.refresh
         return result
     }
 
     func login(email: String, password: String) async throws -> AuthResponse {
-        // Clear stale tokens so login request is unauthenticated
+        // Clear stale tokens so login request is unauthenticated.
         authToken = nil
-        KeychainService.clearAll()
+        tokenStore.clearAll()
         let result: AuthResponse = try await post(path: APIEndpoint.authLogin, body: ["email": email, "password": password])
         authToken = result.tokens.access
-        KeychainService.accessToken = result.tokens.access
-        KeychainService.refreshToken = result.tokens.refresh
+        tokenStore.accessToken = result.tokens.access
+        tokenStore.refreshToken = result.tokens.refresh
         return result
     }
 
@@ -48,14 +48,14 @@ extension APIDataService {
             body: ["invite_code": inviteCode, "role": role.rawValue]
         )
         authToken = result.tokens.access
-        KeychainService.accessToken = result.tokens.access
-        KeychainService.refreshToken = result.tokens.refresh
+        tokenStore.accessToken = result.tokens.access
+        tokenStore.refreshToken = result.tokens.refresh
         return result
     }
 
     func logout() async throws {
         let _: EmptyResponse = try await post(path: APIEndpoint.authLogout)
         authToken = nil
-        KeychainService.clearAll()
+        tokenStore.clearAll()
     }
 }

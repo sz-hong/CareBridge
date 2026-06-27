@@ -40,6 +40,16 @@ struct CareBridgeApp: App {
         _notificationStore = State(initialValue: NotificationStore(service: service))
     }
 
+    @MainActor
+    private func handleAuthenticationExpired() {
+        userStore.clearSession()
+        userRole = .family
+        healthSyncEnabled = false
+        withAnimation {
+            isLoggedIn = false
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {
@@ -105,6 +115,9 @@ struct CareBridgeApp: App {
                    newLang != localeStore.code {
                     localeStore.code = newLang
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .careBridgeAuthenticationExpired)) { _ in
+                handleAuthenticationExpired()
             }
             .environment(userStore)
             .environment(careLogStore)
