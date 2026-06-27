@@ -2,13 +2,12 @@ import SwiftUI
 
 private enum MainTab: Int, CaseIterable, Identifiable, Hashable {
     case home
-    case chat
     case careLog
-    case spending
-    case more
+    case contact
+    case management
+    case settings
     case medication
     case health
-    case calendar
     case todo
     case documents
 
@@ -16,34 +15,33 @@ private enum MainTab: Int, CaseIterable, Identifiable, Hashable {
 
     static let iPhoneTabs: [Self] = [
         .home,
-        .chat,
         .careLog,
-        .spending,
-        .more,
+        .contact,
+        .management,
+        .settings,
     ]
 
     static let iPadSidebarTabs: [Self] = [
         .home,
-        .chat,
         .careLog,
-        .spending,
+        .contact,
+        .management,
         .medication,
         .health,
-        .calendar,
         .todo,
         .documents,
+        .settings,
     ]
 
     var title: LocalizedStringKey {
         switch self {
         case .home:       return "首頁"
-        case .chat:       return "聊天"
         case .careLog:    return "日誌"
-        case .spending:   return "消費"
-        case .more:       return "更多"
+        case .contact:    return "聯絡"
+        case .management: return "管理"
+        case .settings:   return "個人/設定"
         case .medication: return "用藥管理"
         case .health:     return "健康監測"
-        case .calendar:   return "行事曆"
         case .todo:       return "代辦事項"
         case .documents:  return "文件管理"
         }
@@ -52,17 +50,43 @@ private enum MainTab: Int, CaseIterable, Identifiable, Hashable {
     var systemImage: String {
         switch self {
         case .home:       return "house.fill"
-        case .chat:       return "message.fill"
         case .careLog:    return "doc.text.fill"
-        case .spending:   return "cart.fill"
-        case .more:       return "ellipsis"
+        case .contact:    return "message.fill"
+        case .management: return "seal.fill"
+        case .settings:   return "person.crop.circle.fill"
         case .medication: return "pills.fill"
         case .health:     return "heart.fill"
-        case .calendar:   return "calendar"
         case .todo:       return "checkmark.circle.fill"
         case .documents:  return "folder.fill"
         }
     }
+
+    var bottomSystemImage: String {
+        switch self {
+        case .home:       return "house.fill"
+        case .careLog:    return "doc.text.fill"
+        case .contact:    return "bubble.left.and.bubble.right.fill"
+        case .management: return "briefcase.fill"
+        case .settings:   return "gearshape.fill"
+        default:          return systemImage
+        }
+    }
+}
+
+private enum FloatingActionLayout {
+    /// Overlay buttons attached to the whole phone TabView (AI / SOS).
+    /// This coordinate space includes the system tab bar, so the value must
+    /// keep the button just above the native bar.
+    static let phoneGlobalBottom: CGFloat = 58
+
+    /// Page-owned floating buttons (`+`, scan, edit) live inside each tab's
+    /// content area, which already ends above the native tab bar. Using the
+    /// global value here pushes those buttons too high and makes them look
+    /// misaligned with the AI button.
+    static let phoneContentBottom: CGFloat = 12
+
+    static let pushedDetailBottom: CGFloat = 20
+    static let padBottom: CGFloat = 28
 }
 
 struct ContentView: View {
@@ -99,7 +123,7 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.2), value: isInHomeDetail)
         .animation(.easeInOut(duration: 0.2), value: selectedTab)
         .onChange(of: selectedTab) { _, newTab in
-            if newTab != .chat {
+            if newTab != .contact {
                 isInChatDetail = false
             }
             if newTab != .home {
@@ -108,7 +132,7 @@ struct ContentView: View {
         }
         .onChange(of: usesSidebarLayout) { _, usesSidebarLayout in
             if !usesSidebarLayout && !MainTab.iPhoneTabs.contains(selectedTab) {
-                selectedTab = .more
+                selectedTab = .management
             }
         }
         .sheet(isPresented: $showAIAgent) {
@@ -130,29 +154,63 @@ struct ContentView: View {
 
     private var iPhoneTabSurface: some View {
         TabView(selection: $selectedTab) {
-            Tab(MainTab.home.title, systemImage: MainTab.home.systemImage, value: MainTab.home) {
-                rootView(for: .home)
+            Tab(value: MainTab.home) {
+                iPhoneTabRoot(for: .home)
+            } label: {
+                tabIcon(for: .home)
             }
-            Tab(MainTab.chat.title, systemImage: MainTab.chat.systemImage, value: MainTab.chat) {
-                rootView(for: .chat)
+            Tab(value: MainTab.careLog) {
+                iPhoneTabRoot(for: .careLog)
+            } label: {
+                tabIcon(for: .careLog)
             }
-            Tab(MainTab.careLog.title, systemImage: MainTab.careLog.systemImage, value: MainTab.careLog) {
-                rootView(for: .careLog)
+            Tab(value: MainTab.contact) {
+                iPhoneTabRoot(for: .contact)
+            } label: {
+                tabIcon(for: .contact)
             }
-            Tab(MainTab.spending.title, systemImage: MainTab.spending.systemImage, value: MainTab.spending) {
-                rootView(for: .spending)
+            Tab(value: MainTab.management) {
+                iPhoneTabRoot(for: .management)
+            } label: {
+                tabIcon(for: .management)
             }
-            Tab(MainTab.more.title, systemImage: MainTab.more.systemImage, value: MainTab.more) {
-                rootView(for: .more)
+            Tab(value: MainTab.settings) {
+                iPhoneTabRoot(for: .settings)
+            } label: {
+                tabIcon(for: .settings)
             }
         }
+        .toolbarVisibility(isInChatDetail ? .hidden : .visible, for: .tabBar)
         .tint(Color.brandTeal)
         .overlay(alignment: .bottomLeading) {
-            aiFloatingButton(bottomPadding: 70)
+            aiFloatingButton(
+                bottomPadding: isInChatDetail
+                    ? FloatingActionLayout.pushedDetailBottom
+                    : FloatingActionLayout.phoneGlobalBottom
+            )
         }
         .overlay(alignment: .bottomTrailing) {
-            sosFloatingButton(bottomPadding: 70)
+            sosFloatingButton(
+                bottomPadding: isInChatDetail
+                    ? FloatingActionLayout.pushedDetailBottom
+                    : FloatingActionLayout.phoneGlobalBottom
+            )
         }
+    }
+
+    private func iPhoneTabRoot(for tab: MainTab) -> some View {
+        rootView(for: tab)
+            .environment(
+                \.floatingActionBottomPadding,
+                isInChatDetail
+                    ? FloatingActionLayout.pushedDetailBottom
+                    : FloatingActionLayout.phoneContentBottom
+            )
+    }
+
+    private func tabIcon(for tab: MainTab) -> some View {
+        Image(systemName: tab.bottomSystemImage)
+            .accessibilityLabel(tab.title)
     }
 
     private var iPadSidebarSurface: some View {
@@ -188,8 +246,12 @@ struct ContentView: View {
         } detail: {
             ZStack {
                 rootView(for: selectedTab)
-                aiFloatingButton(bottomPadding: 28)
-                sosFloatingButton(bottomPadding: 28)
+                    .environment(
+                        \.floatingActionBottomPadding,
+                        FloatingActionLayout.padBottom
+                    )
+                aiFloatingButton(bottomPadding: FloatingActionLayout.padBottom)
+                sosFloatingButton(bottomPadding: FloatingActionLayout.padBottom)
             }
         }
         .navigationSplitViewStyle(.balanced)
@@ -207,8 +269,6 @@ struct ContentView: View {
                 previewedPhotoID: previewedPhoto?.id,
                 onPreviewPhoto: presentPhotoPreview
             )
-        case .chat:
-            ChatListView(showProfile: $showProfile, isInChatDetail: $isInChatDetail, userRole: userRole)
         case .careLog:
             CareLogView(
                 showProfile: $showProfile,
@@ -216,16 +276,16 @@ struct ContentView: View {
                 previewedPhotoID: previewedPhoto?.id,
                 onPreviewPhoto: presentPhotoPreview
             )
-        case .spending:
-            SpendingView(showProfile: $showProfile, userRole: userRole)
-        case .more:
-            MoreView(showProfile: $showProfile, userRole: userRole)
+        case .contact:
+            ContactView(showProfile: $showProfile, isInChatDetail: $isInChatDetail, userRole: userRole)
+        case .management:
+            ManagementView(showProfile: $showProfile, userRole: userRole)
+        case .settings:
+            ProfileView(isLoggedIn: $isLoggedIn, userRole: userRole, isModal: false)
         case .medication:
             MedicationView(userRole: userRole)
         case .health:
             HealthMonitorView()
-        case .calendar:
-            SharedCalendarView()
         case .todo:
             TodoView()
         case .documents:
@@ -297,4 +357,5 @@ struct ContentView: View {
         .environment(TodoStore())
         .environment(CalendarStore())
         .environment(MedicationStore())
+        .environment(TodaySummaryStore())
 }

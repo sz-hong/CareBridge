@@ -3,7 +3,8 @@ import SwiftUI
 struct TodoView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(TodoStore.self) private var todoStore
-    @State private var showAddTodo = false
+    @Environment(CareLogStore.self) private var careLogStore
+    @Environment(LocaleStore.self) private var localeStore
     @State private var filter = 0 // 0=全部, 1=待處理, 2=已完成
 
     var filteredTodos: [TodoItem] {
@@ -63,31 +64,6 @@ struct TodoView: View {
         .background(Color.brandBackground)
         .navigationTitle("代辦事項")
         .navigationBarTitleDisplayMode(.large)
-        .overlay(alignment: .bottomTrailing) {
-            // 右下浮動新增按鈕（跟 AI 按鈕同樣 52pt 圓形）
-            Button {
-                showAddTodo = true
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(Color.brandTeal)
-                        .frame(width: 52, height: 52)
-                        .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
-                    Image(systemName: "plus")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(.white)
-                }
-            }
-            .padding(.trailing, usesWideLayout ? 32 : 20)
-            .padding(.bottom, usesWideLayout ? 28 : 24)
-        }
-        .sheet(isPresented: $showAddTodo) {
-            AddTodoView { newTodo in
-                todoStore.addTodo(newTodo)
-                // No separate calendar event — SharedCalendarView reads from
-                // TodoStore directly and renders todos alongside events.
-            }
-        }
         .task { todoStore.load() }
     }
 
@@ -98,15 +74,36 @@ struct TodoView: View {
     private func toggleTodo(_ todo: TodoItem) {
         if let index = todoStore.todos.firstIndex(where: { $0.id == todo.id }) {
             var updated = todoStore.todos[index]
+            let wasCompleted = updated.isCompleted
             updated.isCompleted.toggle()
             withAnimation {
                 todoStore.updateTodo(updated)
             }
-            // Backend `update_todo` auto-creates a CareLog (Type.ACTIVITY) when
-            // status flips to completed (apps/todo/views.py). The previous
-            // FE-side note entry duplicated that log with a 備註/優先度 detail
-            // — removed. Calendar visibility comes from the merged todo+event
-            // listing in SharedCalendarView, no separate event needed either.
+            if !wasCompleted, updated.isCompleted {
+                Task { await logTodoCompletion(updated) }
+            }
+        }
+    }
+
+    @MainActor
+    private func logTodoCompletion(_ todo: TodoItem) async {
+        let title = "完成待辦：\(todo.displayTitle(language: localeStore.code))"
+        let detail = [
+            "指派：\(todo.assignee.isEmpty ? "未指定" : todo.assignee)",
+            "優先度：\(todo.priority.displayName)",
+        ].joined(separator: "｜")
+        let entry = CareLogEntry(
+            id: UUID().uuidString,
+            type: .activity,
+            title: title,
+            detail: detail,
+            timestamp: Date(),
+            hasPhoto: false
+        )
+        do {
+            try await careLogStore.addEntry(entry, photo: nil)
+        } catch {
+            print("[TodoView] create completion care log failed: \(error)")
         }
     }
 

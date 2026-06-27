@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SharedCalendarView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.floatingActionBottomPadding) private var floatingActionBottomPadding
     @Environment(CalendarStore.self) private var calendarStore
     @Environment(TodoStore.self) private var todoStore
     @Environment(LocaleStore.self) private var localeStore
@@ -83,7 +84,7 @@ struct SharedCalendarView: View {
                 }
             }
             .padding(.trailing, usesWideLayout ? 32 : 20)
-            .padding(.bottom, usesWideLayout ? 28 : 24)
+            .padding(.bottom, floatingActionBottomPadding)
         }
         .sheet(isPresented: $showAddSheet) {
             switch addType {

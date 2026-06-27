@@ -15,6 +15,7 @@ struct LoginView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(UserStore.self) private var userStore
     @Environment(LocaleStore.self) private var localeStore
+    @Environment(TodaySummaryStore.self) private var todaySummaryStore
 
     var body: some View {
         ZStack {
@@ -259,6 +260,7 @@ struct LoginView: View {
             userStore.populate(from: response)
             userStore.load()   // async fetch family members
             userRole = response.user.role ?? .family
+            todaySummaryStore.invalidateForNewLogin()
             await MainActor.run { withAnimation { isLoggedIn = true } }
         } catch {
             print("🔴 Login failed: \(error)")
@@ -308,6 +310,7 @@ struct LoginView: View {
             userStore.currentUser = profile
             userStore.load()
             userRole = profile.role ?? .family
+            todaySummaryStore.invalidateForNewLogin()
             await MainActor.run { withAnimation { isLoggedIn = true } }
         } catch {
             await MainActor.run {
@@ -414,4 +417,5 @@ struct ForgotPasswordView: View {
     LoginView(isLoggedIn: .constant(false), userRole: .constant(.family))
         .environment(UserStore())
         .environment(LocaleStore())
+        .environment(TodaySummaryStore())
 }

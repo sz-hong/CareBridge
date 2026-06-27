@@ -5,7 +5,6 @@ struct MedicationView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(MedicationStore.self) private var medStore
     @Environment(CareLogStore.self) private var careLogStore
-    @State private var showAddMedication = false
 
     /// Hide meds whose endDate has already passed — they should silently
     /// disappear from the active list once their treatment course is over.
@@ -24,30 +23,6 @@ struct MedicationView: View {
         .background(Color.brandBackground)
         .navigationTitle("用藥管理")
         .navigationBarTitleDisplayMode(.large)
-        .overlay(alignment: .bottomTrailing) {
-            if userRole == .family {
-                Button {
-                    showAddMedication = true
-                } label: {
-                    ZStack {
-                        Circle()
-                            .fill(Color.brandTeal)
-                            .frame(width: 56, height: 56)
-                            .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
-                        Image(systemName: "plus")
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
-                }
-                .padding(.trailing, usesWideLayout ? 32 : 20)
-                .padding(.bottom, usesWideLayout ? 28 : 24)
-            }
-        }
-        .sheet(isPresented: $showAddMedication) {
-            AddMedicationView { newMed in
-                medStore.addMedication(newMed)
-            }
-        }
         .task { medStore.load() }
     }
 
@@ -97,6 +72,39 @@ struct MedicationView: View {
 
     // MARK: - Today's Summary
     private var todaySummaryCard: some View {
+        MedicationTodayProgressCard { index in
+            markDoseAsTaken(index: index)
+        }
+    }
+
+    private func markDoseAsTaken(index: Int) {
+        guard medStore.doses.indices.contains(index) else { return }
+        let dose = medStore.doses[index]
+
+        withAnimation(.easeInOut(duration: 0.3)) {
+            medStore.markDoseTaken(index: index)
+        }
+
+        // Backend's `confirmMedication` endpoint already creates a CareLog entry
+        // (see medication/views.py confirm action). Insert locally for instant UI
+        // feedback without re-posting and creating a duplicate row.
+        let entry = CareLogEntry(
+            id: UUID().uuidString,
+            type: .medication,
+            title: "\(dose.name) 已服用",
+            detail: "\(dose.time) 服藥完成",
+            timestamp: Date(),
+            hasPhoto: false
+        )
+        careLogStore.entries.insert(entry, at: 0)
+    }
+}
+
+struct MedicationTodayProgressCard: View {
+    let onMarkDoseTaken: (Int) -> Void
+    @Environment(MedicationStore.self) private var medStore
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("今日服藥進度")
                 .font(.system(size: 17, weight: .bold))
@@ -126,15 +134,28 @@ struct MedicationView: View {
             }
 
             // Timeline
-            VStack(spacing: 0) {
-                ForEach(Array(medStore.doses.enumerated()), id: \.element.id) { index, dose in
-                    doseRow(index: index, dose: dose)
-                    if index < medStore.doses.count - 1 {
-                        Divider().padding(.leading, 44)
+            if medStore.doses.isEmpty {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle")
+                        .foregroundStyle(Color.brandTeal)
+                    Text("今天沒有待服用藥物")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color(.systemGray6)))
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(medStore.doses.enumerated()), id: \.element.id) { index, dose in
+                        doseRow(index: index, dose: dose)
+                        if index < medStore.doses.count - 1 {
+                            Divider().padding(.leading, 44)
+                        }
                     }
                 }
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color(.systemGray6)))
             }
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color(.systemGray6)))
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 16).fill(.white))
@@ -163,7 +184,7 @@ struct MedicationView: View {
                     .foregroundStyle(.green)
             } else {
                 Button {
-                    markDoseAsTaken(index: index)
+                    onMarkDoseTaken(index)
                 } label: {
                     Text("服用")
                         .font(.system(size: 13, weight: .semibold))
@@ -177,27 +198,6 @@ struct MedicationView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-    }
-
-    private func markDoseAsTaken(index: Int) {
-        let dose = medStore.doses[index]
-
-        withAnimation(.easeInOut(duration: 0.3)) {
-            medStore.markDoseTaken(index: index)
-        }
-
-        // Backend's `confirmMedication` endpoint already creates a CareLog entry
-        // (see medication/views.py confirm action). Insert locally for instant UI
-        // feedback without re-posting and creating a duplicate row.
-        let entry = CareLogEntry(
-            id: UUID().uuidString,
-            type: .medication,
-            title: "\(dose.name) 已服用",
-            detail: "\(dose.time) 服藥完成",
-            timestamp: Date(),
-            hasPhoto: false
-        )
-        careLogStore.entries.insert(entry, at: 0)
     }
 }
 

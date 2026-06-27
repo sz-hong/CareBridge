@@ -3,7 +3,9 @@ import QuickLook
 import UniformTypeIdentifiers
 
 struct DocumentsView: View {
+    var isEmbeddedInManagement = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.floatingActionBottomPadding) private var floatingActionBottomPadding
     @Environment(\.dataService) private var service
     @State private var documents: [AppDocument] = []
     @State private var selectedCategory = "全部"
@@ -87,7 +89,7 @@ struct DocumentsView: View {
             }
         }
         .background(Color.brandBackground)
-        .navigationTitle("文件管理")
+        .navigationTitle(isEmbeddedInManagement ? "管理" : "文件管理")
         .navigationBarTitleDisplayMode(.large)
         .overlay(alignment: .bottomTrailing) {
             Button {
@@ -109,7 +111,7 @@ struct DocumentsView: View {
                 }
             }
             .padding(.trailing, usesWideLayout ? 32 : 20)
-            .padding(.bottom, usesWideLayout ? 28 : 20)
+            .padding(.bottom, floatingActionBottomPadding)
             .accessibilityLabel("上傳文件")
         }
         .sheet(isPresented: $showUpload) {

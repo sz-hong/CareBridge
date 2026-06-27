@@ -3,11 +3,13 @@ import SwiftUI
 struct ProfileView: View {
     @Binding var isLoggedIn: Bool
     let userRole: UserRole
+    var isModal = true
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(UserStore.self) private var userStore
     @Environment(LocaleStore.self) private var localeStore
     @Environment(\.dataService) private var service
+    @Environment(\.floatingActionBottomPadding) private var floatingActionBottomPadding
     @State private var showLogoutConfirm = false
     @State private var showEditProfile = false
     @State private var showFamilyMembers = false
@@ -53,21 +55,23 @@ struct ProfileView: View {
                     profileRow(icon: "person.text.rectangle", label: "姓名", value: user?.name ?? "-")
                     profileRow(icon: "phone.fill", label: "電話", value: user?.phone ?? "-")
                     profileRow(icon: "envelope.fill", label: "電子郵件", value: user?.email ?? "-")
-                    Button {
-                        showEditProfile = true
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "pencil.circle.fill")
-                                .foregroundStyle(Color.brandTeal)
-                                .frame(width: 24)
-                            Text("編輯個人資料")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 13))
-                                .foregroundStyle(.secondary)
+                    if isModal {
+                        Button {
+                            showEditProfile = true
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "pencil.circle.fill")
+                                    .foregroundStyle(Color.brandTeal)
+                                    .frame(width: 24)
+                                Text("編輯個人資料")
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
+                        .foregroundStyle(.primary)
                     }
-                    .foregroundStyle(.primary)
                 }
 
                 // Family info
@@ -200,13 +204,35 @@ struct ProfileView: View {
             }
             .frame(maxWidth: usesWideLayout ? 720 : .infinity)
             .frame(maxWidth: .infinity)
-            .navigationTitle("個人資料")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(isModal ? "個人資料" : "個人/設定")
+            .navigationBarTitleDisplayMode(isModal ? .inline : .large)
+            .overlay(alignment: .bottomTrailing) {
+                if !isModal {
+                    Button {
+                        showEditProfile = true
+                    } label: {
+                        ZStack {
+                            Circle()
+                                .fill(Color(.systemBackground))
+                                .frame(width: 52, height: 52)
+                                .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 4)
+                            Image(systemName: "pencil")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(.primary)
+                        }
+                    }
+                    .padding(.trailing, usesWideLayout ? 32 : 20)
+                    .padding(.bottom, floatingActionBottomPadding)
+                    .accessibilityLabel("編輯個人資料")
+                }
+            }
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .foregroundStyle(.primary)
+                if isModal {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { dismiss() } label: {
+                            Image(systemName: "xmark")
+                                .foregroundStyle(.primary)
+                        }
                     }
                 }
             }
