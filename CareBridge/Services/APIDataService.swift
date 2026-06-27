@@ -26,34 +26,27 @@ extension Notification.Name {
     static let careBridgeAuthenticationExpired = Notification.Name("careBridgeAuthenticationExpired")
 }
 
-final class AccessTokenRefreshGate {
-    private let lock = NSLock()
+actor AccessTokenRefreshGate {
     private var isRefreshing = false
     private var waiters: [CheckedContinuation<Bool, Never>] = []
 
-    func refresh(_ operation: () async -> Bool) async -> Bool {
-        lock.lock()
+    func waitForRefreshTurn() async -> Bool? {
         if isRefreshing {
             return await withCheckedContinuation { continuation in
                 waiters.append(continuation)
-                lock.unlock()
             }
         }
         isRefreshing = true
-        lock.unlock()
+        return nil
+    }
 
-        let result = await operation()
-
-        lock.lock()
+    func finishRefresh(_ result: Bool) {
         let pendingWaiters = waiters
         waiters.removeAll()
         isRefreshing = false
-        lock.unlock()
-
         for waiter in pendingWaiters {
             waiter.resume(returning: result)
         }
-        return result
     }
 }
 
@@ -150,14 +143,16 @@ class APIDataService: DataService {
     /// Exchange refresh token for a new access token (SimpleJWT, rotation enabled).
     /// Response format is `{access, refresh}` without the `{success,data}` envelope.
     func refreshAccessToken() async -> Bool {
-        let refreshed = await refreshGate.refresh { [weak self] in
-            guard let self else { return false }
-            let refreshed = await self.performRefreshAccessToken()
-            if !refreshed {
-                self.expireAuthentication()
-            }
-            return refreshed
+        if let sharedResult = await refreshGate.waitForRefreshTurn() {
+            return applyRefreshResult(sharedResult)
         }
+
+        let refreshed = await performRefreshAccessToken()
+        await refreshGate.finishRefresh(refreshed)
+        return applyRefreshResult(refreshed)
+    }
+
+    private func applyRefreshResult(_ refreshed: Bool) -> Bool {
         if refreshed {
             authToken = tokenStore.accessToken
         } else if authToken != nil || tokenStore.accessToken != nil || tokenStore.refreshToken != nil {

@@ -17,33 +17,25 @@ private final class InMemoryAuthTokenStore: AuthTokenStoring {
     }
 }
 
-private final class ControlledRefreshSession: APIHTTPSession, @unchecked Sendable {
-    private let lock = NSLock()
+private actor ControlledRefreshSession: APIHTTPSession {
     private var continuations: [CheckedContinuation<(Data, URLResponse), Error>] = []
-    private(set) var requests: [URLRequest] = []
+    private var requests: [URLRequest] = []
 
     var requestCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return requests.count
+        requests.count
     }
 
     func data(for request: URLRequest) async throws -> (Data, URLResponse) {
         try await withCheckedThrowingContinuation { continuation in
-            lock.lock()
             requests.append(request)
             continuations.append(continuation)
-            lock.unlock()
         }
     }
 
     func complete(json: String, statusCode: Int = 200) {
-        lock.lock()
         let pending = continuations
         continuations.removeAll()
         let url = requests.last?.url ?? URL(string: "https://example.com")!
-        lock.unlock()
-
         let response = HTTPURLResponse(
             url: url,
             statusCode: statusCode,
@@ -53,23 +45,6 @@ private final class ControlledRefreshSession: APIHTTPSession, @unchecked Sendabl
         for continuation in pending {
             continuation.resume(returning: (Data(json.utf8), response))
         }
-    }
-}
-
-private final class NotificationProbe: @unchecked Sendable {
-    private let lock = NSLock()
-    private var didReceive = false
-
-    var received: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return didReceive
-    }
-
-    func markReceived() {
-        lock.lock()
-        didReceive = true
-        lock.unlock()
     }
 }
 
@@ -91,16 +66,17 @@ struct APIDataServiceAuthTests {
         async let second = service.refreshAccessToken()
         async let third = service.refreshAccessToken()
 
-        for _ in 0..<100 where session.requestCount == 0 {
+        for _ in 0..<100 {
+            if await session.requestCount > 0 { break }
             await Task.yield()
         }
-        #expect(session.requestCount == 1)
+        #expect(await session.requestCount == 1)
 
-        session.complete(json: #"{"access":"fresh-access","refresh":"fresh-refresh"}"#)
+        await session.complete(json: #"{"access":"fresh-access","refresh":"fresh-refresh"}"#)
         let results = await [first, second, third]
 
         #expect(results == [true, true, true])
-        #expect(session.requestCount == 1)
+        #expect(await session.requestCount == 1)
         #expect(service.authToken == "fresh-access")
         #expect(tokenStore.accessToken == "fresh-access")
         #expect(tokenStore.refreshToken == "fresh-refresh")
@@ -117,19 +93,20 @@ struct APIDataServiceAuthTests {
             tokenStore: tokenStore,
             refreshGate: AccessTokenRefreshGate()
         )
-        let notificationProbe = NotificationProbe()
-        let observer = NotificationCenter.default.addObserver(
-            forName: .careBridgeAuthenticationExpired,
-            object: nil,
-            queue: nil
-        ) { _ in
-            notificationProbe.markReceived()
+
+        await confirmation { confirmed in
+            let observer = NotificationCenter.default.addObserver(
+                forName: .careBridgeAuthenticationExpired,
+                object: nil,
+                queue: nil
+            ) { _ in
+                confirmed()
+            }
+            defer { NotificationCenter.default.removeObserver(observer) }
+
+            service.expireAuthentication()
         }
-        defer { NotificationCenter.default.removeObserver(observer) }
 
-        service.expireAuthentication()
-
-        #expect(notificationProbe.received)
         #expect(service.authToken == nil)
         #expect(tokenStore.accessToken == nil)
         #expect(tokenStore.refreshToken == nil)
