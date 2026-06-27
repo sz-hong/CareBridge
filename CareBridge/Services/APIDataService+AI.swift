@@ -194,7 +194,7 @@ extension APIDataService {
             boundary: boundary
         )
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw APIError.emptyResponse
         }
@@ -208,8 +208,6 @@ extension APIDataService {
                     retried: true
                 )
             }
-            authToken = nil
-            KeychainService.clearAll()
             throw APIError.unauthorized
         }
 
@@ -288,8 +286,6 @@ extension APIDataService {
                 )
                 return
             }
-            authToken = nil
-            KeychainService.clearAll()
             throw APIError.unauthorized
         }
 

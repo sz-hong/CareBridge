@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     AIChatView,
+    TodaySummaryView,
     CareAnalysisView,
     HandoverReportView,
     SubsidyFormView,
@@ -11,6 +12,7 @@ from .views import (
 
 urlpatterns = [
     path('chat/', AIChatView.as_view(), name='ai-chat'),
+    path('today-summary/', TodaySummaryView.as_view(), name='ai-today-summary'),
     path('care-analysis/', CareAnalysisView.as_view(), name='ai-care-analysis'),
     path('handover-report/', HandoverReportView.as_view(), name='ai-handover-report'),
     path('subsidy-form/', SubsidyFormView.as_view(), name='ai-subsidy-form'),

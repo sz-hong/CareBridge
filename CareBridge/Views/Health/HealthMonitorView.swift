@@ -79,6 +79,7 @@ struct HealthMonitorView: View {
     @Environment(CareLogStore.self) private var careLogStore
     @Environment(HealthKitSyncManager.self) private var healthSync
     @Environment(\.dataService) private var service
+    @Environment(\.scenePhase) private var scenePhase
 
     /// Most-recent vital reading from CareLog (manual entries via 日誌).
     /// Returns nil for fields the user hasn't logged yet.
@@ -150,6 +151,16 @@ struct HealthMonitorView: View {
             await syncHealthIfCurrentOwner()
             await healthKit.loadLatestValues()
             await loadTrends()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                liveSocket.reconnectIfNeeded()
+                Task {
+                    await syncHealthIfCurrentOwner()
+                    await healthKit.loadLatestValues()
+                    await loadTrends()
+                }
+            }
         }
         .onDisappear { liveSocket.disconnect() }
         .overlay(alignment: .top) {
@@ -675,7 +686,7 @@ struct HealthMonitorView: View {
 private enum HealthMonitorDemoData {
     /// 健康監測暫時使用展示資料。之後要接回真實 HealthKit / backend，
     /// 只要改成 `false`，不用重拆畫面邏輯。
-    static let isEnabled = true
+    static let isEnabled = false
 
     static let heartRate = 76.0
     static let bloodOxygen = 97.8

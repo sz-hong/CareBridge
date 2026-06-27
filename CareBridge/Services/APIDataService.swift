@@ -1,27 +1,98 @@
 import Foundation
 
-/// Real API implementation — connects to backend REST API via JSON.
-/// Replace `baseURL` with your actual server address.
+protocol AuthTokenStoring: AnyObject {
+    var accessToken: String? { get set }
+    var refreshToken: String? { get set }
+    func clearAll()
+}
+
+final class KeychainAuthTokenStore: AuthTokenStoring {
+    var accessToken: String? {
+        get { KeychainService.accessToken }
+        set { KeychainService.accessToken = newValue }
+    }
+
+    var refreshToken: String? {
+        get { KeychainService.refreshToken }
+        set { KeychainService.refreshToken = newValue }
+    }
+
+    func clearAll() {
+        KeychainService.clearAll()
+    }
+}
+
+extension Notification.Name {
+    static let careBridgeAuthenticationExpired = Notification.Name("careBridgeAuthenticationExpired")
+}
+
+final class AccessTokenRefreshGate {
+    private let lock = NSLock()
+    private var isRefreshing = false
+    private var waiters: [CheckedContinuation<Bool, Never>] = []
+
+    func refresh(_ operation: () async -> Bool) async -> Bool {
+        lock.lock()
+        if isRefreshing {
+            return await withCheckedContinuation { continuation in
+                waiters.append(continuation)
+                lock.unlock()
+            }
+        }
+        isRefreshing = true
+        lock.unlock()
+
+        let result = await operation()
+
+        lock.lock()
+        let pendingWaiters = waiters
+        waiters.removeAll()
+        isRefreshing = false
+        lock.unlock()
+
+        for waiter in pendingWaiters {
+            waiter.resume(returning: result)
+        }
+        return result
+    }
+}
+
+/// Real API implementation connects to backend REST API via JSON.
 class APIDataService: DataService {
+    static let sharedRefreshGate = AccessTokenRefreshGate()
 
     let baseURL: String
     var authToken: String?
     let apiClient: APIClient
+    let session: APIHTTPSession
+    let tokenStore: AuthTokenStoring
     let privacyRedactionService: PrivacyRedactionServicing
+    private let refreshGate: AccessTokenRefreshGate
 
     init(
         baseURL: String = AppConfig.apiBaseURL,
+        session: APIHTTPSession = URLSession.shared,
+        tokenStore: AuthTokenStoring = KeychainAuthTokenStore(),
+        refreshGate: AccessTokenRefreshGate = APIDataService.sharedRefreshGate,
         privacyRedactionService: PrivacyRedactionServicing = DefaultPrivacyRedactionService()
     ) {
         self.baseURL = baseURL
-        self.apiClient = APIClient(baseURL: baseURL)
-        self.authToken = KeychainService.accessToken
+        self.session = session
+        self.tokenStore = tokenStore
+        self.refreshGate = refreshGate
+        self.apiClient = APIClient(baseURL: baseURL, session: session)
+        self.authToken = tokenStore.accessToken
         self.privacyRedactionService = privacyRedactionService
     }
 
     // MARK: - Generic Request Helpers
 
-    func request<T: Codable>(_ method: String, path: String, body: (any Encodable)? = nil, retried: Bool = false) async throws -> T {
+    func request<T: Codable>(
+        _ method: String,
+        path: String,
+        body: (any Encodable)? = nil,
+        retried: Bool = false
+    ) async throws -> T {
         do {
             return try await apiClient.request(
                 method,
@@ -33,15 +104,11 @@ class APIDataService: DataService {
             if await refreshAccessToken() {
                 return try await request(method, path: path, body: body, retried: true)
             }
-            authToken = nil
-            KeychainService.clearAll()
             throw APIError.serverError(statusCode: 401)
         } catch APIError.backendError(let statusCode, _) where statusCode == 401 && !retried && authToken != nil {
             if await refreshAccessToken() {
                 return try await request(method, path: path, body: body, retried: true)
             }
-            authToken = nil
-            KeychainService.clearAll()
             throw APIError.serverError(statusCode: 401)
         }
     }
@@ -66,8 +133,6 @@ class APIDataService: DataService {
                     retried: true
                 )
             }
-            authToken = nil
-            KeychainService.clearAll()
             throw APIError.serverError(statusCode: 401)
         } catch APIError.backendError(let statusCode, _)
             where statusCode == 401 && !retried && authToken != nil {
@@ -78,8 +143,6 @@ class APIDataService: DataService {
                     retried: true
                 )
             }
-            authToken = nil
-            KeychainService.clearAll()
             throw APIError.serverError(statusCode: 401)
         }
     }
@@ -87,8 +150,27 @@ class APIDataService: DataService {
     /// Exchange refresh token for a new access token (SimpleJWT, rotation enabled).
     /// Response format is `{access, refresh}` without the `{success,data}` envelope.
     func refreshAccessToken() async -> Bool {
-        guard let refresh = KeychainService.refreshToken,
-              let url = URL(string: "\(baseURL)\(APIEndpoint.tokenRefresh)") else { return false }
+        let refreshed = await refreshGate.refresh { [weak self] in
+            guard let self else { return false }
+            let refreshed = await self.performRefreshAccessToken()
+            if !refreshed {
+                self.expireAuthentication()
+            }
+            return refreshed
+        }
+        if refreshed {
+            authToken = tokenStore.accessToken
+        } else if authToken != nil || tokenStore.accessToken != nil || tokenStore.refreshToken != nil {
+            expireAuthentication()
+        }
+        return refreshed
+    }
+
+    private func performRefreshAccessToken() async -> Bool {
+        guard let refresh = tokenStore.refreshToken,
+              let url = URL(string: "\(baseURL)\(APIEndpoint.tokenRefresh)") else {
+            return false
+        }
 
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -96,20 +178,33 @@ class APIDataService: DataService {
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["refresh": refresh])
 
         do {
-            let (data, response) = try await URLSession.shared.data(for: req)
+            let (data, response) = try await session.data(for: req)
             guard let http = response as? HTTPURLResponse, 200...299 ~= http.statusCode,
                   let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let newAccess = obj["access"] as? String else {
                 return false
             }
             authToken = newAccess
-            KeychainService.accessToken = newAccess
+            tokenStore.accessToken = newAccess
             if let newRefresh = obj["refresh"] as? String {
-                KeychainService.refreshToken = newRefresh
+                tokenStore.refreshToken = newRefresh
             }
             return true
         } catch {
             return false
+        }
+    }
+
+    func expireAuthentication() {
+        authToken = nil
+        tokenStore.clearAll()
+        let postNotification = {
+            NotificationCenter.default.post(name: .careBridgeAuthenticationExpired, object: nil)
+        }
+        if Thread.isMainThread {
+            postNotification()
+        } else {
+            DispatchQueue.main.async(execute: postNotification)
         }
     }
 
@@ -133,7 +228,6 @@ class APIDataService: DataService {
         let _: EmptyResponse = try await request("DELETE", path: path)
     }
 }
-
 // MARK: - Helpers
 enum APIError: LocalizedError {
     case serverError(statusCode: Int)

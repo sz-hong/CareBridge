@@ -2,6 +2,8 @@ import re
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from asgiref.sync import async_to_sync
+from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
 from core.deidentification import (
@@ -21,6 +23,46 @@ from core.translation import (
     protected_entity_map,
     translate_for_user,
 )
+from core.ws_auth import JWTAuthMiddleware
+
+
+class WebSocketAuthMiddlewareTests(SimpleTestCase):
+    def test_redacts_query_token_before_downstream_app(self):
+        captured = {}
+
+        async def app(scope, receive, send):
+            captured['query_string'] = scope['query_string']
+
+        async def receive():
+            return {'type': 'websocket.disconnect'}
+
+        async def send(message):
+            pass
+
+        middleware = JWTAuthMiddleware(app)
+
+        async_to_sync(middleware)(
+            {
+                'type': 'websocket',
+                'query_string': b'token=secret.jwt.token&room=health',
+            },
+            receive,
+            send,
+        )
+
+        self.assertEqual(
+            captured['query_string'],
+            b'token=redacted&room=health',
+        )
+        self.assertNotIn(b'secret.jwt.token', captured['query_string'])
+
+
+class JWTSettingsTests(SimpleTestCase):
+    def test_simplejwt_blacklist_app_is_installed(self):
+        self.assertIn(
+            'rest_framework_simplejwt.token_blacklist',
+            settings.INSTALLED_APPS,
+        )
 
 
 class StorageURLContractTests(SimpleTestCase):
