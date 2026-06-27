@@ -122,6 +122,12 @@ def _get_model():
     return getattr(settings, 'OPENAI_MODEL', 'gpt-4o')
 
 
+def _limit_summary_chars(text, max_chars=50):
+    summary = _plain_text_from_markdown(text or "")
+    summary = re.sub(r"\s+", " ", summary).strip()
+    return summary[:max_chars]
+
+
 def _system_prompt_for_user(user):
     now = timezone.localtime()
     return (
@@ -354,6 +360,97 @@ class AIChatView(APIView):
         response['Cache-Control'] = 'no-cache'
         response['X-Accel-Buffering'] = 'no'
         return response
+
+
+class TodaySummaryView(APIView):
+    """
+    GET /ai/today-summary/
+    Generates a concise AI summary for today's homepage.
+    """
+    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
+
+    def get(self, request):
+        user = request.user
+        family = user.family
+        today = timezone.localdate()
+
+        from apps.calendar_event.models import Event
+        from apps.care_log.models import CareLog
+
+        care_logs = list(
+            CareLog.objects.filter(family=family, timestamp__date=today)
+            .select_related("recorder")
+            .order_by("timestamp")[:50]
+        )
+        events = list(
+            Event.objects.filter(family=family, start_time__date=today)
+            .order_by("start_time")[:50]
+        )
+
+        care_log_items = [
+            {
+                "type": log.type,
+                "content": _safe_json(log.content),
+                "recorder": _safe_text(getattr(log.recorder, "name", "")),
+                "timestamp": log.timestamp.isoformat(),
+            }
+            for log in care_logs
+        ]
+        event_items = [
+            {
+                "title": _safe_text(event.title),
+                "type": event.type,
+                "start_time": event.start_time.isoformat(),
+                "end_time": event.end_time.isoformat() if event.end_time else None,
+                "location": _safe_text(event.location or ""),
+                "note": _safe_text(event.note or ""),
+            }
+            for event in events
+        ]
+
+        data_summary = json.dumps({
+            "date": today.isoformat(),
+            "care_logs": care_log_items,
+            "events": event_items,
+        }, default=str, ensure_ascii=False)
+
+        prompt = (
+            "Summarize ONLY the supplied date's elder care logs and schedule "
+            "for the logged-in home page. Use Traditional Chinese plain text. "
+            "The summary must be one sentence, no Markdown, no bullet points, "
+            "and no more than 50 Chinese characters. Do not mention records "
+            "outside the supplied date. If there is no care log or event, say "
+            "that today has no care or schedule record.\n\n"
+            f"Data:\n{data_summary}"
+        )
+
+        client = _get_client()
+        response = client.chat.completions.create(
+            model=_get_model(),
+            messages=[
+                {"role": "system", "content": (
+                    "You write short elder-care home page summaries. "
+                    "Use Traditional Chinese plain text only. "
+                    "Never exceed 50 characters."
+                )},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+            max_completion_tokens=120,
+        )
+
+        summary = _limit_summary_chars(response.choices[0].message.content)
+        tokens_used = response.usage.total_tokens if response.usage else 0
+
+        return success_response(data={
+            "summary": summary,
+            "date": today.isoformat(),
+            "source_counts": {
+                "care_logs": len(care_log_items),
+                "events": len(event_items),
+            },
+            "tokens_used": tokens_used,
+        })
 
 
 class CareAnalysisView(APIView):

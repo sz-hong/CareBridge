@@ -12,6 +12,7 @@ from apps.ai_assistant.models import FirstAidDocument
 from apps.ai_assistant.tools import TOOL_DEFINITIONS, execute_tool
 from apps.auth_account.models import User
 from apps.board.models import BoardRequest
+from apps.calendar_event.models import Event
 from apps.care_log.models import CareLog
 from apps.expense.models import Expense
 from apps.family.models import Family
@@ -680,6 +681,99 @@ class AIReportEndpointContractTests(TestCase):
             usage=SimpleNamespace(total_tokens=7),
         )
         return mock_client
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_today_summary_uses_only_today_family_care_logs_and_events(self, mock_get_client):
+        mock_client = self._mock_client("Today care and schedule are stable")
+        mock_get_client.return_value = mock_client
+        now = timezone.localtime().replace(
+            hour=9, minute=0, second=0, microsecond=0,
+        )
+        yesterday = now - timezone.timedelta(days=1)
+        other_user = User.objects.create_user(
+            email="other-summary@example.com",
+            password="password123",
+            name="Other Summary User",
+            role=User.Role.FAMILY_MEMBER,
+        )
+        other_family = Family.objects.create(
+            name="Other Summary Family",
+            elder_name="Other Elder",
+            invite_code="996633",
+            created_by=other_user,
+        )
+        other_user.family = other_family
+        other_user.save(update_fields=["family"])
+
+        CareLog.objects.create(
+            family=self.family,
+            recorder=self.user,
+            type=CareLog.Type.NOTE,
+            content={"note": "morning medication done"},
+            timestamp=now,
+        )
+        CareLog.objects.create(
+            family=self.family,
+            recorder=self.user,
+            type=CareLog.Type.NOTE,
+            content={"note": "old care log secret"},
+            timestamp=yesterday,
+        )
+        CareLog.objects.create(
+            family=other_family,
+            recorder=other_user,
+            type=CareLog.Type.NOTE,
+            content={"note": "other family care secret"},
+            timestamp=now,
+        )
+        Event.objects.create(
+            family=self.family,
+            title="cardiology visit",
+            start_time=now.replace(hour=14),
+            end_time=now.replace(hour=15),
+            type=Event.Type.MEDICAL,
+            created_by=self.user,
+        )
+        Event.objects.create(
+            family=self.family,
+            title="old event secret",
+            start_time=yesterday,
+            type=Event.Type.PERSONAL,
+            created_by=self.user,
+        )
+        Event.objects.create(
+            family=other_family,
+            title="other family event secret",
+            start_time=now,
+            type=Event.Type.PERSONAL,
+            created_by=other_user,
+        )
+
+        response = self.client.get("/api/v1/ai/today-summary/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(data["summary"], "Today care and schedule are stable")
+        self.assertEqual(data["date"], timezone.localdate().isoformat())
+        self.assertEqual(data["source_counts"], {"care_logs": 2, "events": 1})
+        user_prompt = mock_client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
+        self.assertIn("morning medication done", user_prompt)
+        self.assertIn("cardiology visit", user_prompt)
+        self.assertNotIn("old care log secret", user_prompt)
+        self.assertNotIn("old event secret", user_prompt)
+        self.assertNotIn("other family care secret", user_prompt)
+        self.assertNotIn("other family event secret", user_prompt)
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_today_summary_limits_model_output_to_50_characters(self, mock_get_client):
+        mock_get_client.return_value = self._mock_client("x" * 60)
+
+        response = self.client.get("/api/v1/ai/today-summary/")
+
+        self.assertEqual(response.status_code, 200)
+        summary = response.json()["data"]["summary"]
+        self.assertEqual(summary, "x" * 50)
+        self.assertLessEqual(len(summary), 50)
 
     @patch("apps.ai_assistant.views._get_client")
     def test_care_analysis_uses_current_medication_schema(self, mock_get_client):
