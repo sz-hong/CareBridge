@@ -132,7 +132,6 @@ struct HomeView: View {
                         medicationStore.load()
                         careLogStore.load()
                         todoStore.load()
-                        calendarStore.load()
                         liveSocket.reconnectIfNeeded()
                         Task {
                             await healthKit.loadLatestValues()
