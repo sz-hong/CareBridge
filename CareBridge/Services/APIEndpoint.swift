@@ -117,6 +117,7 @@ enum APIEndpoint {
     }
 
     static let aiChat = "/ai/chat/"
+    static let aiTodaySummary = "/ai/today-summary/"
     static let aiFirstAid = "/ai/first-aid/"
     static let aiFirstAidScenarios = "/ai/first-aid/scenarios/"
     static let aiCareAnalysis = "/ai/care-analysis/"

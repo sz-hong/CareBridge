@@ -215,6 +215,15 @@ class MockDataService: DataService {
                   isUser: false, timestamp: Date())
     }
 
+    func fetchTodaySummary() async throws -> TodaySummary {
+        TodaySummary(
+            summary: "今日有 2 筆照護紀錄與 1 個行程，請留意晚間用藥。",
+            date: "2026-06-27",
+            sourceCounts: TodaySummary.SourceCounts(careLogs: 2, events: 1),
+            tokensUsed: 123
+        )
+    }
+
     func fetchCareAnalysis(days: Int) async throws -> AICareAnalysisResponse {
         AICareAnalysisResponse(
             analysis: "Mock care analysis for the last \(days) days.",

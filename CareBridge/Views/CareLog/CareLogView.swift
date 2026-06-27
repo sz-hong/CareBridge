@@ -7,8 +7,12 @@ struct CareLogView: View {
     let previewedPhotoID: String?
     let onPreviewPhoto: (PhotoPreviewItem) -> Void
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.floatingActionBottomPadding) private var floatingActionBottomPadding
     @Environment(CareLogStore.self) private var careLogStore
+    @Environment(TodoStore.self) private var todoStore
+    @Environment(MedicationStore.self) private var medicationStore
     @Environment(LocaleStore.self) private var localeStore
+    @State private var selectedMode = CareLogMode.records
     @State private var selectedFilter: CareLogType? = nil
     @State private var showAddEntry = false
     @State private var showNotifications = false
@@ -37,15 +41,22 @@ struct CareLogView: View {
         return "\(day.timeIntervalSince1970)-\(selectedFilter?.rawValue ?? "all")"
     }
 
-    var body: some View {
-        ZStack {
-            if usesWideLayout {
-                careLogRoot
-            } else {
-                NavigationStack {
-                    careLogRoot
-                }
+    private var todayTodos: [TodoItem] {
+        todoStore.todos.filter { todo in
+            guard let dueDate = todo.dueDate else { return false }
+            return calendar.isDateInToday(dueDate)
+        }
+        .sorted {
+            if $0.isCompleted != $1.isCompleted {
+                return !$0.isCompleted
             }
+            return ($0.dueDate ?? .distantFuture) < ($1.dueDate ?? .distantFuture)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            careLogRoot
         }
     }
 
@@ -53,18 +64,6 @@ struct CareLogView: View {
         careLogContent
             .background(Color.brandBackground)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { showProfile = true } label: {
-                        HStack(spacing: 0) {
-                            Image(systemName: "person.circle.fill")
-                                .font(.system(size: 24, weight: .bold))
-                                .foregroundStyle(Color.brandTeal)
-                            Text("CareBridge")
-                                .font(.system(size: 20, weight: .bold))
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     NotificationBellButton { showNotifications = true }
                 }
@@ -84,7 +83,7 @@ struct CareLogView: View {
                     }
                 }
                 .padding(.trailing, usesWideLayout ? 32 : 20)
-                .padding(.bottom, usesWideLayout ? 28 : 20)
+                .padding(.bottom, floatingActionBottomPadding)
             }
             .sheet(isPresented: $showAddEntry) {
                 AddCareLogView(userRole: userRole) { newEntry, photo in
@@ -110,17 +109,25 @@ struct CareLogView: View {
                 headerSection
                     .frame(maxWidth: 780)
 
-                timelineScroll
-                    .frame(maxWidth: 780)
+                if selectedMode == .records {
+                    timelineScroll
+                        .frame(maxWidth: 780)
+                } else {
+                    careLogTodoScroll
+                        .frame(maxWidth: 780)
+                }
             }
             .padding(.top, -24)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
             VStack(spacing: 0) {
-                // Filter chips + calendar header
                 headerSection
 
-                timelineScroll
+                if selectedMode == .records {
+                    timelineScroll
+                } else {
+                    careLogTodoScroll
+                }
             }
         }
     }
@@ -204,6 +211,175 @@ struct CareLogView: View {
         }
     }
 
+    private var careLogTodoScroll: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                careLogMedicationSection
+
+                careLogTaskSection(title: "日常", systemImage: "checklist") {
+                    VStack(spacing: 12) {
+                        NavigationLink {
+                            TodoView()
+                        } label: {
+                            HStack {
+                                Text("查看待辦頁面")
+                                    .font(.system(size: 14, weight: .semibold))
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            .foregroundStyle(Color.brandTeal)
+                            .padding(.bottom, todayTodos.isEmpty ? 0 : 4)
+                        }
+                        .buttonStyle(.plain)
+
+                        if todayTodos.isEmpty {
+                            emptyTaskHint("今天沒有待辦事項")
+                        } else {
+                            VStack(spacing: 0) {
+                                ForEach(todayTodos) { todo in
+                                    TodoRow(todo: todo) {
+                                        toggleTodo(todo)
+                                    }
+                                    if todo.id != todayTodos.last?.id {
+                                        Divider().padding(.leading, 38)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(minLength: 32)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .frame(maxWidth: usesWideLayout ? 780 : .infinity)
+            .frame(maxWidth: .infinity)
+        }
+        .background(Color.brandBackground)
+        .task {
+            medicationStore.load()
+            todoStore.load()
+        }
+        .refreshable {
+            medicationStore.load()
+            todoStore.load()
+        }
+    }
+
+    private var careLogMedicationSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("用藥", systemImage: "pills.fill")
+                .font(.system(size: 18, weight: .bold))
+
+            VStack(alignment: .leading, spacing: 10) {
+                NavigationLink {
+                    MedicationView(userRole: userRole)
+                } label: {
+                    HStack {
+                        Text("查看用藥頁面")
+                            .font(.system(size: 14, weight: .semibold))
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundStyle(Color.brandTeal)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 14)
+                }
+                .buttonStyle(.plain)
+
+                MedicationTodayProgressCard { index in
+                    markDoseAsTaken(index: index)
+                }
+            }
+        }
+    }
+
+    private func careLogTaskSection<Content: View>(
+        title: LocalizedStringKey,
+        systemImage: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 18, weight: .bold))
+
+            content()
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 16).fill(.white))
+        }
+    }
+
+    private func emptyTaskHint(_ title: LocalizedStringKey) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "checkmark.circle")
+                .foregroundStyle(Color.brandTeal)
+            Text(title)
+                .font(.system(size: 14))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 10)
+    }
+
+    private func toggleTodo(_ todo: TodoItem) {
+        if let index = todoStore.todos.firstIndex(where: { $0.id == todo.id }) {
+            var updated = todoStore.todos[index]
+            let wasCompleted = updated.isCompleted
+            updated.isCompleted.toggle()
+            withAnimation {
+                todoStore.updateTodo(updated)
+            }
+            if !wasCompleted, updated.isCompleted {
+                Task { await logTodoCompletion(updated) }
+            }
+        }
+    }
+
+    private func markDoseAsTaken(index: Int) {
+        guard medicationStore.doses.indices.contains(index) else { return }
+        let dose = medicationStore.doses[index]
+
+        withAnimation(.easeInOut(duration: 0.3)) {
+            medicationStore.markDoseTaken(index: index)
+        }
+
+        let entry = CareLogEntry(
+            id: UUID().uuidString,
+            type: .medication,
+            title: "\(dose.name) 已服用",
+            detail: "\(dose.time) 服藥完成",
+            timestamp: Date(),
+            hasPhoto: false
+        )
+        careLogStore.entries.insert(entry, at: 0)
+    }
+
+    @MainActor
+    private func logTodoCompletion(_ todo: TodoItem) async {
+        let title = "完成待辦：\(todo.displayTitle(language: localeStore.code))"
+        let detail = [
+            "指派：\(todo.assignee.isEmpty ? "未指定" : todo.assignee)",
+            "優先度：\(todo.priority.displayName)",
+        ].joined(separator: "｜")
+        let entry = CareLogEntry(
+            id: UUID().uuidString,
+            type: .activity,
+            title: title,
+            detail: detail,
+            timestamp: Date(),
+            hasPhoto: false
+        )
+        do {
+            try await careLogStore.addEntry(entry, photo: nil)
+        } catch {
+            print("[CareLogView] create completion care log failed: \(error)")
+        }
+    }
+
     // MARK: - Header with filter + calendar
     private var headerSection: some View {
         VStack(spacing: 0) {
@@ -217,30 +393,41 @@ struct CareLogView: View {
             .padding(.top, 8)
             .padding(.bottom, 12)
 
-            // Filter chips
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    FilterChip(title: "All", isSelected: selectedFilter == nil) {
-                        selectedFilter = nil
-                    }
-                    ForEach(CareLogType.allCases, id: \.self) { type in
-                        FilterChip(title: type.displayNameKey, isSelected: selectedFilter == type) {
-                            selectedFilter = (selectedFilter == type) ? nil : type
+            Picker("日誌模式", selection: $selectedMode) {
+                ForEach(CareLogMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+            .padding(.bottom, selectedMode == .records ? 10 : 12)
+
+            if selectedMode == .records {
+                // Filter chips
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        FilterChip(title: "All", isSelected: selectedFilter == nil) {
+                            selectedFilter = nil
+                        }
+                        ForEach(CareLogType.allCases, id: \.self) { type in
+                            FilterChip(title: type.displayNameKey, isSelected: selectedFilter == type) {
+                                selectedFilter = (selectedFilter == type) ? nil : type
+                            }
                         }
                     }
+                    .padding(.horizontal, 16)
                 }
-                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+
+                // 行事曆 header row: title + prev/next + 週/月 toggle
+                calendarHeader
+
+                // Calendar body (switches between week strip and month grid)
+                miniCalendar
+
+                // Event dot legend
+                calendarLegend
             }
-            .padding(.bottom, 8)
-
-            // 行事曆 header row: title + prev/next + 週/月 toggle
-            calendarHeader
-
-            // Calendar body (switches between week strip and month grid)
-            miniCalendar
-
-            // Event dot legend
-            calendarLegend
 
             Divider()
         }
@@ -493,6 +680,20 @@ struct CareLogView: View {
     }
 }
 
+private enum CareLogMode: String, CaseIterable, Hashable, Identifiable {
+    case records
+    case tasks
+
+    var id: Self { self }
+
+    var title: LocalizedStringKey {
+        switch self {
+        case .records: "記錄"
+        case .tasks: "待辦"
+        }
+    }
+}
+
 // MARK: - Filter Chip
 struct FilterChip: View {
     let title: LocalizedStringKey
@@ -526,6 +727,35 @@ struct FilterChip: View {
                 .foregroundStyle(isSelected ? .white : .primary)
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct CareLogDoseRow: View {
+    let dose: DoseEntry
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: dose.isDone ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(dose.isDone ? Color.brandTeal : Color(.systemGray3))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(dose.name)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                Text(dose.time)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Text(dose.isDone ? "已服用" : "待服用")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(dose.isDone ? Color.brandTeal : .secondary)
+        }
+        .padding(.vertical, 8)
     }
 }
 
@@ -741,14 +971,60 @@ struct TimelineEntryRow: View {
     }
 }
 
+private enum CareLogCreationType: String, CaseIterable, Hashable, Identifiable {
+    case vital
+    case medicationLog
+    case meal
+    case activity
+    case todo
+    case medicationSchedule
+
+    var id: Self { self }
+
+    var displayName: LocalizedStringResource {
+        switch self {
+        case .vital: "生命徵象"
+        case .medicationLog: "服藥紀錄"
+        case .meal: "飲食"
+        case .activity: "活動"
+        case .todo: "待辦"
+        case .medicationSchedule: "用藥排程"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .vital: "heart.fill"
+        case .medicationLog: "pills.fill"
+        case .meal: "fork.knife"
+        case .activity: "figure.walk"
+        case .todo: "checkmark.circle.fill"
+        case .medicationSchedule: "pills.circle.fill"
+        }
+    }
+
+    var careLogType: CareLogType? {
+        switch self {
+        case .vital: .vital
+        case .medicationLog: .medication
+        case .meal: .meal
+        case .activity: .activity
+        case .todo, .medicationSchedule: nil
+        }
+    }
+}
+
 // MARK: - Add Care Log View
 struct AddCareLogView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(UserStore.self) private var userStore
+    @Environment(TodoStore.self) private var todoStore
+    @Environment(MedicationStore.self) private var medicationStore
     let userRole: UserRole
     let onAdd: (CareLogEntry, UIImage?) async throws -> Void
 
-    @State private var selectedType: CareLogType = .vital  // 預設改為生理數值（移除備註後）
+    @State private var selectedCreationType: CareLogCreationType = .vital
     @State private var recordDate = Date()
     @State private var selectedPhoto: UIImage?
     @State private var selectedPhotoItem: PhotosPickerItem?
@@ -789,6 +1065,24 @@ struct AddCareLogView: View {
     // note
     @State private var noteText = ""
 
+    // todo
+    @State private var todoTitle = ""
+    @State private var todoSelectedMemberId: String?
+    @State private var todoPriority = Priority.medium
+    @State private var todoHasDueDate = true
+    @State private var todoDueDate = Date()
+
+    // medication schedule
+    @State private var scheduleName = ""
+    @State private var scheduleNameTranslated = ""
+    @State private var scheduleDosage = ""
+    @State private var scheduleFrequency = 0
+    @State private var scheduleTime1 = Calendar.current.date(bySettingHour: 8, minute: 0, second: 0, of: Date()) ?? Date()
+    @State private var scheduleTime2 = Calendar.current.date(bySettingHour: 14, minute: 0, second: 0, of: Date()) ?? Date()
+    @State private var scheduleTime3 = Calendar.current.date(bySettingHour: 20, minute: 0, second: 0, of: Date()) ?? Date()
+    @State private var scheduleEndDate = Date().addingTimeInterval(86400 * 30)
+    @State private var scheduleNotes = ""
+
     private let routeLabels = ["口服", "外用", "注射"]
     private let routeDisplayLabels: [LocalizedStringResource] = [
         "口服", "外用", "注射",
@@ -805,6 +1099,7 @@ struct AddCareLogView: View {
     private let intensityDisplayLabels: [LocalizedStringResource] = [
         "輕度", "中度", "高強度",
     ]
+    private let medicationFrequencyLabels = ["每日一次", "每日兩次", "每日三次"]
     // (conditionLabels removed — vital section is now optional fields only)
 
     private enum NumericField: Hashable {
@@ -820,9 +1115,40 @@ struct AddCareLogView: View {
         UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
-    private var availableRecordTypes: [CareLogType] {
-        // 「備註」類型已由 chat / Todo 取代，新增紀錄時不再提供。
-        CareLogType.allCases.filter { $0 != .note }
+    private var selectedTodoAssignee: UserProfile? {
+        userStore.familyMembers.first(where: { $0.id == todoSelectedMemberId })
+            ?? userStore.familyMembers.first
+    }
+
+    private var selectedTodoAssigneeName: String { selectedTodoAssignee?.name ?? "" }
+    private var selectedTodoAssigneeId: String? { selectedTodoAssignee?.id }
+
+    private var medicationScheduleTimes: [String] {
+        switch scheduleFrequency {
+        case 0: [timeFormatter.string(from: scheduleTime1)]
+        case 1: [timeFormatter.string(from: scheduleTime1), timeFormatter.string(from: scheduleTime2)]
+        case 2: [timeFormatter.string(from: scheduleTime1), timeFormatter.string(from: scheduleTime2), timeFormatter.string(from: scheduleTime3)]
+        default: [timeFormatter.string(from: scheduleTime1)]
+        }
+    }
+
+    private var timeFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }
+
+    private var canSaveCurrentSelection: Bool {
+        switch selectedCreationType {
+        case .todo:
+            return !todoTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && selectedTodoAssigneeId != nil
+        case .medicationSchedule:
+            return !scheduleName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !scheduleNameTranslated.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .vital, .medicationLog, .meal, .activity:
+            return true
+        }
     }
 
     var body: some View {
@@ -854,7 +1180,7 @@ struct AddCareLogView: View {
                             }
                         }
                         .tint(Color.brandTeal)
-                        .disabled(isSaving || isLoadingPhoto)
+                        .disabled(isSaving || isLoadingPhoto || !canSaveCurrentSelection)
                     }
                     ToolbarItemGroup(placement: .keyboard) {
                         if focusedNumericField != nil {
@@ -886,6 +1212,12 @@ struct AddCareLogView: View {
                     guard item != nil else { return }
                     Task {
                         await loadSelectedPhoto(item)
+                    }
+                }
+                .task {
+                    await userStore.reload()
+                    if todoSelectedMemberId == nil {
+                        todoSelectedMemberId = userStore.familyMembers.first?.id
                     }
                 }
                 .alert("無法使用相機", isPresented: $showCameraUnavailable) {
@@ -938,26 +1270,33 @@ struct AddCareLogView: View {
     @ViewBuilder
     private var recordForm: some View {
         Section("記錄類型") {
-            Picker("類型", selection: $selectedType) {
-                ForEach(availableRecordTypes, id: \.self) { t in
+            Picker("類型", selection: $selectedCreationType) {
+                ForEach(CareLogCreationType.allCases) { t in
                     Label(t.displayName, systemImage: t.icon).tag(t)
                 }
             }
         }
 
-        Section("記錄時間") {
-            DatePicker("時間", selection: $recordDate, displayedComponents: [.date, .hourAndMinute])
-                .tint(Color.brandTeal)
-        }
+        switch selectedCreationType {
+        case .vital, .medicationLog, .meal, .activity:
+            Section("記錄時間") {
+                DatePicker("時間", selection: $recordDate, displayedComponents: [.date, .hourAndMinute])
+                    .tint(Color.brandTeal)
+            }
 
-        photoSection
+            photoSection
 
-        switch selectedType {
-        case .vital:      vitalSection
-        case .medication: medicationSection
-        case .meal:       mealSection
-        case .activity:   activitySection
-        case .note:       noteSection
+            switch selectedCreationType {
+            case .vital: vitalSection
+            case .medicationLog: medicationSection
+            case .meal: mealSection
+            case .activity: activitySection
+            case .todo, .medicationSchedule: EmptyView()
+            }
+        case .todo:
+            todoCreationSection
+        case .medicationSchedule:
+            medicationScheduleSection
         }
     }
 
@@ -1237,6 +1576,89 @@ struct AddCareLogView: View {
         }
     }
 
+    // MARK: - 待辦 section
+    @ViewBuilder
+    private var todoCreationSection: some View {
+        Section("待辦內容") {
+            TextField("輸入待辦事項...", text: $todoTitle, axis: .vertical)
+                .lineLimit(1...3)
+        }
+
+        Section("指派對象") {
+            if userStore.familyMembers.isEmpty {
+                Text("載入成員中...")
+                    .foregroundStyle(.secondary)
+            } else {
+                Picker("指派給誰？", selection: $todoSelectedMemberId) {
+                    ForEach(userStore.familyMembers) { member in
+                        HStack(spacing: 6) {
+                            Image(systemName: member.role == .caregiver ? "cross.case.fill" : "person.fill")
+                                .font(.system(size: 12))
+                            Text("\(member.name)（\(member.role?.displayName ?? "-")）")
+                        }
+                        .tag(member.id as String?)
+                    }
+                }
+            }
+        }
+
+        Section("優先度") {
+            Picker("優先度", selection: $todoPriority) {
+                ForEach(Priority.allCases, id: \.self) { priority in
+                    Text(priority.displayName).tag(priority)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+
+        Section("到期日") {
+            Toggle("設定到期日", isOn: $todoHasDueDate)
+                .tint(Color.brandTeal)
+            if todoHasDueDate {
+                DatePicker("到期日", selection: $todoDueDate, displayedComponents: .date)
+                    .tint(Color.brandTeal)
+            }
+        }
+    }
+
+    // MARK: - 用藥排程 section
+    @ViewBuilder
+    private var medicationScheduleSection: some View {
+        Section("藥物資訊") {
+            TextField("藥品英文名稱", text: $scheduleName)
+            TextField("藥品中文名稱", text: $scheduleNameTranslated)
+            TextField("劑量（例：5mg）", text: $scheduleDosage)
+        }
+
+        Section("服用頻率") {
+            Picker("頻率", selection: $scheduleFrequency) {
+                ForEach(medicationFrequencyLabels.indices, id: \.self) { index in
+                    Text(medicationFrequencyLabels[index]).tag(index)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+
+        Section("服用時間") {
+            DatePicker("第一次", selection: $scheduleTime1, displayedComponents: .hourAndMinute)
+            if scheduleFrequency >= 1 {
+                DatePicker("第二次", selection: $scheduleTime2, displayedComponents: .hourAndMinute)
+            }
+            if scheduleFrequency >= 2 {
+                DatePicker("第三次", selection: $scheduleTime3, displayedComponents: .hourAndMinute)
+            }
+        }
+
+        Section("持續到") {
+            DatePicker("結束日期", selection: $scheduleEndDate, in: Date()..., displayedComponents: .date)
+        }
+
+        Section("備註") {
+            TextField("注意事項（選填）", text: $scheduleNotes, axis: .vertical)
+                .lineLimit(2...4)
+        }
+    }
+
     // MARK: - Save
     @MainActor
     private func saveEntry() async {
@@ -1244,11 +1666,22 @@ struct AddCareLogView: View {
         isSaving = true
         defer { isSaving = false }
 
+        switch selectedCreationType {
+        case .todo:
+            saveTodo()
+            return
+        case .medicationSchedule:
+            saveMedicationSchedule()
+            return
+        case .vital, .medicationLog, .meal, .activity:
+            break
+        }
+
         let title: String
         let detail: String
-        let type = selectedType
+        guard let type = selectedCreationType.careLogType else { return }
 
-        switch selectedType {
+        switch selectedCreationType {
         case .vital:
             title = "生理數值紀錄"
             var parts: [String] = []
@@ -1259,7 +1692,7 @@ struct AddCareLogView: View {
             if !bloodSugar.isEmpty  { parts.append("血糖 \(bloodSugar) mmol/L") }
             if !temperature.isEmpty { parts.append("體溫 \(temperature)°C") }
             detail = parts.isEmpty ? "未填寫" : parts.joined(separator: "｜")
-        case .medication:
+        case .medicationLog:
             title  = medName.isEmpty ? "用藥紀錄" : "\(medName) \(medDosage)"
             detail = "\(routeLabels[medRoute])｜\(medTaken ? "已服用" : "未服用")"
         case .meal:
@@ -1273,7 +1706,7 @@ struct AddCareLogView: View {
         case .activity:
             title  = activityName.isEmpty ? "活動紀錄" : activityName
             detail = "\(activityDuration.isEmpty ? "—" : activityDuration)分鐘｜\(intensityLabels[activityIntensity])"
-        case .note:
+        case .todo, .medicationSchedule:
             title  = "備註"
             detail = noteText
         }
@@ -1285,11 +1718,11 @@ struct AddCareLogView: View {
             detail: detail,
             timestamp: recordDate,
             hasPhoto: selectedPhoto != nil,
-            bloodPressureSystolic:  selectedType == .vital ? Int(bp_systolic)  : nil,
-            bloodPressureDiastolic: selectedType == .vital ? Int(bp_diastolic) : nil,
-            bloodSugar:  selectedType == .vital ? Double(bloodSugar)  : nil,
-            temperature: selectedType == .vital ? Double(temperature) : nil,
-            weight:      selectedType == .vital ? Double(weight)      : nil
+            bloodPressureSystolic:  selectedCreationType == .vital ? Int(bp_systolic)  : nil,
+            bloodPressureDiastolic: selectedCreationType == .vital ? Int(bp_diastolic) : nil,
+            bloodSugar:  selectedCreationType == .vital ? Double(bloodSugar)  : nil,
+            temperature: selectedCreationType == .vital ? Double(temperature) : nil,
+            weight:      selectedCreationType == .vital ? Double(weight)      : nil
         )
         do {
             try await onAdd(entry, selectedPhoto)
@@ -1297,6 +1730,52 @@ struct AddCareLogView: View {
         } catch {
             saveErrorMessage = error.localizedDescription
         }
+    }
+
+    private func saveTodo() {
+        let trimmedTitle = todoTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty, let assigneeId = selectedTodoAssigneeId else { return }
+        let todo = TodoItem(
+            id: UUID().uuidString,
+            title: trimmedTitle,
+            assignee: selectedTodoAssigneeName,
+            priority: todoPriority,
+            dueDate: todoHasDueDate ? todoDueDate : nil,
+            isCompleted: false,
+            assigneeId: assigneeId
+        )
+        todoStore.addTodo(todo)
+        dismiss()
+    }
+
+    private func saveMedicationSchedule() {
+        let trimmedName = scheduleName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedTranslated = scheduleNameTranslated.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty || !trimmedTranslated.isEmpty else { return }
+
+        let frequencyEnum: String
+        switch scheduleFrequency {
+        case 0: frequencyEnum = "daily"
+        case 1: frequencyEnum = "twice_daily"
+        case 2: frequencyEnum = "thrice_daily"
+        default: frequencyEnum = "daily"
+        }
+
+        let medication = Medication(
+            id: UUID().uuidString,
+            name: trimmedName.isEmpty ? trimmedTranslated : trimmedName,
+            nameTranslated: trimmedTranslated.isEmpty ? trimmedName : trimmedTranslated,
+            dosage: scheduleDosage.isEmpty ? "—" : scheduleDosage,
+            frequency: frequencyEnum,
+            times: medicationScheduleTimes,
+            instructions: scheduleNotes,
+            isActive: true,
+            startDate: Date(),
+            endDate: scheduleEndDate,
+            reminderEnabled: true
+        )
+        medicationStore.addMedication(medication)
+        dismiss()
     }
 }
 
@@ -1368,10 +1847,16 @@ private struct CareLogPreviewHost: View {
         )
         .environment(CareLogStore())
         .environment(NotificationStore(service: MockDataService()))
+        .environment(TodoStore())
+        .environment(MedicationStore())
+        .environment(UserStore())
     }
 }
 
 #Preview("新增") {
     AddCareLogView(userRole: .caregiver) { _, _ in }
         .environment(CareLogStore())
+        .environment(TodoStore())
+        .environment(MedicationStore())
+        .environment(UserStore())
 }

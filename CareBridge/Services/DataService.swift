@@ -39,6 +39,18 @@ struct SpendingSummary: Codable {
     var categoryBreakdown: [CategoryBreakdownItem]
 }
 
+struct TodaySummary: Codable, Equatable {
+    var summary: String
+    var date: String
+    var sourceCounts: SourceCounts
+    var tokensUsed: Int?
+
+    struct SourceCounts: Codable, Equatable {
+        var careLogs: Int
+        var events: Int
+    }
+}
+
 struct ReceiptUploadReference: Codable {
     var uploadId: String
     var rawKey: String
@@ -245,6 +257,7 @@ protocol DataService {
 
     // AI
     func sendAIMessage(content: String) async throws -> AIMessage
+    func fetchTodaySummary() async throws -> TodaySummary
     func fetchCareAnalysis(days: Int) async throws -> AICareAnalysisResponse
     func generateHandoverReport(date: String) async throws -> AIHandoverReportResponse
     func generateSubsidyForm(

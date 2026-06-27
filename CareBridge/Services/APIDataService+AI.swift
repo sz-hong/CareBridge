@@ -133,6 +133,10 @@ extension APIDataService {
         )
     }
 
+    func fetchTodaySummary() async throws -> TodaySummary {
+        try await get(path: APIEndpoint.aiTodaySummary)
+    }
+
     func fetchCareAnalysis(days: Int) async throws -> AICareAnalysisResponse {
         try await post(
             path: APIEndpoint.aiCareAnalysis,

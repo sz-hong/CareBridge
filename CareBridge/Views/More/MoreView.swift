@@ -4,7 +4,6 @@ import SwiftUI
 enum MoreDestination: Hashable {
     case medication
     case health
-    case calendar
     case todo
     case documents
     case notifications
@@ -32,9 +31,6 @@ struct MoreView: View {
         FeatureItem(title: "健康監測", subtitle: "心率·血氧·血壓",
                     icon: "heart.fill",            color: .red,
                     destination: .health),
-        FeatureItem(title: "行事曆",   subtitle: "共享行程管理",
-                    icon: "calendar",              color: .blue,
-                    destination: .calendar),
         FeatureItem(title: "代辦事項", subtitle: "指派與追蹤",
                     icon: "checkmark.circle.fill", color: .orange,
                     destination: .todo),
@@ -87,7 +83,6 @@ struct MoreView: View {
                 switch dest {
                 case .medication:    MedicationView(userRole: userRole)
                 case .health:        HealthMonitorView()
-                case .calendar:      SharedCalendarView()
                 case .todo:          TodoView()
                 case .documents:     DocumentsView()
                 case .notifications: NotificationCenterView()

@@ -8,7 +8,9 @@ import UIKit
 struct SpendingView: View {
     @Binding var showProfile: Bool
     let userRole: UserRole
+    var isEmbeddedInManagement = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.floatingActionBottomPadding) private var floatingActionBottomPadding
     @Environment(\.dataService) private var service
     @State private var expenses: [Expense] = []
     @State private var summary: SpendingSummary? = nil
@@ -22,34 +24,48 @@ struct SpendingView: View {
     @State private var exportItems: [Any] = []
 
     var body: some View {
-        NavigationStack {
+        if isEmbeddedInManagement {
+            spendingSurface
+        } else {
+            NavigationStack {
+                spendingSurface
+            }
+        }
+    }
+
+    private var spendingSurface: some View {
+        Group {
             ScrollView {
                 VStack(spacing: 20) {
-                    // Header with label
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("CAREBRIDGE WALLET")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                                .tracking(1.5)
-                            Text("消費記帳")
-                                .font(.system(size: 28, weight: .bold))
+                    if !isEmbeddedInManagement {
+                        // Header with label
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("CAREBRIDGE WALLET")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                    .tracking(1.5)
+                                Text("消費記帳")
+                                    .font(.system(size: 28, weight: .bold))
+                            }
+                            Spacer()
                         }
-                        Spacer()
+                        .padding(.horizontal, usesWideLayout ? 32 : 16)
+                        .padding(.top, usesWideLayout ? 16 : 8)
+                        .frame(maxWidth: usesWideLayout ? 1180 : .infinity)
+                        .frame(maxWidth: .infinity)
                     }
-                    .padding(.horizontal, usesWideLayout ? 32 : 16)
-                    .padding(.top, usesWideLayout ? 16 : 8)
-                    .frame(maxWidth: usesWideLayout ? 1180 : .infinity)
-                    .frame(maxWidth: .infinity)
 
                     spendingContent
 
                     Spacer(minLength: 80)
                 }
             }
-            .background(Color.brandBackground)
-            .scrollIndicators(.hidden)
-            .toolbar {
+        }
+        .background(Color.brandBackground)
+        .scrollIndicators(.hidden)
+        .toolbar {
+            if !isEmbeddedInManagement {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showProfile = true } label: {
                         HStack(spacing: 0) {
@@ -63,6 +79,8 @@ struct SpendingView: View {
                     }
                     .buttonStyle(.plain)
                 }
+            }
+            if !isEmbeddedInManagement {
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 12) {
                         NotificationBellButton { showNotifications = true }
@@ -77,65 +95,65 @@ struct SpendingView: View {
                     }
                 }
             }
-            .overlay(alignment: .bottomTrailing) {
-                // Both caregivers and family members may record expenses.
-                Button {
-                    showDocumentCamera = true
-                } label: {
-                    ZStack {
-                        Circle()
-                            .fill(receiptStage == .idle ? Color.brandTeal : Color.gray)
-                            .frame(width: 52, height: 52)
-                            .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
-                        Image(systemName: receiptStage == .idle ? "doc.viewfinder.fill" : "ellipsis")
-                            .font(.system(size: 22, weight: .medium))
-                            .foregroundStyle(.white)
-                    }
-                }
-                .disabled(receiptStage != .idle)
-                .padding(.trailing, usesWideLayout ? 32 : 20)
-                .padding(.bottom, usesWideLayout ? 28 : 20)
-                .accessibilityLabel("新增記帳")
-            }
-            // 直接開啟原生文件掃描器
-            .fullScreenCover(isPresented: $showDocumentCamera) {
-                DocumentCameraView(
-                    onCapture: { image in
-                        showDocumentCamera = false
-                        processReceipt(image)
-                    },
-                    onCancel: { showDocumentCamera = false }
-                )
-                .ignoresSafeArea()
-            }
-            // 掃描完成後顯示確認頁
-            .sheet(isPresented: $showOCRConfirmation) {
-                if let result = pendingOCRResult {
-                    OCRConfirmationView(ocrResult: result) { newExpense in
-                        expenses.insert(newExpense, at: 0)
-                        // Summary 是後端彙算的（含分類百分比），不能只加本地值
-                        // ——必須重新打 /expenses/monthly/ 讓卡片與甜甜圈同步刷新。
-                        Task {
-                            summary = try? await service.fetchSpendingSummary(month: nil)
-                        }
-                    }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            // Both caregivers and family members may record expenses.
+            Button {
+                showDocumentCamera = true
+            } label: {
+                ZStack {
+                    Circle()
+                        .fill(receiptStage == .idle ? Color.brandTeal : Color.gray)
+                        .frame(width: 52, height: 52)
+                        .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
+                    Image(systemName: receiptStage == .idle ? "doc.viewfinder.fill" : "ellipsis")
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(.white)
                 }
             }
-            .sheet(isPresented: $showExportSheet) {
-                ShareSheet(items: exportItems)
+            .disabled(receiptStage != .idle)
+            .padding(.trailing, usesWideLayout ? 32 : 20)
+            .padding(.bottom, floatingActionBottomPadding)
+            .accessibilityLabel("新增記帳")
+        }
+        // 直接開啟原生文件掃描器
+        .fullScreenCover(isPresented: $showDocumentCamera) {
+            DocumentCameraView(
+                onCapture: { image in
+                    showDocumentCamera = false
+                    processReceipt(image)
+                },
+                onCancel: { showDocumentCamera = false }
+            )
+            .ignoresSafeArea()
+        }
+        // 掃描完成後顯示確認頁
+        .sheet(isPresented: $showOCRConfirmation) {
+            if let result = pendingOCRResult {
+                OCRConfirmationView(ocrResult: result) { newExpense in
+                    expenses.insert(newExpense, at: 0)
+                    // Summary 是後端彙算的（含分類百分比），不能只加本地值
+                    // ——必須重新打 /expenses/monthly/ 讓卡片與甜甜圈同步刷新。
+                    Task {
+                        summary = try? await service.fetchSpendingSummary(month: nil)
+                    }
+                }
             }
-            .navigationDestination(isPresented: $showNotifications) {
-                NotificationCenterView()
-            }
-            .navigationDestination(isPresented: $showAllExpenses) {
-                AllExpensesView()
-            }
-            .task {
-                async let e = service.fetchExpenses(month: nil)
-                async let s = service.fetchSpendingSummary(month: nil)
-                expenses = (try? await e) ?? []
-                summary  = try? await s
-            }
+        }
+        .sheet(isPresented: $showExportSheet) {
+            ShareSheet(items: exportItems)
+        }
+        .navigationDestination(isPresented: $showNotifications) {
+            NotificationCenterView()
+        }
+        .navigationDestination(isPresented: $showAllExpenses) {
+            AllExpensesView()
+        }
+        .task {
+            async let e = service.fetchExpenses(month: nil)
+            async let s = service.fetchSpendingSummary(month: nil)
+            expenses = (try? await e) ?? []
+            summary  = try? await s
         }
     }
 
@@ -217,29 +235,37 @@ struct SpendingView: View {
         }
     }
 
+    private var hasSpendingBreakdown: Bool {
+        guard let summary,
+              summary.monthlyTotal > 0,
+              !summary.categoryBreakdown.isEmpty else {
+            return false
+        }
+        return summary.categoryBreakdown.contains { $0.percentage > 0 }
+    }
+
     private func donutSegments() -> [(from: Double, to: Double, color: Color)] {
-        guard let items = summary?.categoryBreakdown, !items.isEmpty else {
-            return [(0, 0.45, .brandTeal), (0.45, 0.70, .orange),
-                    (0.70, 0.90, .purple), (0.90, 1.0, Color(.systemGray4))]
+        guard hasSpendingBreakdown,
+              let items = summary?.categoryBreakdown else {
+            return [(0, 1, Color(.systemGray5))]
         }
         var segs: [(Double, Double, Color)] = []
         var acc: Double = 0
         for item in items {
             let frac = item.percentage / 100.0
+            guard frac > 0 else { continue }
             segs.append((acc, acc + frac, colorForCategory(item.category)))
             acc += frac
         }
-        return segs
+        return segs.isEmpty ? [(0, 1, Color(.systemGray5))] : segs
     }
 
     private func legendItems() -> [LegendItem] {
-        guard let items = summary?.categoryBreakdown, !items.isEmpty else {
-            return Expense.categoryBreakdown.map {
-                LegendItem(key: Expense.localizedCategoryKey($0.0),
-                           percentage: $0.1, color: $0.2)
-            }
+        guard hasSpendingBreakdown,
+              let items = summary?.categoryBreakdown else {
+            return []
         }
-        return items.map {
+        return items.filter { $0.percentage > 0 }.map {
             LegendItem(key: Expense.localizedCategoryKey($0.category),
                        percentage: $0.percentage,
                        color: colorForCategory($0.category))
@@ -293,20 +319,28 @@ struct SpendingView: View {
             .padding(.vertical, 8)
 
             // Legend
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                ForEach(legendItems()) { item in
-                    HStack(spacing: 8) {
-                        Circle().fill(item.color).frame(width: 8, height: 8)
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(item.key)
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                            Text("\(Int(item.percentage))%")
-                                .font(.system(size: 14, weight: .semibold))
+            if hasSpendingBreakdown {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                    ForEach(legendItems()) { item in
+                        HStack(spacing: 8) {
+                            Circle().fill(item.color).frame(width: 8, height: 8)
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(item.key)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                                Text("\(Int(item.percentage))%")
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                            Spacer()
                         }
-                        Spacer()
                     }
                 }
+            } else {
+                Text("本月尚無支出紀錄")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 8)
             }
         }
         .padding(16)
