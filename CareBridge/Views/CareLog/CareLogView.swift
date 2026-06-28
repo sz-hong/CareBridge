@@ -18,6 +18,8 @@ struct CareLogView: View {
     @State private var showNotifications = false
     @State private var calendarMode = 0          // 0 = 週, 1 = 月
     @State private var selectedDate = Date()
+    @State private var isEditingTimeline = false
+    @State private var pendingCareLogDeletion: CareLogEntry?
 
     private let calendar = Calendar.current
 
@@ -63,12 +65,6 @@ struct CareLogView: View {
     private var careLogRoot: some View {
         careLogContent
             .background(Color.brandBackground)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NotificationBellButton { showNotifications = true }
-                }
-            }
-            .toolbarBackground(usesWideLayout ? .hidden : .automatic, for: .navigationBar)
             .overlay(alignment: .bottomTrailing) {
                 Button {
                     showAddEntry = true
@@ -82,13 +78,26 @@ struct CareLogView: View {
                             .foregroundStyle(.white)
                     }
                 }
-                .padding(.trailing, usesWideLayout ? 32 : 20)
+                .padding(.trailing, usesWideLayout ? 32 : 24)
                 .padding(.bottom, floatingActionBottomPadding)
             }
             .sheet(isPresented: $showAddEntry) {
                 AddCareLogView(userRole: userRole) { newEntry, photo in
                     try await careLogStore.addEntry(newEntry, photo: photo)
                 }
+            }
+            .alert("刪除日誌？", isPresented: careLogDeleteConfirmationBinding) {
+                Button("取消", role: .cancel) {
+                    pendingCareLogDeletion = nil
+                }
+                Button("刪除", role: .destructive) {
+                    if let entry = pendingCareLogDeletion {
+                        deleteCareLogEntry(entry)
+                    }
+                    pendingCareLogDeletion = nil
+                }
+            } message: {
+                Text("刪除後無法復原。")
             }
             .navigationDestination(isPresented: $showNotifications) {
                 NotificationCenterView()
@@ -99,6 +108,12 @@ struct CareLogView: View {
                     date: selectedDate,
                     type: selectedFilter
                 )
+            }
+            .onChange(of: selectedMode) { _, newMode in
+                if newMode != .records {
+                    isEditingTimeline = false
+                    pendingCareLogDeletion = nil
+                }
             }
     }
 
@@ -117,7 +132,6 @@ struct CareLogView: View {
                         .frame(maxWidth: 780)
                 }
             }
-            .padding(.top, -24)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
             VStack(spacing: 0) {
@@ -169,8 +183,11 @@ struct CareLogView: View {
                             TimelineEntryRow(
                                 entry: entry,
                                 previewedPhotoID: previewedPhotoID,
-                                onPreviewPhoto: onPreviewPhoto
-                            )
+                                onPreviewPhoto: onPreviewPhoto,
+                                isEditing: isEditingTimeline
+                            ) {
+                                pendingCareLogDeletion = entry
+                            }
                         }
                     }
                 }
@@ -269,11 +286,8 @@ struct CareLogView: View {
     }
 
     private var careLogMedicationSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("用藥", systemImage: "pills.fill")
-                .font(.system(size: 18, weight: .bold))
-
-            VStack(alignment: .leading, spacing: 10) {
+        careLogTaskSection(title: "用藥", systemImage: "pills.fill") {
+            VStack(spacing: 12) {
                 NavigationLink {
                     MedicationView(userRole: userRole)
                 } label: {
@@ -285,12 +299,11 @@ struct CareLogView: View {
                             .font(.system(size: 12, weight: .semibold))
                     }
                     .foregroundStyle(Color.brandTeal)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 14)
+                    .padding(.bottom, 4)
                 }
                 .buttonStyle(.plain)
 
-                MedicationTodayProgressCard { index in
+                MedicationTodayProgressCard(usesContainer: false) { index in
                     markDoseAsTaken(index: index)
                 }
             }
@@ -383,15 +396,15 @@ struct CareLogView: View {
     // MARK: - Header with filter + calendar
     private var headerSection: some View {
         VStack(spacing: 0) {
-            // Page title
-            HStack {
+            RootPageHeader {
+                showNotifications = true
+            } title: {
                 Text("照護日誌")
-                    .font(.system(size: 28, weight: .bold))
-                Spacer()
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 12)
+            .padding(.top, 4)
 
             Picker("日誌模式", selection: $selectedMode) {
                 ForEach(CareLogMode.allCases) { mode in
@@ -623,11 +636,13 @@ struct CareLogView: View {
 
     // MARK: - Legend
     private var calendarLegend: some View {
-        HStack(spacing: 16) {
-            ForEach(CalendarLegendItem.allCases) { item in
+        HStack(spacing: 10) {
+            ForEach(CareLogType.allCases, id: \.self) { type in
                 HStack(spacing: 4) {
-                    Circle().fill(item.color).frame(width: 6, height: 6)
-                    Text(item.title)
+                    Circle()
+                        .fill(type.uiColor)
+                        .frame(width: 6, height: 6)
+                    Text(type.displayName)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -635,7 +650,46 @@ struct CareLogView: View {
             Spacer()
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 6)
+        .padding(.trailing, careLogStore.timelineEntries.isEmpty ? 16 : 48)
+        .padding(.top, 0)
+        .padding(.bottom, 12)
+        .overlay(alignment: .trailing) {
+            if !careLogStore.timelineEntries.isEmpty {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isEditingTimeline.toggle()
+                    }
+                } label: {
+                    Image(systemName: isEditingTimeline ? "checkmark" : "pencil")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Color.brandTeal)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isEditingTimeline ? "完成編輯日誌" : "編輯日誌")
+                .padding(.trailing, 16)
+                .offset(y: -4)
+            }
+        }
+    }
+
+    private func deleteCareLogEntry(_ entry: CareLogEntry) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            careLogStore.deleteEntry(id: entry.id)
+            if careLogStore.timelineEntries.count <= 1 {
+                isEditingTimeline = false
+            }
+        }
+    }
+
+    private var careLogDeleteConfirmationBinding: Binding<Bool> {
+        Binding {
+            pendingCareLogDeletion != nil
+        } set: { isPresented in
+            if !isPresented {
+                pendingCareLogDeletion = nil
+            }
+        }
     }
 
     private enum CalendarDisplayMode: Int, CaseIterable, Identifiable {
@@ -652,32 +706,6 @@ struct CareLogView: View {
         }
     }
 
-    private enum CalendarLegendItem: String, CaseIterable, Identifiable {
-        case medication
-        case medical
-        case emergency
-        case personal
-
-        var id: String { rawValue }
-
-        var title: LocalizedStringResource {
-            switch self {
-            case .medication: "藥物"
-            case .medical:    "醫療"
-            case .emergency:  "急診"
-            case .personal:   "個人"
-            }
-        }
-
-        var color: Color {
-            switch self {
-            case .medication: Color.brandTeal
-            case .medical:    .red
-            case .emergency:  .orange
-            case .personal:   .blue
-            }
-        }
-    }
 }
 
 private enum CareLogMode: String, CaseIterable, Hashable, Identifiable {
@@ -764,6 +792,8 @@ struct TimelineEntryRow: View {
     let entry: CareLogEntry
     let previewedPhotoID: String?
     let onPreviewPhoto: (PhotoPreviewItem) -> Void
+    let isEditing: Bool
+    let onDelete: () -> Void
     @Environment(LocaleStore.self) private var localeStore
 
     var body: some View {
@@ -792,10 +822,28 @@ struct TimelineEntryRow: View {
 
             // Card
             VStack(alignment: .leading, spacing: 0) {
-                logEntryCard
-                    .padding(.top, 8)
-                    .padding(.bottom, 8)
-                    .padding(.trailing, 16)
+                HStack(alignment: .center, spacing: 10) {
+                    logEntryCard
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if isEditing {
+                        Button(role: .destructive) {
+                            onDelete()
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .font(.system(size: 24, weight: .semibold))
+                                .foregroundStyle(.red)
+                                .frame(width: 34, height: 34)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("刪除日誌")
+                        .transition(.scale.combined(with: .opacity))
+                    }
+                }
+                .padding(.top, 8)
+                .padding(.bottom, 8)
+                .padding(.trailing, 16)
+                .animation(.easeInOut(duration: 0.2), value: isEditing)
             }
         }
     }
@@ -1633,7 +1681,7 @@ struct AddCareLogView: View {
         Section("服用頻率") {
             Picker("頻率", selection: $scheduleFrequency) {
                 ForEach(medicationFrequencyLabels.indices, id: \.self) { index in
-                    Text(medicationFrequencyLabels[index]).tag(index)
+                    Text(LocalizedStringKey(medicationFrequencyLabels[index])).tag(index)
                 }
             }
             .pickerStyle(.segmented)

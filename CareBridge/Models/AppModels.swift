@@ -1219,6 +1219,41 @@ class CareLogStore {
         }
     }
 
+    func deleteEntry(id: String) {
+        let originalEntries = state.value
+        let originalTimelineEntries = timelineState.value
+        let originalTimelineCache = timelineCache
+        let originalTimelineHasMore = timelineHasMore
+
+        state.updateValue { entries in
+            entries.removeAll { $0.id == id }
+        }
+        timelineState.updateValue { entries in
+            entries.removeAll { $0.id == id }
+        }
+        for query in Array(timelineCache.keys) {
+            guard var page = timelineCache[query] else { continue }
+            let beforeCount = page.entries.count
+            page.entries.removeAll { $0.id == id }
+            if page.entries.count != beforeCount {
+                page.totalCount = max(0, page.totalCount - (beforeCount - page.entries.count))
+                timelineCache[query] = page
+            }
+        }
+
+        Task { @MainActor in
+            do {
+                try await service.deleteCareLogEntry(id: id)
+            } catch {
+                print("[CareLogStore] delete failed: \(error)")
+                state.finish(with: originalEntries)
+                timelineState.finish(with: originalTimelineEntries)
+                timelineCache = originalTimelineCache
+                timelineHasMore = originalTimelineHasMore
+            }
+        }
+    }
+
     private func timelineQuery(
         date: Date,
         type: CareLogType?
@@ -1548,6 +1583,24 @@ class MedicationStore {
                 if let idx = doses.firstIndex(where: { $0.id == doseId }) {
                     doses[idx].isDone = false
                 }
+            }
+        }
+    }
+
+    func deleteMedication(id: String) {
+        let originalMedications = medications
+        let originalDoses = doses
+
+        medications = medications.filter { $0.id != id }
+        doses.removeAll { $0.medicationId == id }
+
+        Task { @MainActor in
+            do {
+                try await service.deleteMedication(id: id)
+            } catch {
+                print("[MedicationStore] delete failed: \(error)")
+                medications = originalMedications
+                doses = originalDoses
             }
         }
     }
@@ -2437,7 +2490,23 @@ struct AppNotification: Identifiable, Codable {
     }
 
     func displayTitle(language: String?) -> String {
-        translatedText(original: title, translations: titleTranslations, language: language)
+        let resolved = translatedText(original: title, translations: titleTranslations, language: language)
+        guard resolved == title else { return resolved }
+        guard language == "vi" else { return resolved }
+
+        if category == .chat {
+            if let sender = title.strippingKnownPrefix("New message from ") {
+                return "Tin nhắn mới từ \(sender)"
+            }
+            if let sender = title.strippingKnownPrefix("新訊息來自 ") {
+                return "Tin nhắn mới từ \(sender)"
+            }
+            if let sender = title.strippingKnownSuffix(" 的新訊息") {
+                return "Tin nhắn mới từ \(sender)"
+            }
+        }
+
+        return resolved
     }
 
     func displayBody(language: String?) -> String {
@@ -2676,6 +2745,20 @@ enum DynamicTranslation {
             return original
         }
         return translated
+    }
+}
+
+private extension String {
+    func strippingKnownPrefix(_ prefix: String) -> String? {
+        guard hasPrefix(prefix) else { return nil }
+        let value = dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    func strippingKnownSuffix(_ suffix: String) -> String? {
+        guard hasSuffix(suffix) else { return nil }
+        let value = dropLast(suffix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 }
 

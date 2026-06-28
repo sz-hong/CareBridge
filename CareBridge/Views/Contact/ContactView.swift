@@ -17,49 +17,88 @@ struct ContactView: View {
     var body: some View {
         NavigationStack(path: $navPath) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    chatSection
-                    requestSection
-                    Spacer(minLength: 96)
+                VStack(spacing: 18) {
+                    RootPageHeader(horizontalPadding: usesWideLayout ? 32 : 16) {
+                        showNotifications = true
+                    } title: {
+                        Text("聯絡")
+                            .font(.system(size: 30, weight: .bold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: usesWideLayout ? 780 : .infinity)
+                    .frame(maxWidth: .infinity)
+
+                    VStack(alignment: .leading, spacing: 18) {
+                        chatSection
+                        requestSection
+                        Spacer(minLength: 96)
+                    }
+                    .padding(.horizontal, usesWideLayout ? 32 : 16)
+                    .frame(maxWidth: usesWideLayout ? 780 : .infinity)
+                    .frame(maxWidth: .infinity, alignment: .top)
                 }
-                .padding(.horizontal, usesWideLayout ? 32 : 16)
-                .padding(.top, usesWideLayout ? 16 : 8)
-                .frame(maxWidth: usesWideLayout ? 780 : .infinity)
-                .frame(maxWidth: .infinity, alignment: .top)
+                .padding(.top, 4)
             }
             .background(Color.brandBackground)
             .scrollIndicators(.hidden)
-            .navigationTitle("聯絡")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NotificationBellButton { showNotifications = true }
-                }
-            }
             .overlay(alignment: .bottomTrailing) {
                 if navPath.isEmpty && userRole == .caregiver {
-                    Button {
-                        showCreateMenu = true
-                    } label: {
-                        ZStack {
-                            Circle()
-                                .fill(Color.brandTeal)
-                                .frame(width: 52, height: 52)
-                                .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
-                            Image(systemName: "plus")
-                                .font(.system(size: 22, weight: .bold))
-                                .foregroundStyle(.white)
+                    ZStack(alignment: .bottomTrailing) {
+                        if showCreateMenu {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    showCreateMenu = false
+                                }
+                            } label: {
+                                Color.clear
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                         }
+
+                        if showCreateMenu {
+                            ContactCreateMenu(
+                                onPurchase: {
+                                    showCreateMenu = false
+                                    activeSheet = .purchase
+                                },
+                                onLeave: {
+                                    showCreateMenu = false
+                                    activeSheet = .leave
+                                }
+                            )
+                            .padding(.trailing, usesWideLayout ? 32 : 24)
+                            .padding(.bottom, floatingActionBottomPadding + 66)
+                            .transition(
+                                .scale(scale: 0.96, anchor: .bottomTrailing)
+                                    .combined(with: .opacity)
+                            )
+                        }
+
+                        Button {
+                            withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
+                                showCreateMenu.toggle()
+                            }
+                        } label: {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.brandTeal)
+                                    .frame(width: 52, height: 52)
+                                    .shadow(color: .black.opacity(0.15), radius: 6, x: 0, y: 3)
+                                Image(systemName: "plus")
+                                    .font(.system(size: 22, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .rotationEffect(.degrees(showCreateMenu ? 45 : 0))
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.trailing, usesWideLayout ? 32 : 24)
+                        .padding(.bottom, floatingActionBottomPadding)
+                        .accessibilityLabel("新增聯絡事項")
                     }
-                    .padding(.trailing, usesWideLayout ? 32 : 20)
-                    .padding(.bottom, floatingActionBottomPadding)
-                    .accessibilityLabel("新增聯絡事項")
                 }
-            }
-            .confirmationDialog("聯絡事項", isPresented: $showCreateMenu, titleVisibility: .visible) {
-                Button("新增採購需求") { activeSheet = .purchase }
-                Button("新增請假申請") { activeSheet = .leave }
-                Button("取消", role: .cancel) { }
             }
             .sheet(item: $activeSheet) { sheet in
                 switch sheet {
@@ -171,6 +210,68 @@ private enum ContactSheet: Hashable, Identifiable {
     case leave
 
     var id: Self { self }
+}
+
+private struct ContactCreateMenu: View {
+    let onPurchase: () -> Void
+    let onLeave: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text("聯絡事項")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(.primary)
+                .padding(.top, 18)
+                .padding(.bottom, 12)
+
+            VStack(spacing: 10) {
+                menuButton("新增採購需求", action: onPurchase)
+                menuButton("新增請假申請", action: onLeave)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 18)
+        }
+        .frame(width: 280)
+        .background(.ultraThinMaterial)
+        .clipShape(.rect(cornerRadius: 28))
+        .overlay {
+            RoundedRectangle(cornerRadius: 28)
+                .stroke(.white.opacity(0.72), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.12), radius: 24, x: 0, y: 12)
+        .overlay(alignment: .bottomTrailing) {
+            ContactMenuArrow()
+                .fill(.ultraThinMaterial)
+                .frame(width: 26, height: 14)
+                .offset(x: -13, y: 12)
+        }
+    }
+
+    private func menuButton(_ title: LocalizedStringKey, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(Color.brandTeal)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(
+                    Capsule()
+                        .fill(Color(.systemGray4).opacity(0.55))
+                )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct ContactMenuArrow: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.closeSubpath()
+        return path
+    }
 }
 
 private struct ContactActionCard: View {

@@ -121,11 +121,13 @@ class MockDataService: DataService {
         )
     }
     func createCareLogEntry(_ entry: CareLogEntry) async throws -> CareLogEntry { entry }
+    func deleteCareLogEntry(id: String) async throws { }
 
     // MARK: - Medication
     func fetchMedications(elderId: String) async throws -> [Medication] { Medication.samples }
     func createMedication(_ medication: Medication) async throws -> Medication { medication }
     func updateMedication(_ medication: Medication) async throws -> Medication { medication }
+    func deleteMedication(id: String) async throws { }
     func fetchTodayConfirmations() async throws -> [MedicationConfirmation] { [] }
     func confirmMedication(id: String, request: ConfirmMedicationRequest) async throws -> MedicationConfirmation {
         MedicationConfirmation(id: UUID().uuidString, medication: id, scheduledTime: request.scheduledTime, confirmedAt: Date(), photoUrl: request.photoUrl, note: request.note)
@@ -217,9 +219,13 @@ class MockDataService: DataService {
 
     func fetchTodaySummary() async throws -> TodaySummary {
         TodaySummary(
-            summary: "今日有 2 筆照護紀錄與 1 個行程，請留意晚間用藥。",
+            summary: "今日有 2 筆照護紀錄、1 個待辦與 3 項用藥，請留意晚間用藥。",
             date: "2026-06-27",
-            sourceCounts: TodaySummary.SourceCounts(careLogs: 2, events: 1),
+            sourceCounts: TodaySummary.SourceCounts(
+                careLogs: 2,
+                todos: 1,
+                medications: 3
+            ),
             tokensUsed: 123
         )
     }

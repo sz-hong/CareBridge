@@ -47,7 +47,9 @@ struct TodaySummary: Codable, Equatable {
 
     struct SourceCounts: Codable, Equatable {
         var careLogs: Int
-        var events: Int
+        var todos: Int? = nil
+        var medications: Int? = nil
+        var events: Int? = nil
     }
 }
 
@@ -206,11 +208,13 @@ protocol DataService {
     ) async throws -> PaginatedResult<CareLogEntry>
     func uploadCareLogPhoto(_ image: UIImage) async throws -> CareLogPhotoUploadReference
     func createCareLogEntry(_ entry: CareLogEntry) async throws -> CareLogEntry
+    func deleteCareLogEntry(id: String) async throws
 
     // Medication
     func fetchMedications(elderId: String) async throws -> [Medication]
     func createMedication(_ medication: Medication) async throws -> Medication
     func updateMedication(_ medication: Medication) async throws -> Medication
+    func deleteMedication(id: String) async throws
     func fetchTodayConfirmations() async throws -> [MedicationConfirmation]
     func confirmMedication(id: String, request: ConfirmMedicationRequest) async throws -> MedicationConfirmation
 

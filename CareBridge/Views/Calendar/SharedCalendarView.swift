@@ -83,7 +83,7 @@ struct SharedCalendarView: View {
                         .foregroundStyle(.white)
                 }
             }
-            .padding(.trailing, usesWideLayout ? 32 : 20)
+            .padding(.trailing, usesWideLayout ? 32 : 24)
             .padding(.bottom, floatingActionBottomPadding)
         }
         .sheet(isPresented: $showAddSheet) {

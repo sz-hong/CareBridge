@@ -78,6 +78,7 @@ struct HealthMonitorView: View {
     @AppStorage("carebridge.healthSyncEnabled") private var healthSyncEnabled = false
     @Environment(CareLogStore.self) private var careLogStore
     @Environment(HealthKitSyncManager.self) private var healthSync
+    @Environment(LocaleStore.self) private var localeStore
     @Environment(\.dataService) private var service
     @Environment(\.scenePhase) private var scenePhase
 
@@ -514,6 +515,11 @@ struct HealthMonitorView: View {
 
     private func alertTitle(_ alert: HealthAlert) -> String {
         let name = localizedTypeName(alert.type)
+        if localeStore.code == "vi" {
+            return alert.severity == "critical"
+                ? "\(name) bất thường nghiêm trọng"
+                : "\(name) bất thường"
+        }
         return alert.severity == "critical" ? "\(name)嚴重異常" : "\(name)異常"
     }
 
@@ -521,6 +527,9 @@ struct HealthMonitorView: View {
         let unit = alertUnit(alert.type)
         func fmt(_ v: Double) -> String {
             v == v.rounded() ? "\(Int(v))" : String(format: "%.1f", v)
+        }
+        if localeStore.code == "vi" {
+            return "\(localizedTypeName(alert.type)) \(fmt(alert.value))\(unit) (ngưỡng \(fmt(alert.threshold))\(unit))"
         }
         return "\(localizedTypeName(alert.type)) \(fmt(alert.value))\(unit)（警戒值 \(fmt(alert.threshold))\(unit)）"
     }
@@ -535,7 +544,7 @@ struct HealthMonitorView: View {
         HStack(spacing: 6) {
             ForEach(rangeLabels.indices, id: \.self) { i in
                 let isSelected = selectedRange == i
-                Text(rangeLabels[i])
+                Text(rangeLabel(at: i))
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(isSelected ? .white : Color.brandTeal)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -560,7 +569,10 @@ struct HealthMonitorView: View {
             }
         }
         if let mostRecent = update.points.max(by: { $0.recordedAt < $1.recordedAt }) {
-            withAnimation { liveBanner = "新數據：\(localizedTypeName(mostRecent.type)) \(Int(mostRecent.value))" }
+            let text = localeStore.code == "vi"
+                ? "Dữ liệu mới: \(localizedTypeName(mostRecent.type)) \(Int(mostRecent.value))"
+                : "新數據：\(localizedTypeName(mostRecent.type)) \(Int(mostRecent.value))"
+            withAnimation { liveBanner = text }
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                 withAnimation { liveBanner = nil }
             }
@@ -569,12 +581,28 @@ struct HealthMonitorView: View {
 
     private func localizedTypeName(_ type: String) -> String {
         switch type {
-        case "heart_rate":               return "心率"
-        case "blood_oxygen":             return "血氧"
-        case "step_count":               return "步數"
-        case "active_energy":            return "活動熱量"
+        case "heart_rate":               return localizedText("心率")
+        case "blood_oxygen":             return localizedText("血氧")
+        case "step_count":               return localizedText("步數")
+        case "active_energy":            return localizedText("活動熱量")
         default: return type
         }
+    }
+
+    private func localizedText(_ key: String.LocalizationValue) -> String {
+        String(localized: key, locale: localeStore.locale)
+    }
+
+    private func rangeLabel(at index: Int) -> String {
+        if localeStore.code == "vi" {
+            switch index {
+            case 0: return "Ngày"
+            case 1: return "Tuần"
+            case 2: return "Tháng"
+            default: return ""
+            }
+        }
+        return rangeLabels.indices.contains(index) ? rangeLabels[index] : ""
     }
 
     /// 依狀態字串決定徽章顏色：異常/偏低→橘、尚未填寫/—→灰、其餘→綠。
@@ -593,13 +621,13 @@ struct HealthMonitorView: View {
                 Image(systemName: icon)
                     .foregroundStyle(color)
                     .font(.system(size: 14))
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
                 Spacer()
                 HStack(spacing: 3) {
                     Circle().fill(statusColor(status)).frame(width: 5, height: 5)
-                    Text(status)
+                    Text(LocalizedStringKey(status))
                         .font(.system(size: 11))
                         .foregroundStyle(statusColor(status))
                 }
@@ -621,9 +649,9 @@ struct HealthMonitorView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
+                    Text(LocalizedStringKey(title))
                         .font(.system(size: 16, weight: .bold))
-                    Text(subtitle)
+                    Text(LocalizedStringKey(subtitle))
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }

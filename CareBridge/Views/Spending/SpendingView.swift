@@ -112,7 +112,7 @@ struct SpendingView: View {
                 }
             }
             .disabled(receiptStage != .idle)
-            .padding(.trailing, usesWideLayout ? 32 : 20)
+            .padding(.trailing, usesWideLayout ? 32 : 24)
             .padding(.bottom, floatingActionBottomPadding)
             .accessibilityLabel("新增記帳")
         }
@@ -284,18 +284,6 @@ struct SpendingView: View {
                         .font(.system(size: 34, weight: .bold))
                 }
                 Spacer()
-                Button {
-                    // Show full report
-                } label: {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color(.systemGray6))
-                            .frame(width: 40, height: 40)
-                        Image(systemName: "chart.line.uptrend.xyaxis")
-                            .font(.system(size: 18))
-                            .foregroundStyle(Color.brandTeal)
-                    }
-                }
             }
 
             // Donut chart
