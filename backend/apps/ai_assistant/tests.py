@@ -755,7 +755,10 @@ class AIReportEndpointContractTests(TestCase):
         data = response.json()["data"]
         self.assertEqual(data["summary"], "Today care and schedule are stable")
         self.assertEqual(data["date"], timezone.localdate().isoformat())
-        self.assertEqual(data["source_counts"], {"care_logs": 2, "events": 1})
+        self.assertEqual(
+            data["source_counts"],
+            {"care_logs": 2, "events": 1, "todos": 0, "medications": 1},
+        )
         user_prompt = mock_client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
         self.assertIn("morning medication done", user_prompt)
         self.assertIn("cardiology visit", user_prompt)
@@ -763,6 +766,108 @@ class AIReportEndpointContractTests(TestCase):
         self.assertNotIn("old event secret", user_prompt)
         self.assertNotIn("other family care secret", user_prompt)
         self.assertNotIn("other family event secret", user_prompt)
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_today_summary_includes_today_todos_and_current_medications(self, mock_get_client):
+        mock_client = self._mock_client("Today includes tasks and medication")
+        mock_get_client.return_value = mock_client
+        today = timezone.localdate()
+        other_user = User.objects.create_user(
+            email="other-summary-todo@example.com",
+            password="password123",
+            name="Other Summary Todo User",
+            role=User.Role.FAMILY_MEMBER,
+        )
+        other_family = Family.objects.create(
+            name="Other Summary Todo Family",
+            elder_name="Other Todo Elder",
+            invite_code="996634",
+            created_by=other_user,
+        )
+        other_user.family = other_family
+        other_user.save(update_fields=["family"])
+
+        Todo.objects.create(
+            family=self.family,
+            title="today wound dressing",
+            assignee=self.user,
+            priority=Todo.Priority.HIGH,
+            status=Todo.Status.PENDING,
+            due_date=today,
+            created_by=self.user,
+        )
+        Todo.objects.create(
+            family=self.family,
+            title="tomorrow task secret",
+            assignee=self.user,
+            priority=Todo.Priority.MEDIUM,
+            status=Todo.Status.PENDING,
+            due_date=today + timezone.timedelta(days=1),
+            created_by=self.user,
+        )
+        Todo.objects.create(
+            family=other_family,
+            title="other family todo secret",
+            assignee=other_user,
+            priority=Todo.Priority.HIGH,
+            status=Todo.Status.PENDING,
+            due_date=today,
+            created_by=other_user,
+        )
+        Medication.objects.create(
+            family=self.family,
+            created_by=self.user,
+            name="Metformin today",
+            dosage="500mg",
+            frequency=Medication.Frequency.DAILY,
+            times=["08:00"],
+            instructions="after breakfast",
+            start_date=today,
+        )
+        Medication.objects.create(
+            family=self.family,
+            created_by=self.user,
+            name="future medication secret",
+            dosage="10mg",
+            frequency=Medication.Frequency.DAILY,
+            times=["09:00"],
+            start_date=today + timezone.timedelta(days=1),
+        )
+        Medication.objects.create(
+            family=self.family,
+            created_by=self.user,
+            name="expired medication secret",
+            dosage="20mg",
+            frequency=Medication.Frequency.DAILY,
+            times=["10:00"],
+            start_date=today - timezone.timedelta(days=10),
+            end_date=today - timezone.timedelta(days=1),
+        )
+        Medication.objects.create(
+            family=other_family,
+            created_by=other_user,
+            name="other family medication secret",
+            dosage="5mg",
+            frequency=Medication.Frequency.DAILY,
+            times=["11:00"],
+            start_date=today,
+        )
+
+        response = self.client.get("/api/v1/ai/today-summary/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(data["source_counts"]["todos"], 1)
+        self.assertEqual(data["source_counts"]["medications"], 2)
+        user_prompt = mock_client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
+        self.assertIn("today wound dressing", user_prompt)
+        self.assertIn("Metformin today", user_prompt)
+        self.assertIn("Amlodipine", user_prompt)
+        self.assertNotIn("tomorrow task secret", user_prompt)
+        self.assertNotIn("other family todo secret", user_prompt)
+        self.assertNotIn("future medication secret", user_prompt)
+        self.assertNotIn("expired medication secret", user_prompt)
+        self.assertNotIn("other family medication secret", user_prompt)
 
     @patch("apps.ai_assistant.views._get_client")
     def test_today_summary_limits_model_output_to_50_characters(self, mock_get_client):
