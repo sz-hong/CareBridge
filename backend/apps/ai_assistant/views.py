@@ -374,8 +374,12 @@ class TodaySummaryView(APIView):
         family = user.family
         today = timezone.localdate()
 
+        from django.db.models import Q
+
         from apps.calendar_event.models import Event
         from apps.care_log.models import CareLog
+        from apps.medication.models import Medication
+        from apps.todo.models import Todo
 
         care_logs = list(
             CareLog.objects.filter(family=family, timestamp__date=today)
@@ -385,6 +389,20 @@ class TodaySummaryView(APIView):
         events = list(
             Event.objects.filter(family=family, start_time__date=today)
             .order_by("start_time")[:50]
+        )
+        todos = list(
+            Todo.objects.filter(family=family, due_date=today)
+            .select_related("assignee", "created_by")
+            .order_by("status", "-priority", "title")[:50]
+        )
+        medications = list(
+            Medication.objects.filter(
+                family=family,
+                is_active=True,
+                start_date__lte=today,
+            )
+            .filter(Q(end_date__isnull=True) | Q(end_date__gte=today))
+            .order_by("name")[:50]
         )
 
         care_log_items = [
@@ -407,20 +425,43 @@ class TodaySummaryView(APIView):
             }
             for event in events
         ]
+        todo_items = [
+            {
+                "title": _safe_text(todo.title),
+                "priority": todo.priority,
+                "status": todo.status,
+                "due_date": todo.due_date.isoformat() if todo.due_date else None,
+                "assignee": _safe_text(getattr(todo.assignee, "name", "")),
+            }
+            for todo in todos
+        ]
+        medication_items = [
+            {
+                "name": _safe_text(medication.name),
+                "dosage": _safe_text(medication.dosage),
+                "frequency": medication.frequency,
+                "times": medication.times,
+                "instructions": _safe_text(medication.instructions or ""),
+            }
+            for medication in medications
+        ]
 
         data_summary = json.dumps({
             "date": today.isoformat(),
             "care_logs": care_log_items,
             "events": event_items,
+            "todos": todo_items,
+            "medications": medication_items,
         }, default=str, ensure_ascii=False)
 
         prompt = (
-            "Summarize ONLY the supplied date's elder care logs and schedule "
-            "for the logged-in home page. Use Traditional Chinese plain text. "
+            "Summarize ONLY the supplied date's elder care logs, schedule, "
+            "todos, and active medications for the logged-in home page. "
+            "Use Traditional Chinese plain text. "
             "The summary must be one sentence, no Markdown, no bullet points, "
             "and no more than 50 Chinese characters. Do not mention records "
-            "outside the supplied date. If there is no care log or event, say "
-            "that today has no care or schedule record.\n\n"
+            "outside the supplied date. If there is no care log, event, todo, "
+            "or medication, say that today has no care or schedule record.\n\n"
             f"Data:\n{data_summary}"
         )
 
@@ -448,6 +489,8 @@ class TodaySummaryView(APIView):
             "source_counts": {
                 "care_logs": len(care_log_items),
                 "events": len(event_items),
+                "todos": len(todo_items),
+                "medications": len(medication_items),
             },
             "tokens_used": tokens_used,
         })
