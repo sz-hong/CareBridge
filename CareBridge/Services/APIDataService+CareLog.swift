@@ -71,6 +71,10 @@ extension APIDataService {
 
     func createCareLogEntry(_ entry: CareLogEntry) async throws -> CareLogEntry { try await post(path: APIEndpoint.careLogs, body: entry) }
 
+    func deleteCareLogEntry(id: String) async throws {
+        try await delete(path: APIEndpoint.careLog(id: id))
+    }
+
     private static let careLogDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.calendar = Calendar(identifier: .gregorian)

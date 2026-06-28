@@ -89,8 +89,7 @@ struct DocumentsView: View {
             }
         }
         .background(Color.brandBackground)
-        .navigationTitle(isEmbeddedInManagement ? "管理" : "文件管理")
-        .navigationBarTitleDisplayMode(.large)
+        .modifier(DocumentsNavigationChrome(enabled: !isEmbeddedInManagement))
         .overlay(alignment: .bottomTrailing) {
             Button {
                 showUpload = true
@@ -110,7 +109,7 @@ struct DocumentsView: View {
                         .foregroundStyle(.white)
                 }
             }
-            .padding(.trailing, usesWideLayout ? 32 : 20)
+            .padding(.trailing, usesWideLayout ? 32 : 24)
             .padding(.bottom, floatingActionBottomPadding)
             .accessibilityLabel("上傳文件")
         }
@@ -265,6 +264,21 @@ struct DocumentsView: View {
     }
 }
 
+private struct DocumentsNavigationChrome: ViewModifier {
+    let enabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .navigationTitle("文件管理")
+                .navigationBarTitleDisplayMode(.large)
+        } else {
+            content
+        }
+    }
+}
+
 // MARK: - Document Row
 struct DocumentRow: View {
     let document: AppDocument
@@ -294,6 +308,9 @@ struct DocumentRow: View {
                 HStack(spacing: 8) {
                     Text(document.categoryDisplayName)
                         .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .fixedSize(horizontal: true, vertical: false)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
                         .background(Capsule().fill(document.categoryColor.opacity(0.12)))

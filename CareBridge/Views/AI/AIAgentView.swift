@@ -6,6 +6,7 @@ struct AIAgentView: View {
     var isModal: Bool = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(LocaleStore.self) private var localeStore
     @Environment(\.dataService) private var dataService
     @Environment(\.aiOrchestrator) private var aiOrchestrator
     @State private var messages: [AIMessage] = []
@@ -87,7 +88,7 @@ struct AIAgentView: View {
                             Button {
                                 selectedTool = tool
                             } label: {
-                                Label(tool.title, systemImage: tool.icon)
+                                Label(tool.localizedTitle(locale: localeStore.locale), systemImage: tool.icon)
                             }
                         }
                     }
@@ -97,7 +98,7 @@ struct AIAgentView: View {
                             Button {
                                 selectedLocalTool = tool
                             } label: {
-                                Label(tool.title, systemImage: tool.icon)
+                                Label(tool.localizedTitle(locale: localeStore.locale), systemImage: tool.icon)
                             }
                         }
                     }
@@ -176,11 +177,11 @@ struct AIAgentView: View {
 
             VStack(spacing: 10) {
                 suggestionButton(
-                    title: "整理今天的照護重點",
+                    titleKey: "整理今天的照護重點",
                     icon: "text.document"
                 )
                 suggestionButton(
-                    title: "最近有哪些健康狀況需要注意？",
+                    titleKey: "最近有哪些健康狀況需要注意？",
                     icon: "heart.text.clipboard"
                 )
             }
@@ -192,7 +193,7 @@ struct AIAgentView: View {
                         Button {
                             selectedTool = tool
                         } label: {
-                            Label(tool.title, systemImage: tool.icon)
+                            Label(tool.localizedTitle(locale: localeStore.locale), systemImage: tool.icon)
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(.primary)
                                 .padding(.horizontal, 13)
@@ -270,8 +271,9 @@ struct AIAgentView: View {
             && !isLoading
     }
 
-    private func suggestionButton(title: String, icon: String) -> some View {
-        Button {
+    private func suggestionButton(titleKey: String.LocalizationValue, icon: String) -> some View {
+        let title = String(localized: titleKey, locale: localeStore.locale)
+        return Button {
             inputText = title
             sendMessage()
         } label: {
@@ -490,6 +492,13 @@ private enum LocalAIToolKind: String, CaseIterable, Identifiable {
         }
     }
 
+    func localizedTitle(locale: Locale) -> String {
+        switch self {
+        case .rewriteCareNote: return String(localized: "潤飾照護紀錄", locale: locale)
+        case .summarizeVisibleContent: return String(localized: "摘要文字", locale: locale)
+        }
+    }
+
     var icon: String {
         switch self {
         case .rewriteCareNote: return "text.bubble"
@@ -513,10 +522,26 @@ private enum LocalAIToolKind: String, CaseIterable, Identifiable {
         }
     }
 
+    func localizedPlaceholder(locale: Locale) -> String {
+        switch self {
+        case .rewriteCareNote:
+            return String(localized: "貼上尚未整理的照護紀錄草稿。", locale: locale)
+        case .summarizeVisibleContent:
+            return String(localized: "貼上目前畫面中的聊天、任務或照護文字。", locale: locale)
+        }
+    }
+
     var actionTitle: String {
         switch self {
         case .rewriteCareNote: return "產生草稿"
         case .summarizeVisibleContent: return "摘要"
+        }
+    }
+
+    func localizedActionTitle(locale: Locale) -> String {
+        switch self {
+        case .rewriteCareNote: return String(localized: "產生草稿", locale: locale)
+        case .summarizeVisibleContent: return String(localized: "摘要", locale: locale)
         }
     }
 }
@@ -527,6 +552,7 @@ private struct LocalAIToolSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.aiOrchestrator) private var aiOrchestrator
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(LocaleStore.self) private var localeStore
     @State private var inputText = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -548,7 +574,7 @@ private struct LocalAIToolSheet: View {
                         .frame(minHeight: 140)
                         .overlay(alignment: .topLeading) {
                             if inputText.isEmpty {
-                                Text(tool.placeholder)
+                                Text(tool.localizedPlaceholder(locale: localeStore.locale))
                                     .foregroundStyle(.tertiary)
                                     .padding(.top, 8)
                                     .padding(.leading, 5)
@@ -565,7 +591,7 @@ private struct LocalAIToolSheet: View {
                             if isLoading {
                                 ProgressView()
                             }
-                            Text(tool.actionTitle)
+                            Text(tool.localizedActionTitle(locale: localeStore.locale))
                         }
                     }
                     .disabled(!canRun)
@@ -580,7 +606,7 @@ private struct LocalAIToolSheet: View {
             }
             .frame(maxWidth: usesWideLayout ? 640 : .infinity)
             .frame(maxWidth: .infinity)
-            .navigationTitle(tool.title)
+            .navigationTitle(tool.localizedTitle(locale: localeStore.locale))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -628,6 +654,14 @@ private enum AIToolKind: String, CaseIterable, Identifiable {
         }
     }
 
+    func localizedTitle(locale: Locale) -> String {
+        switch self {
+        case .careAnalysis: return String(localized: "照護報告", locale: locale)
+        case .handoverReport: return String(localized: "交接報告", locale: locale)
+        case .subsidyForm: return String(localized: "補助表單", locale: locale)
+        }
+    }
+
     var icon: String {
         switch self {
         case .careAnalysis: return "chart.line.uptrend.xyaxis"
@@ -643,6 +677,14 @@ private enum AIToolKind: String, CaseIterable, Identifiable {
         case .subsidyForm: return "產生表單"
         }
     }
+
+    func localizedActionTitle(locale: Locale) -> String {
+        switch self {
+        case .careAnalysis: return String(localized: "產生照護報告", locale: locale)
+        case .handoverReport: return String(localized: "產生交接報告", locale: locale)
+        case .subsidyForm: return String(localized: "產生表單", locale: locale)
+        }
+    }
 }
 
 private struct AIToolSheet: View {
@@ -651,6 +693,7 @@ private struct AIToolSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dataService) private var dataService
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(LocaleStore.self) private var localeStore
     @State private var days = 7
     @State private var reportDate = Date()
     @State private var subsidyFormType = "long_term_care"
@@ -687,7 +730,7 @@ private struct AIToolSheet: View {
                             if isLoading {
                                 ProgressView()
                             }
-                            Text(tool.actionTitle)
+                            Text(tool.localizedActionTitle(locale: localeStore.locale))
                         }
                     }
                     .disabled(isLoading)
@@ -702,7 +745,7 @@ private struct AIToolSheet: View {
             }
             .frame(maxWidth: usesWideLayout ? 640 : .infinity)
             .frame(maxWidth: .infinity)
-            .navigationTitle(tool.title)
+            .navigationTitle(tool.localizedTitle(locale: localeStore.locale))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {

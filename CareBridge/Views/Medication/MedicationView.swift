@@ -5,6 +5,8 @@ struct MedicationView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(MedicationStore.self) private var medStore
     @Environment(CareLogStore.self) private var careLogStore
+    @State private var isEditingMedicationList = false
+    @State private var pendingMedicationDeletion: Medication?
 
     /// Hide meds whose endDate has already passed — they should silently
     /// disappear from the active list once their treatment course is over.
@@ -24,6 +26,19 @@ struct MedicationView: View {
         .navigationTitle("用藥管理")
         .navigationBarTitleDisplayMode(.large)
         .task { medStore.load() }
+        .alert("刪除用藥？", isPresented: medicationDeleteConfirmationBinding) {
+            Button("取消", role: .cancel) {
+                pendingMedicationDeletion = nil
+            }
+            Button("刪除", role: .destructive) {
+                if let medication = pendingMedicationDeletion {
+                    deleteMedication(medication)
+                }
+                pendingMedicationDeletion = nil
+            }
+        } message: {
+            Text("刪除後會同步移除今日服藥進度。")
+        }
     }
 
     @ViewBuilder
@@ -59,11 +74,45 @@ struct MedicationView: View {
 
     private var medicationListCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("目前用藥清單")
-                .font(.system(size: 17, weight: .bold))
+            HStack {
+                Text("目前用藥清單")
+                    .font(.system(size: 17, weight: .bold))
+                Spacer()
+                if !activeMedications.isEmpty {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isEditingMedicationList.toggle()
+                        }
+                    } label: {
+                        Image(systemName: isEditingMedicationList ? "checkmark" : "pencil")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(Color.brandTeal)
+                            .frame(width: 34, height: 34)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(isEditingMedicationList ? "完成編輯用藥清單" : "編輯用藥清單")
+                }
+            }
 
             ForEach(activeMedications) { med in
-                MedicationRow(medication: med)
+                HStack(spacing: 10) {
+                    MedicationRow(medication: med)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if isEditingMedicationList {
+                        Button(role: .destructive) {
+                            pendingMedicationDeletion = med
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .font(.system(size: 24, weight: .semibold))
+                                .foregroundStyle(.red)
+                                .frame(width: 34, height: 34)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("刪除 \(med.name)")
+                        .transition(.scale.combined(with: .opacity))
+                    }
+                }
             }
         }
         .padding(16)
@@ -98,13 +147,42 @@ struct MedicationView: View {
         )
         careLogStore.entries.insert(entry, at: 0)
     }
+
+    private func deleteMedication(_ medication: Medication) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            medStore.deleteMedication(id: medication.id)
+            if activeMedications.count <= 1 {
+                isEditingMedicationList = false
+            }
+        }
+    }
+
+    private var medicationDeleteConfirmationBinding: Binding<Bool> {
+        Binding {
+            pendingMedicationDeletion != nil
+        } set: { isPresented in
+            if !isPresented {
+                pendingMedicationDeletion = nil
+            }
+        }
+    }
 }
 
 struct MedicationTodayProgressCard: View {
+    var usesContainer = true
     let onMarkDoseTaken: (Int) -> Void
     @Environment(MedicationStore.self) private var medStore
 
     var body: some View {
+        cardContent
+            .padding(usesContainer ? 16 : 0)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(usesContainer ? Color.white : Color.clear)
+            )
+    }
+
+    private var cardContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("今日服藥進度")
                 .font(.system(size: 17, weight: .bold))
@@ -157,8 +235,6 @@ struct MedicationTodayProgressCard: View {
                 .background(RoundedRectangle(cornerRadius: 10).fill(Color(.systemGray6)))
             }
         }
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: 16).fill(.white))
     }
 
     private func doseRow(index: Int, dose: DoseEntry) -> some View {
@@ -230,11 +306,11 @@ struct MedicationRow: View {
                             .lineLimit(1)
                         let freqLabel: String = {
                             switch medication.frequency {
-                            case "daily": return "每日一次"
-                            case "twice_daily": return "每日兩次"
-                            case "thrice_daily": return "每日三次"
-                            case "weekly": return "每週一次"
-                            case "as_needed": return "需要時服用"
+                            case "daily": return localizedFrequencyLabel("每日一次")
+                            case "twice_daily": return localizedFrequencyLabel("每日兩次")
+                            case "thrice_daily": return localizedFrequencyLabel("每日三次")
+                            case "weekly": return localizedFrequencyLabel("每週一次")
+                            case "as_needed": return localizedFrequencyLabel("需要時服用")
                             default: return medication.frequency
                             }
                         }()
@@ -298,6 +374,10 @@ struct MedicationRow: View {
                 .stroke(Color(.systemGray5), lineWidth: 1)
         )
     }
+
+    private func localizedFrequencyLabel(_ key: String.LocalizationValue) -> String {
+        String(localized: key, locale: localeStore.locale)
+    }
 }
 
 // MARK: - Add Medication View
@@ -348,7 +428,7 @@ struct AddMedicationView: View {
                 Section("服用頻率") {
                     Picker("頻率", selection: $frequency) {
                         ForEach(0..<frequencyLabels.count, id: \.self) { i in
-                            Text(frequencyLabels[i]).tag(i)
+                            Text(LocalizedStringKey(frequencyLabels[i])).tag(i)
                         }
                     }
                     .pickerStyle(.segmented)

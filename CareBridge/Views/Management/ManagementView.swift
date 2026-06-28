@@ -10,6 +10,18 @@ struct ManagementView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                RootPageHeader(horizontalPadding: usesWideLayout ? 32 : 16) {
+                    showNotifications = true
+                } title: {
+                    Text("管理")
+                        .font(.system(size: 30, weight: .bold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
+                .padding(.top, 4)
+                .frame(maxWidth: usesWideLayout ? 720 : .infinity)
+                .frame(maxWidth: .infinity)
+
                 Picker("管理分類", selection: $selectedSection) {
                     ForEach(ManagementSection.allCases) { section in
                         Text(section.title).tag(section)
@@ -17,7 +29,6 @@ struct ManagementView: View {
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal, usesWideLayout ? 32 : 16)
-                .padding(.top, usesWideLayout ? 16 : 8)
                 .padding(.bottom, 10)
                 .frame(maxWidth: usesWideLayout ? 720 : .infinity)
 
@@ -36,13 +47,6 @@ struct ManagementView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(Color.brandBackground)
-            .navigationTitle("管理")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NotificationBellButton { showNotifications = true }
-                }
-            }
             .navigationDestination(isPresented: $showNotifications) {
                 NotificationCenterView()
             }

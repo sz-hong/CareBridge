@@ -119,7 +119,7 @@ struct NotificationCenterView: View {
         }
         .background(Color.brandBackground)
         .navigationTitle("通知中心")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
         .task { await store.refresh() }
     }
 
@@ -132,26 +132,53 @@ struct NotificationCenterView: View {
 
 /// 共用的鈴鐺按鈕：只有真的有未讀時才顯示紅點，取代各頁原本「永遠亮」的寫死紅點。
 struct NotificationBellButton: View {
+    enum ButtonStyle {
+        case toolbar
+        case prominent
+    }
+
     @Environment(NotificationStore.self) private var store
+    var style: ButtonStyle = .toolbar
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: "bell.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(Color.brandTeal)
-                if store.unreadCount > 0 {
-                    Circle()
-                        .fill(.red)
-                        .frame(width: 8, height: 8)
-                        .offset(x: 2, y: -2)
-                }
-            }
+            label
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(
             store.unreadCount > 0 ? "通知，\(store.unreadCount) 則未讀" : "通知"
         )
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        switch style {
+        case .toolbar:
+            bellGlyph
+        case .prominent:
+            ZStack {
+                Circle()
+                    .fill(.white.opacity(0.92))
+                    .frame(width: 52, height: 52)
+                    .shadow(color: .black.opacity(0.08), radius: 16, x: 0, y: 8)
+                bellGlyph
+            }
+        }
+    }
+
+    private var bellGlyph: some View {
+        ZStack(alignment: .topTrailing) {
+            Image(systemName: "bell.fill")
+                .font(.system(size: 20))
+                .foregroundStyle(Color.brandTeal)
+            if store.unreadCount > 0 {
+                Circle()
+                    .fill(.red)
+                    .frame(width: 8, height: 8)
+                    .offset(x: 2, y: -2)
+            }
+        }
     }
 }
 
@@ -187,12 +214,19 @@ struct NotificationRow: View {
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
-                Text(notification.timestamp.formatted(.relative(presentation: .named)))
+                Text(relativeTimestampText)
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
             }
         }
         .padding(.vertical, 6)
+    }
+
+    private var relativeTimestampText: String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = localeStore.locale
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: notification.timestamp, relativeTo: Date())
     }
 }
 

@@ -23,6 +23,7 @@ struct HomeView: View {
     let onPreviewPhoto: (PhotoPreviewItem) -> Void
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(UserStore.self) private var userStore
+    @Environment(LocaleStore.self) private var localeStore
     @Environment(MedicationStore.self) private var medicationStore
     @Environment(CareLogStore.self) private var careLogStore
     @Environment(TodoStore.self) private var todoStore
@@ -45,9 +46,9 @@ struct HomeView: View {
             !$0.isDone && timeStringToMinutes($0.time) > curMins
         }
         guard let d = upcoming else {
-            return medicationStore.doses.isEmpty ? "暫無藥物" : "今日完成"
+            return medicationStore.doses.isEmpty ? localized("暫無藥物") : localized("今日完成")
         }
-        return "Next: \(d.time)"
+        return localizedNextDose(time: d.time)
     }
 
     private func timeStringToMinutes(_ t: String) -> Int {
@@ -87,11 +88,6 @@ struct HomeView: View {
                 }
                 .background(Color.brandBackground)
                 .scrollIndicators(.hidden)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        NotificationBellButton { showNotifications = true }
-                    }
-                }
                 .navigationDestination(for: HomeDestination.self) { dest in
                     switch dest {
                     case .health:     HealthMonitorView()
@@ -154,14 +150,14 @@ struct HomeView: View {
                 healthStatusCard
 
                 HStack(alignment: .top, spacing: 20) {
-                    todayTasksCard
                     todayPhotoAlbumCard
+                    todayTasksCard
                 }
 
                 Spacer(minLength: 24)
             }
             .padding(.horizontal, 32)
-            .padding(.top, 16)
+            .padding(.top, 4)
             .frame(maxWidth: 1180)
             .frame(maxWidth: .infinity)
         } else {
@@ -171,21 +167,39 @@ struct HomeView: View {
 
                 healthStatusCard
 
-                // Today's Tasks
-                todayTasksCard
-
                 // Photos captured in today's care logs
                 todayPhotoAlbumCard
+
+                // Today's Tasks
+                todayTasksCard
 
                 Spacer(minLength: 20)
             }
             .padding(.horizontal, 16)
-            .padding(.top, 8)
+            .padding(.top, 4)
         }
     }
 
     private var usesWideLayout: Bool {
         UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
+
+    private func localized(_ key: String.LocalizationValue) -> String {
+        String(localized: key, locale: localeStore.locale)
+    }
+
+    private func localizedNextDose(time: String) -> String {
+        switch localeStore.code {
+        case "vi": return "Tiếp theo: \(time)"
+        default:   return "下一次：\(time)"
+        }
+    }
+
+    private func localizedSummaryCount(_ count: Int, zhUnit: String, viUnit: String) -> String {
+        switch localeStore.code {
+        case "vi": return "\(count) \(viUnit)"
+        default:   return "\(count) \(zhUnit)"
+        }
     }
 
     private func applyLiveUpdate(_ update: HealthLiveUpdate) {
@@ -237,26 +251,75 @@ struct HomeView: View {
 
     // MARK: - Greeting
     private var greetingSection: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(greetingText)
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundStyle(.primary)
-                Text(userStore.currentUser?.name ?? "")
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundStyle(.primary)
-            }
-            Spacer()
+        RootPageHeader(horizontalPadding: 0) {
+            showNotifications = true
+        } title: {
+            Text(greetingText)
+                .font(.system(size: 30, weight: .bold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
         }
-        .padding(.top, 8)
     }
 
     private var greetingText: String {
+        let name = userStore.currentUser?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let greeting: String
         let hour = Calendar.current.component(.hour, from: Date())
         switch hour {
-        case 5..<12: return "Good morning,"
-        case 12..<18: return "Good afternoon,"
-        default: return "Good evening,"
+        case 5..<12:
+            greeting = localizedGreeting(.morning)
+        case 12..<14:
+            greeting = localizedGreeting(.noon)
+        case 14..<18:
+            greeting = localizedGreeting(.afternoon)
+        default:
+            greeting = localizedGreeting(.night)
+        }
+        return name.isEmpty ? greeting : "\(greeting)\(greetingSeparator)\(name)"
+    }
+
+    private enum GreetingPeriod {
+        case morning
+        case noon
+        case afternoon
+        case night
+    }
+
+    private var greetingSeparator: String {
+        localeStore.code == "zh-TW" ? "，" : ", "
+    }
+
+    private func localizedGreeting(_ period: GreetingPeriod) -> String {
+        switch localeStore.code {
+        case "id":
+            switch period {
+            case .morning: return "Selamat pagi"
+            case .noon: return "Selamat siang"
+            case .afternoon: return "Selamat sore"
+            case .night: return "Selamat malam"
+            }
+        case "vi":
+            switch period {
+            case .morning: return "Chào buổi sáng"
+            case .noon: return "Chào buổi trưa"
+            case .afternoon: return "Chào buổi chiều"
+            case .night: return "Chào buổi tối"
+            }
+        case "tl":
+            switch period {
+            case .morning: return "Magandang umaga"
+            case .noon: return "Magandang tanghali"
+            case .afternoon: return "Magandang hapon"
+            case .night: return "Magandang gabi"
+            }
+        default:
+            switch period {
+            case .morning: return "早安"
+            case .noon: return "午安"
+            case .afternoon: return "下午好"
+            case .night: return "晚安"
+            }
         }
     }
 
@@ -280,12 +343,32 @@ struct HomeView: View {
                     HStack(spacing: 12) {
                         summarySourceLabel(
                             icon: "doc.text",
-                            value: "\(summary.sourceCounts.careLogs) 筆日誌"
+                            value: localizedSummaryCount(
+                                summary.sourceCounts.careLogs,
+                                zhUnit: "筆日誌",
+                                viUnit: "nhật ký"
+                            )
                         )
-                        summarySourceLabel(
-                            icon: "calendar",
-                            value: "\(summary.sourceCounts.events) 個行程"
-                        )
+                        if let todos = summary.sourceCounts.todos {
+                            summarySourceLabel(
+                                icon: "checklist",
+                                value: localizedSummaryCount(
+                                    todos,
+                                    zhUnit: "個待辦",
+                                    viUnit: "việc cần làm"
+                                )
+                            )
+                        }
+                        if let medications = summary.sourceCounts.medications {
+                            summarySourceLabel(
+                                icon: "pills.fill",
+                                value: localizedSummaryCount(
+                                    medications,
+                                    zhUnit: "項用藥",
+                                    viUnit: "mục thuốc"
+                                )
+                            )
+                        }
                     }
                 } else if todaySummaryStore.isLoading {
                     Text("正在整理今天的照護重點…")
@@ -319,7 +402,7 @@ struct HomeView: View {
             latestBloodPressure != nil
 
         guard hasAnyReading else {
-            return ("尚無資料", .secondary)
+            return (localized("尚無資料"), .secondary)
         }
 
         let hasWarning =
@@ -329,25 +412,25 @@ struct HomeView: View {
             bloodPressureStatus.text == "HIGH" ||
             bloodPressureStatus.text == "LOW"
 
-        return hasWarning ? ("需注意", .orange) : ("正常", .green)
+        return hasWarning ? (localized("需注意"), .orange) : (localized("正常"), .green)
     }
 
     private var healthStatusDetail: String {
         var parts: [String] = []
 
         if let heartRate = healthKit.heartRate {
-            parts.append("心率 \(Int(heartRate)) bpm")
+            parts.append("\(localized("心率")) \(Int(heartRate)) bpm")
         }
 
         if let bloodOxygen = healthKit.bloodOxygen {
-            parts.append("血氧 \(Int(bloodOxygen))%")
+            parts.append("\(localized("血氧")) \(Int(bloodOxygen))%")
         }
 
         if let bloodPressure = latestBloodPressure {
-            parts.append("血壓 \(bloodPressure.systolic)/\(bloodPressure.diastolic)")
+            parts.append("\(localized("血壓")) \(bloodPressure.systolic)/\(bloodPressure.diastolic)")
         }
 
-        return parts.isEmpty ? "點擊查看健康監測" : parts.joined(separator: " · ")
+        return parts.isEmpty ? localized("點擊查看健康監測") : parts.joined(separator: " · ")
     }
 
     private var healthStatusCard: some View {
@@ -412,10 +495,15 @@ struct HomeView: View {
         todayTodos.filter(\.isCompleted).count
     }
 
-    private var todayTodoStatusText: String {
-        guard !todayTodos.isEmpty else { return "今日無待辦" }
-        if completedTodayTodoCount == todayTodos.count { return "今日待辦已完成" }
-        return todayTodos.first(where: { !$0.isCompleted })?.title ?? "今日待辦已完成"
+    private enum TaskRowText {
+        case localized(LocalizedStringKey)
+        case verbatim(String)
+    }
+
+    private var todayTodoStatusText: TaskRowText {
+        guard !todayTodos.isEmpty else { return .localized("今日無待辦") }
+        if completedTodayTodoCount == todayTodos.count { return .localized("今日待辦已完成") }
+        return .verbatim(todayTodos.first(where: { !$0.isCompleted })?.title ?? "")
     }
 
     private var todayTodoProgressText: String {
@@ -454,7 +542,7 @@ struct HomeView: View {
             taskRow(
                 icon: "pills.fill",
                 title: "用藥",
-                subtitle: nextDoseDescription,
+                subtitle: .verbatim(nextDoseDescription),
                 primaryValue: medicationProgressText,
                 secondaryValue: "已服用"
             )
@@ -568,10 +656,10 @@ struct HomeView: View {
     /// non-navigational; the actual entry points now live in 照護日誌.
     private func taskRow(
         icon: String,
-        title: String,
-        subtitle: String,
+        title: LocalizedStringKey,
+        subtitle: TaskRowText,
         primaryValue: String,
-        secondaryValue: String
+        secondaryValue: LocalizedStringKey
     ) -> some View {
         HStack(spacing: 14) {
             RoundedRectangle(cornerRadius: 10)
@@ -580,12 +668,12 @@ struct HomeView: View {
                 .overlay {
                     Image(systemName: icon)
                         .foregroundStyle(Color.brandTeal)
-                }
+            }
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.primary)
-                Text(subtitle)
+                taskRowText(subtitle)
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -602,6 +690,16 @@ struct HomeView: View {
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemBackground)))
+    }
+
+    @ViewBuilder
+    private func taskRowText(_ text: TaskRowText) -> some View {
+        switch text {
+        case .localized(let key):
+            Text(key)
+        case .verbatim(let value):
+            Text(verbatim: value)
+        }
     }
 
 }

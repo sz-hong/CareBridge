@@ -14,6 +14,7 @@ struct ProfileView: View {
     @State private var showEditProfile = false
     @State private var showFamilyMembers = false
     @State private var showNotificationPrefs = false
+    @State private var showNotifications = false
     @State private var inviteCodeCopied = false
     @Environment(HealthKitSyncManager.self) private var healthSync
     @AppStorage("carebridge.healthSyncEnabled") private var healthSyncEnabled = false
@@ -26,7 +27,26 @@ struct ProfileView: View {
 
     var body: some View {
         NavigationStack {
-            List {
+            ZStack {
+                Color.brandBackground
+                    .ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    if !isModal {
+                        RootPageHeader {
+                            showNotifications = true
+                        } title: {
+                            Text("個人/設定")
+                                .font(.system(size: 30, weight: .bold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                        }
+                        .padding(.top, 4)
+                        .frame(maxWidth: usesWideLayout ? 720 : .infinity)
+                        .frame(maxWidth: .infinity)
+                    }
+
+                    List {
                 // Avatar + Name header
                 Section {
                     HStack(spacing: 16) {
@@ -49,6 +69,7 @@ struct ProfileView: View {
                     }
                     .padding(.vertical, 8)
                 }
+                .listRowBackground(Color(.systemBackground))
 
                 // Personal info
                 Section("個人資訊") {
@@ -73,6 +94,7 @@ struct ProfileView: View {
                         .foregroundStyle(.primary)
                     }
                 }
+                .listRowBackground(Color(.systemBackground))
 
                 // Family info
                 Section("家庭資訊") {
@@ -106,6 +128,7 @@ struct ProfileView: View {
                     }
                     .foregroundStyle(.primary)
                 }
+                .listRowBackground(Color(.systemBackground))
 
                 // Settings
                 Section("設定") {
@@ -186,6 +209,7 @@ struct ProfileView: View {
                         }
                     }
                 }
+                .listRowBackground(Color(.systemBackground))
 
                 // Logout
                 Section {
@@ -201,11 +225,18 @@ struct ProfileView: View {
                         }
                     }
                 }
+                .listRowBackground(Color(.systemBackground))
+                    }
+                    .listStyle(.insetGrouped)
+                    .scrollContentBackground(.hidden)
+                    .background(Color.brandBackground.ignoresSafeArea())
+                    .frame(maxWidth: usesWideLayout ? 720 : .infinity)
+                    .frame(maxWidth: .infinity)
+                }
             }
-            .frame(maxWidth: usesWideLayout ? 720 : .infinity)
-            .frame(maxWidth: .infinity)
-            .navigationTitle(isModal ? "個人資料" : "個人/設定")
-            .navigationBarTitleDisplayMode(isModal ? .inline : .large)
+            .navigationTitle(isModal ? "個人資料" : "")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarVisibility(isModal ? .visible : .hidden, for: .navigationBar)
             .overlay(alignment: .bottomTrailing) {
                 if !isModal {
                     Button {
@@ -221,7 +252,7 @@ struct ProfileView: View {
                                 .foregroundStyle(.primary)
                         }
                     }
-                    .padding(.trailing, usesWideLayout ? 32 : 20)
+                    .padding(.trailing, usesWideLayout ? 32 : 24)
                     .padding(.bottom, floatingActionBottomPadding)
                     .accessibilityLabel("編輯個人資料")
                 }
@@ -235,6 +266,9 @@ struct ProfileView: View {
                         }
                     }
                 }
+            }
+            .navigationDestination(isPresented: $showNotifications) {
+                NotificationCenterView()
             }
             .alert("此家庭已綁定其他裝置", isPresented: $showHealthBindingConflict) {
                 Button("確定", role: .cancel) { }
@@ -411,6 +445,7 @@ struct EditProfileView: View {
                             .focused($isPhoneFocused)
                     }
                 }
+                .listRowBackground(Color(.systemBackground))
 
                 Section("頭像") {
                     HStack {
@@ -424,9 +459,13 @@ struct EditProfileView: View {
                     }
                     .padding(.vertical, 8)
                 }
+                .listRowBackground(Color(.systemBackground))
             }
+            .listStyle(.insetGrouped)
             .frame(maxWidth: usesWideLayout ? 640 : .infinity)
             .frame(maxWidth: .infinity)
+            .scrollContentBackground(.hidden)
+            .background(Color.brandBackground.ignoresSafeArea())
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("編輯個人資料")
             .navigationBarTitleDisplayMode(.inline)
@@ -510,6 +549,7 @@ struct FamilyMembersView: View {
                         .padding(.vertical, 4)
                     }
                 }
+                .listRowBackground(Color(.systemBackground))
 
                 if userRole == .family,
                    let inviteCode = userStore.currentUser?.family?.id {
@@ -523,10 +563,14 @@ struct FamilyMembersView: View {
                             Spacer()
                         }
                     }
+                    .listRowBackground(Color(.systemBackground))
                 }
             }
+            .listStyle(.insetGrouped)
             .frame(maxWidth: usesWideLayout ? 720 : .infinity)
             .frame(maxWidth: .infinity)
+            .scrollContentBackground(.hidden)
+            .background(Color.brandBackground.ignoresSafeArea())
             .navigationTitle("家庭成員")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -564,26 +608,33 @@ struct NotificationPreferencesView: View {
                     Toggle("照護日誌更新", isOn: $careLogUpdate)
                     Toggle("SOS 緊急警報", isOn: $sosAlert)
                 }
+                .listRowBackground(Color(.systemBackground))
 
                 Section("任務與行程") {
                     Toggle("待辦事項指派", isOn: $todoAssigned)
                     Toggle("行事曆提醒", isOn: $calendarEvent)
                 }
+                .listRowBackground(Color(.systemBackground))
 
                 Section("溝通") {
                     Toggle("新聊天訊息", isOn: $chatMessage)
                     Toggle("請假申請", isOn: $leaveRequest)
                     Toggle("採購需求", isOn: $purchaseRequest)
                 }
+                .listRowBackground(Color(.systemBackground))
 
                 Section {
                     Text("通知將透過 APNs 推播送達。您可以隨時在 iOS 設定中管理推播權限。")
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                 }
+                .listRowBackground(Color(.systemBackground))
             }
+            .listStyle(.insetGrouped)
             .frame(maxWidth: usesWideLayout ? 640 : .infinity)
             .frame(maxWidth: .infinity)
+            .scrollContentBackground(.hidden)
+            .background(Color.brandBackground.ignoresSafeArea())
             .tint(Color.brandTeal)
             .navigationTitle("通知設定")
             .navigationBarTitleDisplayMode(.inline)

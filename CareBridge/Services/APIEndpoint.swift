@@ -57,6 +57,10 @@ enum APIEndpoint {
         return components.string ?? Self.careLogs
     }
 
+    static func careLog(id: String) -> String {
+        "/care-logs/\(id)/"
+    }
+
     static let medications = "/medications/"
     static let medicationTodayConfirmations = "/medications/today_confirmations/"
 
