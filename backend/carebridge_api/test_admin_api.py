@@ -2,6 +2,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 from django.apps import apps
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -967,6 +968,84 @@ class AdminAPIRequestLogTests(TestCase):
         response = self.client.get("/api/v1/admin/request-logs/")
 
         self.assertEqual(response.status_code, 403)
+
+
+class AdminAPILogRetentionTests(TestCase):
+    def request_log_model(self):
+        return apps.get_model("admin_api", "AdminRequestLog")
+
+    def audit_model(self):
+        return apps.get_model("admin_api", "AdminMutationAuditLog")
+
+    def age_record(self, record, days_old):
+        record.__class__.objects.filter(pk=record.pk).update(
+            created_at=timezone.now() - timedelta(days=days_old)
+        )
+        record.refresh_from_db()
+        return record
+
+    def test_celery_beat_schedules_admin_log_cleanup_daily(self):
+        cleanup = settings.CELERY_BEAT_SCHEDULE["delete-expired-admin-logs-daily"]
+
+        self.assertEqual(
+            cleanup["task"],
+            "apps.admin_api.tasks.delete_expired_admin_logs_task",
+        )
+        self.assertEqual(cleanup["schedule"], 86400.0)
+
+    @override_settings(
+        ADMIN_REQUEST_LOG_RETENTION_DAYS=14,
+        ADMIN_AUDIT_LOG_RETENTION_DAYS=180,
+    )
+    def test_admin_log_cleanup_deletes_old_request_and_audit_logs(self):
+        from apps.admin_api.tasks import delete_expired_admin_logs_task
+
+        request_model = self.request_log_model()
+        audit_model = self.audit_model()
+        old_request = request_model.objects.create(
+            request_id="old-request",
+            method="GET",
+            path="/api/v1/auth/login/",
+            status_code=200,
+            duration_ms=12,
+            ip="127.0.0.1",
+            user_agent="CareBridge Test",
+        )
+        recent_request = request_model.objects.create(
+            request_id="recent-request",
+            method="GET",
+            path="/api/v1/todos/",
+            status_code=200,
+            duration_ms=10,
+            ip="127.0.0.1",
+            user_agent="CareBridge Test",
+        )
+        old_audit = audit_model.objects.create(
+            action="update",
+            table="todos",
+            record_id="old-audit",
+            actor_email="staff@example.com",
+        )
+        recent_audit = audit_model.objects.create(
+            action="delete",
+            table="todos",
+            record_id="recent-audit",
+            actor_email="staff@example.com",
+        )
+        self.age_record(old_request, 15)
+        self.age_record(recent_request, 13)
+        self.age_record(old_audit, 181)
+        self.age_record(recent_audit, 179)
+
+        result = delete_expired_admin_logs_task()
+
+        self.assertEqual(result["request_logs_deleted"], 1)
+        self.assertEqual(result["audit_logs_deleted"], 1)
+        self.assertFalse(request_model.objects.filter(pk=old_request.pk).exists())
+        self.assertTrue(request_model.objects.filter(pk=recent_request.pk).exists())
+        self.assertFalse(audit_model.objects.filter(pk=old_audit.pk).exists())
+        self.assertTrue(audit_model.objects.filter(pk=recent_audit.pk).exists())
+
 
 class AdminAPIAuditLogTests(TestCase):
     def setUp(self):
