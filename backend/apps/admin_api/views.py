@@ -221,7 +221,6 @@ TABLES = {
         search_fields=('store_name', 'status', 'recorder__email', 'recorder__name'),
         date_fields=('updated_at', 'created_at', 'date'),
         actor_fields=('recorder',),
-        mutable=True,
         display_name='Expenses',
         category='Finance',
     ),

@@ -5,10 +5,9 @@ from django.db.models.functions import TruncMonth
 from django.utils import timezone
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
-from core.permissions import CaregiverCannotDelete
 from core.responses import empty_success_response, success_response
 from core.upload_paths import (
     build_quarantine_key,
@@ -26,8 +25,17 @@ from .serializers import (
 from .tasks import redact_receipt_image_task
 
 
+class ExpenseRecordAppendOnly(BasePermission):
+    """Expense records can be created and read, but not edited or deleted."""
+
+    message = 'Expense records cannot be edited or deleted.'
+
+    def has_permission(self, request, view):
+        return request.method not in {'PUT', 'PATCH', 'DELETE'}
+
+
 class ExpenseViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
-    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
+    permission_classes = [IsAuthenticated, ExpenseRecordAppendOnly]
     serializer_class = ExpenseSerializer
     filterset_fields = ['status']
 
