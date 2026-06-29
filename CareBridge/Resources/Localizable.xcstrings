@@ -4734,12 +4734,12 @@
         }
       }
     },
-    "撥打 119 並通知家人" : {
+    "通知家人" : {
       "localizations" : {
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Gọi 119 và thông báo cho gia đình"
+            "value" : "Thông báo gia đình"
           }
         }
       }
