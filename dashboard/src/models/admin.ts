@@ -52,6 +52,14 @@ export interface FieldSchema {
   relation?: RelationConfig;
 }
 
+export interface LookupItem {
+  id: string;
+  label: string;
+  raw: AdminRecord;
+}
+
+export interface LookupPage extends PageResult<LookupItem> {}
+
 export interface TableSchema {
   table: string;
   create_allowed: boolean;
