@@ -88,6 +88,26 @@ class BoardRequestAPIEndpointTests(TestCase):
         ids = {item['id'] for item in response.json()['data']}
         self.assertEqual(ids, {str(own.id)})
 
+    def test_list_returns_note_translated_for_authenticated_reader_language(self):
+        self.user.language = 'zh-TW'
+        self.user.save(update_fields=['language'])
+        board_request = self.create_request(
+            requester=self.caregiver,
+            note='Tolong beli sarung tangan',
+            note_translations={
+                'id': 'Tolong beli sarung tangan',
+                'zh-TW': '??????',
+            },
+        )
+
+        response = self.client.get('/api/v1/board/')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()['data'][0]
+        self.assertEqual(payload['id'], str(board_request.id))
+        self.assertEqual(payload['note'], 'Tolong beli sarung tangan')
+        self.assertEqual(payload['note_translated'], '??????')
+
     def test_create_assigns_family_and_requester(self):
         response = self.client.post(
             '/api/v1/board/',

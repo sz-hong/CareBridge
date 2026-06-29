@@ -17,6 +17,16 @@ class LeaveSerializer(serializers.ModelSerializer):
     applicant = UserSerializer(read_only=True)
     applicant_name = serializers.CharField(source='applicant.name', read_only=True)
     votes = LeaveVoteSerializer(many=True, read_only=True)
+    reason_translated = serializers.SerializerMethodField()
+
+    def get_reason_translated(self, obj):
+        return _translated_for_reader(
+            obj.reason or '',
+            obj.reason_translations,
+            getattr(obj, 'reason_translated', None),
+            self.context,
+        )
+
 
     class Meta:
         model = Leave
@@ -43,3 +53,13 @@ class UpdateLeaveStatusSerializer(serializers.Serializer):
 
 class CreateLeaveVoteSerializer(serializers.Serializer):
     is_available = serializers.BooleanField()
+
+
+def _translated_for_reader(original, translations, legacy_value, context):
+    request = context.get('request') if context else None
+    language = getattr(getattr(request, 'user', None), 'language', None) or 'zh-TW'
+    if isinstance(translations, dict):
+        translated = translations.get(language)
+        if translated:
+            return translated
+    return legacy_value or original

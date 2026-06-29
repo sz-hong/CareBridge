@@ -126,7 +126,11 @@ struct LeaveManagementView: View {
                     startDate: request.startDate,
                     endDate: request.endDate,
                     reason: request.reason,
-                    status: status
+                    status: status,
+                    applicantName: request.applicantName,
+                    votes: request.votes,
+                    reasonTranslated: request.reasonTranslated,
+                    reasonTranslations: request.reasonTranslations
                 )
             }
         }
