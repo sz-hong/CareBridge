@@ -17,9 +17,25 @@ enum UserRole: String, CaseIterable, Codable {
     }
 }
 
+enum ExpenseRecordAccessContext {
+    case allExpenses
+    case recentTransactions
+}
+
 enum ExpenseRecordPermissions {
-    static func canManageRecords(userRole: UserRole) -> Bool {
-        userRole == .family
+    static func canManageRecords(
+        userRole: UserRole,
+        context: ExpenseRecordAccessContext = .allExpenses
+    ) -> Bool {
+        userRole == .family && context == .allExpenses
+    }
+}
+
+enum ExpenseRecordPresentation {
+    static let recentTransactionLimit = 10
+
+    static func recentTransactions(from expenses: [Expense]) -> [Expense] {
+        Array(expenses.prefix(recentTransactionLimit))
     }
 }
 

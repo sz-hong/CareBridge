@@ -33,4 +33,28 @@ struct ExpenseRecordPermissionsTests {
         #expect(json["image_url"] == nil)
         #expect(json["raw_image_key"] == nil)
     }
+
+    @Test func recentTransactionPreviewIsLimitedToTenRows() {
+        let expenses = (0..<12).map { index in
+            Expense(
+                id: "expense-\(index)",
+                title: "Expense \(index)",
+                amount: Double(index),
+                category: "other",
+                date: Date(timeIntervalSince1970: Double(index)),
+                hasReceipt: false
+            )
+        }
+
+        let preview = ExpenseRecordPresentation.recentTransactions(from: expenses)
+
+        #expect(preview.count == 10)
+        #expect(preview.map(\.id) == expenses.prefix(10).map(\.id))
+    }
+
+    @Test func recentTransactionDetailDoesNotAllowManagement() {
+        #expect(ExpenseRecordPermissions.canManageRecords(userRole: .family, context: .allExpenses))
+        #expect(!ExpenseRecordPermissions.canManageRecords(userRole: .family, context: .recentTransactions))
+    }
+
 }

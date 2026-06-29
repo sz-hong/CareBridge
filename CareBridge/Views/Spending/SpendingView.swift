@@ -22,8 +22,6 @@ struct SpendingView: View {
     @State private var showNotifications = false
     @State private var showExportSheet = false
     @State private var exportItems: [Any] = []
-    @State private var editingExpense: Expense?
-    @State private var pendingExpenseDeletion: Expense?
 
     var body: some View {
         if isEmbeddedInManagement {
@@ -145,29 +143,15 @@ struct SpendingView: View {
         .sheet(isPresented: $showExportSheet) {
             ShareSheet(items: exportItems)
         }
-        .sheet(item: $editingExpense) { expense in
-            EditExpenseView(expense: expense) { updated in
-                applyUpdatedExpense(updated)
-            }
-        }
-        .alert("刪除消費紀錄？", isPresented: expenseDeleteConfirmationBinding) {
-            Button("取消", role: .cancel) {
-                pendingExpenseDeletion = nil
-            }
-            Button("刪除", role: .destructive) {
-                if let expense = pendingExpenseDeletion {
-                    deleteExpense(expense)
-                }
-                pendingExpenseDeletion = nil
-            }
-        } message: {
-            Text("刪除後會同步更新財務統計。")
-        }
         .navigationDestination(isPresented: $showNotifications) {
             NotificationCenterView()
         }
         .navigationDestination(isPresented: $showAllExpenses) {
-            AllExpensesView(userRole: userRole)
+            AllExpensesView(
+                userRole: userRole,
+                onUpdated: applyUpdatedExpense,
+                onDeleted: removeExpense
+            )
         }
         .task {
             async let e = service.fetchExpenses(month: nil)
@@ -202,18 +186,8 @@ struct SpendingView: View {
         UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
-    private var canManageExpenseRecords: Bool {
-        ExpenseRecordPermissions.canManageRecords(userRole: userRole)
-    }
-
-    private var expenseDeleteConfirmationBinding: Binding<Bool> {
-        Binding {
-            pendingExpenseDeletion != nil
-        } set: { isPresented in
-            if !isPresented {
-                pendingExpenseDeletion = nil
-            }
-        }
+    private var recentExpensePreview: [Expense] {
+        ExpenseRecordPresentation.recentTransactions(from: expenses)
     }
 
     // MARK: - CSV Export
@@ -376,23 +350,12 @@ struct SpendingView: View {
             ExpenseDetailView(
                 expense: expense,
                 userRole: userRole,
-                onUpdated: applyUpdatedExpense,
-                onDeleted: removeExpense
+                context: .recentTransactions
             )
         } label: {
             ExpenseRow(expense: expense)
         }
         .buttonStyle(.plain)
-        .contextMenu {
-            if canManageExpenseRecords {
-                Button { editingExpense = expense } label: {
-                    Label("編輯", systemImage: "pencil")
-                }
-                Button(role: .destructive) { pendingExpenseDeletion = expense } label: {
-                    Label("刪除", systemImage: "trash")
-                }
-            }
-        }
     }
 
     private var recentTransactions: some View {
@@ -408,9 +371,9 @@ struct SpendingView: View {
                 }
             }
 
-            ForEach(expenses) { expense in
+            ForEach(recentExpensePreview) { expense in
                 recentTransactionRow(expense)
-                if expense.id != expenses.last?.id {
+                if expense.id != recentExpensePreview.last?.id {
                     Divider().padding(.leading, 56)
                 }
             }
@@ -431,19 +394,6 @@ struct SpendingView: View {
     private func removeExpense(_ expense: Expense) {
         expenses.removeAll { $0.id == expense.id }
         refreshSummary()
-    }
-
-    private func deleteExpense(_ expense: Expense) {
-        Task {
-            do {
-                try await service.deleteExpense(id: expense.id)
-                await MainActor.run {
-                    removeExpense(expense)
-                }
-            } catch {
-                print("[SpendingView] delete expense failed: \(error)")
-            }
-        }
     }
 
     private func refreshSummary() {
@@ -1144,6 +1094,8 @@ struct ShareSheet: UIViewControllerRepresentable {
 // MARK: - All Expenses View
 struct AllExpensesView: View {
     let userRole: UserRole
+    var onUpdated: ((Expense) -> Void)? = nil
+    var onDeleted: ((Expense) -> Void)? = nil
     @Environment(\.dataService) private var service
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var expenses: [Expense] = []
@@ -1228,10 +1180,12 @@ struct AllExpensesView: View {
         } else {
             expenses.insert(updated, at: 0)
         }
+        onUpdated?(updated)
     }
 
     private func removeExpense(_ expense: Expense) {
         expenses.removeAll { $0.id == expense.id }
+        onDeleted?(expense)
     }
 
     private func deleteExpense(_ expense: Expense) {
@@ -1265,6 +1219,7 @@ struct ExpenseDetailView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var expense: Expense
     let userRole: UserRole
+    let context: ExpenseRecordAccessContext
     var onUpdated: ((Expense) -> Void)?
     var onDeleted: ((Expense) -> Void)?
     // Fetch a presigned receipt image URL only when opening detail.
@@ -1276,11 +1231,13 @@ struct ExpenseDetailView: View {
     init(
         expense: Expense,
         userRole: UserRole = .family,
+        context: ExpenseRecordAccessContext = .allExpenses,
         onUpdated: ((Expense) -> Void)? = nil,
         onDeleted: ((Expense) -> Void)? = nil
     ) {
         _expense = State(initialValue: expense)
         self.userRole = userRole
+        self.context = context
         self.onUpdated = onUpdated
         self.onDeleted = onDeleted
     }
@@ -1290,7 +1247,7 @@ struct ExpenseDetailView: View {
     }
 
     private var canManageExpenseRecords: Bool {
-        ExpenseRecordPermissions.canManageRecords(userRole: userRole)
+        ExpenseRecordPermissions.canManageRecords(userRole: userRole, context: context)
     }
 
     var body: some View {
