@@ -47,12 +47,12 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         qs = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(qs)
         if page is not None:
-            serializer = LeaveSerializer(page, many=True)
+            serializer = LeaveSerializer(page, many=True, context={'request': request})
             paginated = self.get_paginated_response(serializer.data)
             return success_response(data=serializer.data, meta={
                 'count': paginated.data['count'],
             })
-        serializer = LeaveSerializer(qs, many=True)
+        serializer = LeaveSerializer(qs, many=True, context={'request': request})
         return success_response(data=serializer.data)
 
     def create(self, request, *args, **kwargs):
@@ -74,13 +74,13 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         )
         leave.save(update_fields=['reason_translations'])
         return success_response(
-            data=LeaveSerializer(leave).data,
+            data=LeaveSerializer(leave, context={'request': request}).data,
             status=status.HTTP_201_CREATED,
         )
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        return success_response(data=LeaveSerializer(instance).data)
+        return success_response(data=LeaveSerializer(instance, context={'request': request}).data)
 
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
@@ -104,7 +104,7 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             'type', 'start_date', 'end_date', 'days', 'reason',
             'reason_translations',
         ])
-        return success_response(data=LeaveSerializer(leave).data)
+        return success_response(data=LeaveSerializer(leave, context={'request': request}).data)
 
     def partial_update(self, request, *args, **kwargs):
         kwargs['partial'] = True
@@ -136,7 +136,7 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             instance.save(update_fields=[
                 'status', 'reply', 'reply_translations', 'reviewed_by', 'reviewed_at',
             ])
-            return success_response(data=LeaveSerializer(instance).data)
+            return success_response(data=LeaveSerializer(instance, context={'request': request}).data)
 
         if _is_caregiver(request.user):
             raise PermissionDenied('Caregivers cannot review leave requests.')
@@ -179,7 +179,7 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
                 'Failed to send leave notification', exc_info=True
             )
 
-        return success_response(data=LeaveSerializer(instance).data)
+        return success_response(data=LeaveSerializer(instance, context={'request': request}).data)
 
     @action(detail=True, methods=['post'], url_path='vote')
     def vote(self, request, pk=None):
@@ -205,7 +205,7 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             )
             self._maybe_resolve_status(instance, request.user)
 
-        return success_response(data=LeaveSerializer(instance).data)
+        return success_response(data=LeaveSerializer(instance, context={'request': request}).data)
 
     def _ensure_caregiver_owns_pending_leave(self, request, instance):
         if not _is_caregiver(request.user) or instance.applicant_id != request.user.id:

@@ -95,7 +95,12 @@ struct MessageBoardView: View {
                     status: status,
                     createdAt: request.createdAt,
                     requester: request.requester,
-                    notes: request.notes
+                    notes: request.notes,
+                    items: request.items,
+                    noteTranslated: request.noteTranslated,
+                    noteTranslations: request.noteTranslations,
+                    reply: request.reply,
+                    replyTranslations: request.replyTranslations
                 )
             }
         }

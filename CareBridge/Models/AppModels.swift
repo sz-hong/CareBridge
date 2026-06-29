@@ -2267,26 +2267,33 @@ struct LeaveRequest: Identifiable, Codable {
     var applicantName: String?  // 申請人姓名
     var votes: [LeaveVote]?     // 家屬投票
     /// API: reason_translations — 多語言版本的 reason。
+    var reasonTranslated: String?
     var reasonTranslations: [String: String]?
 
     private enum CodingKeys: String, CodingKey {
         // All snake_case keys auto-converted by .convertFromSnakeCase
         case id, type, reason, status, startDate, endDate, applicantName, votes
-        case reasonTranslations
+        case reasonTranslated, reasonTranslations
     }
 
     init(id: String, type: String, startDate: Date, endDate: Date,
          reason: String, status: LeaveStatus,
          applicantName: String? = nil, votes: [LeaveVote]? = nil,
+         reasonTranslated: String? = nil,
          reasonTranslations: [String: String]? = nil) {
         self.id = id; self.type = type; self.startDate = startDate
         self.endDate = endDate; self.reason = reason; self.status = status
         self.applicantName = applicantName; self.votes = votes
+        self.reasonTranslated = reasonTranslated
         self.reasonTranslations = reasonTranslations
     }
 
     func displayReason(language: String?) -> String {
-        translatedText(original: reason, translations: reasonTranslations, language: language)
+        translatedText(
+            original: reasonTranslated ?? reason,
+            translations: reasonTranslations,
+            language: language
+        )
     }
 
     init(from decoder: Decoder) throws {
@@ -2294,6 +2301,7 @@ struct LeaveRequest: Identifiable, Codable {
         id     = try c.decode(String.self, forKey: .id)
         type   = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? "personal"
         reason = (try? c.decodeIfPresent(String.self, forKey: .reason)) ?? ""
+        reasonTranslated = try? c.decodeIfPresent(String.self, forKey: .reasonTranslated)
         reasonTranslations = try? c.decodeIfPresent([String: String].self, forKey: .reasonTranslations)
         status = (try? c.decodeIfPresent(LeaveStatus.self, forKey: .status)) ?? .pending
         let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
@@ -2613,6 +2621,7 @@ struct PurchaseRequest: Identifiable, Codable {
     var createdAt: Date         // API: created_at
     var requester: String       // API: requester.name
     var notes: String           // API: note
+    var noteTranslated: String?   // API: note_translated
     var noteTranslations: [String: String]?  // API: note_translations
     var reply: String?           // API: reply（家屬回覆）
     var replyTranslations: [String: String]?  // API: reply_translations
@@ -2661,13 +2670,14 @@ struct PurchaseRequest: Identifiable, Codable {
     private enum CodingKeys: String, CodingKey {
         // created_at → convertFromSnakeCase → createdAt
         case id, category, status, items, requester, createdAt, note
-        case noteTranslations, reply, replyTranslations
+        case noteTranslated, noteTranslations, reply, replyTranslations
     }
     private enum RequesterKeys: String, CodingKey { case name }
 
     init(id: String, title: String, category: String, description: String,
          estimatedCost: Double?, status: String, createdAt: Date,
          requester: String, notes: String, items: [PurchaseItem] = [],
+         noteTranslated: String? = nil,
          noteTranslations: [String: String]? = nil,
          reply: String? = nil,
          replyTranslations: [String: String]? = nil) {
@@ -2675,13 +2685,18 @@ struct PurchaseRequest: Identifiable, Codable {
         self.description = description; self.estimatedCost = estimatedCost
         self.status = status; self.createdAt = createdAt
         self.requester = requester; self.notes = notes; self.items = items
+        self.noteTranslated = noteTranslated
         self.noteTranslations = noteTranslations
         self.reply = reply
         self.replyTranslations = replyTranslations
     }
 
     func displayNotes(language: String?) -> String {
-        translatedText(original: notes, translations: noteTranslations, language: language)
+        translatedText(
+            original: noteTranslated ?? notes,
+            translations: noteTranslations,
+            language: language
+        )
     }
 
     func displayReply(language: String?) -> String? {
@@ -2716,6 +2731,7 @@ struct PurchaseRequest: Identifiable, Codable {
         status    = (try? c.decodeIfPresent(String.self, forKey: .status)) ?? "pending"
         createdAt = (try? c.decodeIfPresent(Date.self, forKey: .createdAt)) ?? Date()
         notes     = (try? c.decodeIfPresent(String.self, forKey: .note)) ?? ""
+        noteTranslated = try? c.decodeIfPresent(String.self, forKey: .noteTranslated)
         noteTranslations = try? c.decodeIfPresent([String: String].self, forKey: .noteTranslations)
         reply     = try? c.decodeIfPresent(String.self, forKey: .reply)
         replyTranslations = try? c.decodeIfPresent([String: String].self, forKey: .replyTranslations)

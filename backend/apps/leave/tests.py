@@ -87,6 +87,26 @@ class LeaveAPIEndpointTests(TestCase):
         ids = {item['id'] for item in response.json()['data']}
         self.assertEqual(ids, {str(own.id)})
 
+    def test_list_returns_reason_translated_for_authenticated_reader_language(self):
+        self.user.language = 'zh-TW'
+        self.user.save(update_fields=['language'])
+        leave = self.create_leave(
+            applicant=self.caregiver,
+            reason='Saya perlu pulang kampung',
+            reason_translations={
+                'id': 'Saya perlu pulang kampung',
+                'zh-TW': '?????',
+            },
+        )
+
+        response = self.client.get('/api/v1/leaves/')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()['data'][0]
+        self.assertEqual(payload['id'], str(leave.id))
+        self.assertEqual(payload['reason'], 'Saya perlu pulang kampung')
+        self.assertEqual(payload['reason_translated'], '?????')
+
     def test_create_assigns_family_applicant_and_days(self):
         start_date = timezone.localdate()
         end_date = start_date + timezone.timedelta(days=2)

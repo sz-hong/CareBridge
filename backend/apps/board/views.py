@@ -36,12 +36,12 @@ class BoardRequestViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         qs = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(qs)
         if page is not None:
-            serializer = BoardRequestSerializer(page, many=True)
+            serializer = BoardRequestSerializer(page, many=True, context={'request': request})
             paginated = self.get_paginated_response(serializer.data)
             return success_response(data=serializer.data, meta={
                 'count': paginated.data['count'],
             })
-        serializer = BoardRequestSerializer(qs, many=True)
+        serializer = BoardRequestSerializer(qs, many=True, context={'request': request})
         return success_response(data=serializer.data)
 
     def create(self, request, *args, **kwargs):
@@ -62,13 +62,13 @@ class BoardRequestViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         )
         board_request.save(update_fields=['items', 'note_translations', 'updated_at'])
         return success_response(
-            data=BoardRequestSerializer(board_request).data,
+            data=BoardRequestSerializer(board_request, context={'request': request}).data,
             status=status.HTTP_201_CREATED,
         )
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        return success_response(data=BoardRequestSerializer(instance).data)
+        return success_response(data=BoardRequestSerializer(instance, context={'request': request}).data)
 
     def update(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -91,7 +91,7 @@ class BoardRequestViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
                 protected_terms=_board_protected_terms(instance, request.user),
             )
         instance.save(update_fields=['items', 'note_translations', 'updated_at'])
-        return success_response(data=BoardRequestSerializer(instance).data)
+        return success_response(data=BoardRequestSerializer(instance, context={'request': request}).data)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -122,7 +122,7 @@ class BoardRequestViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             instance.save(update_fields=[
                 'status', 'reply', 'reply_translations', 'reviewed_by', 'updated_at',
             ])
-            return success_response(data=BoardRequestSerializer(instance).data)
+            return success_response(data=BoardRequestSerializer(instance, context={'request': request}).data)
 
         if _is_caregiver(request.user):
             raise PermissionDenied('Caregivers cannot review purchase requests.')
@@ -139,7 +139,7 @@ class BoardRequestViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         instance.save(update_fields=[
             'status', 'reply', 'reply_translations', 'reviewed_by', 'updated_at',
         ])
-        return success_response(data=BoardRequestSerializer(instance).data)
+        return success_response(data=BoardRequestSerializer(instance, context={'request': request}).data)
 
     def _ensure_caregiver_owns_pending_request(self, request, instance):
         if not _is_caregiver(request.user) or instance.requester_id != request.user.id:
