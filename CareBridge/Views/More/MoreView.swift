@@ -83,8 +83,8 @@ struct MoreView: View {
                 switch dest {
                 case .medication:    MedicationView(userRole: userRole)
                 case .health:        HealthMonitorView()
-                case .todo:          TodoView()
-                case .documents:     DocumentsView()
+                case .todo:          TodoView(userRole: userRole)
+                case .documents:     DocumentsView(userRole: userRole)
                 case .notifications: NotificationCenterView()
                 }
             }

@@ -41,7 +41,7 @@ struct ManagementView: View {
                             isEmbeddedInManagement: true
                         )
                     case .documents:
-                        DocumentsView(isEmbeddedInManagement: true)
+                        DocumentsView(isEmbeddedInManagement: true, userRole: userRole)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

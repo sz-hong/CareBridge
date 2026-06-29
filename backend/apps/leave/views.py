@@ -4,6 +4,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
@@ -81,6 +82,41 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         instance = self.get_object()
         return success_response(data=LeaveSerializer(instance).data)
 
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        if _is_caregiver(request.user) or _is_caregiver(instance.applicant):
+            self._ensure_caregiver_owns_pending_leave(request, instance)
+        serializer = CreateLeaveSerializer(
+            instance, data=request.data, partial=partial,
+        )
+        serializer.is_valid(raise_exception=True)
+        leave = serializer.save()
+        leave.days = (leave.end_date - leave.start_date).days + 1
+        if 'reason' in request.data:
+            leave.reason_translations = translate_for_user(
+                leave.reason,
+                user=request.user,
+                mode='mixed_text',
+                protected_terms=_leave_protected_terms(leave, request.user),
+            )
+        leave.save(update_fields=[
+            'type', 'start_date', 'end_date', 'days', 'reason',
+            'reason_translations',
+        ])
+        return success_response(data=LeaveSerializer(leave).data)
+
+    def partial_update(self, request, *args, **kwargs):
+        kwargs['partial'] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if _is_caregiver(request.user) or _is_caregiver(instance.applicant):
+            raise PermissionDenied('Use withdraw instead of deleting caregiver leave requests.')
+        instance.delete()
+        return success_response(data={})
+
     @action(detail=True, methods=['patch'], url_path='status')
     def update_status(self, request, pk=None):
         instance = self.get_object()
@@ -89,6 +125,21 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
 
         new_status = serializer.validated_data['status']
         reply = serializer.validated_data.get('reply', '')
+
+        if new_status == Leave.Status.WITHDRAWN:
+            self._ensure_caregiver_owns_pending_leave(request, instance)
+            instance.status = Leave.Status.WITHDRAWN
+            instance.reply = ''
+            instance.reply_translations = {}
+            instance.reviewed_by = None
+            instance.reviewed_at = None
+            instance.save(update_fields=[
+                'status', 'reply', 'reply_translations', 'reviewed_by', 'reviewed_at',
+            ])
+            return success_response(data=LeaveSerializer(instance).data)
+
+        if _is_caregiver(request.user):
+            raise PermissionDenied('Caregivers cannot review leave requests.')
 
         instance.status = new_status
         instance.reply = reply
@@ -156,6 +207,12 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
 
         return success_response(data=LeaveSerializer(instance).data)
 
+    def _ensure_caregiver_owns_pending_leave(self, request, instance):
+        if not _is_caregiver(request.user) or instance.applicant_id != request.user.id:
+            raise PermissionDenied('Only the caregiver applicant can modify this leave request.')
+        if instance.status != Leave.Status.PENDING:
+            raise PermissionDenied('Only pending leave requests can be modified or withdrawn.')
+
     def _maybe_resolve_status(self, leave, actor):
         """Resolve leave.status from the family's votes.
 
@@ -222,6 +279,10 @@ class LeaveViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             note=leave.reason,
             created_by=actor,
         )
+
+
+def _is_caregiver(user):
+    return getattr(user, 'role', None) == 'caregiver'
 
 
 def _leave_protected_terms(leave, user):

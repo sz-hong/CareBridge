@@ -1,5 +1,6 @@
 from rest_framework import status
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
@@ -71,6 +72,8 @@ class BoardRequestViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
 
     def update(self, request, *args, **kwargs):
         instance = self.get_object()
+        if _is_caregiver(request.user) or _is_caregiver(instance.requester):
+            self._ensure_caregiver_owns_pending_request(request, instance)
         serializer = CreateBoardRequestSerializer(
             instance, data=request.data, partial=True,
         )
@@ -92,6 +95,8 @@ class BoardRequestViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        if _is_caregiver(request.user) or _is_caregiver(instance.requester):
+            raise PermissionDenied('Use withdraw instead of deleting caregiver requests.')
         instance.delete()
         return empty_success_response()
 
@@ -101,12 +106,26 @@ class BoardRequestViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         new_status = request.data.get('status')
         reply = request.data.get('reply', '')
 
-        if new_status not in ('approved', 'rejected', 'completed'):
+        if new_status not in ('approved', 'rejected', 'completed', 'withdrawn'):
             return error_response(
                 code='invalid_status',
                 message='Invalid status.',
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        if new_status == BoardRequest.Status.WITHDRAWN:
+            self._ensure_caregiver_owns_pending_request(request, instance)
+            instance.status = BoardRequest.Status.WITHDRAWN
+            instance.reply = ''
+            instance.reply_translations = {}
+            instance.reviewed_by = None
+            instance.save(update_fields=[
+                'status', 'reply', 'reply_translations', 'reviewed_by', 'updated_at',
+            ])
+            return success_response(data=BoardRequestSerializer(instance).data)
+
+        if _is_caregiver(request.user):
+            raise PermissionDenied('Caregivers cannot review purchase requests.')
 
         instance.status = new_status
         instance.reply = reply
@@ -121,6 +140,16 @@ class BoardRequestViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
             'status', 'reply', 'reply_translations', 'reviewed_by', 'updated_at',
         ])
         return success_response(data=BoardRequestSerializer(instance).data)
+
+    def _ensure_caregiver_owns_pending_request(self, request, instance):
+        if not _is_caregiver(request.user) or instance.requester_id != request.user.id:
+            raise PermissionDenied('Only the caregiver requester can modify this request.')
+        if instance.status != BoardRequest.Status.PENDING:
+            raise PermissionDenied('Only pending requests can be modified or withdrawn.')
+
+
+def _is_caregiver(user):
+    return getattr(user, 'role', None) == 'caregiver'
 
 
 def _board_protected_terms(board_request, user):

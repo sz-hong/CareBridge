@@ -2227,12 +2227,14 @@ enum LeaveStatus: String, Codable {
     case pending  = "pending"
     case approved = "approved"
     case rejected = "rejected"
+    case withdrawn = "withdrawn"
 
     var displayName: String {
         switch self {
         case .pending:  return String(localized: "待審核")
         case .approved: return String(localized: "已核准")
         case .rejected: return String(localized: "已拒絕")
+        case .withdrawn: return String(localized: "已撤回")
         }
     }
 
@@ -2241,6 +2243,7 @@ enum LeaveStatus: String, Codable {
         case .pending:  return .orange
         case .approved: return .green
         case .rejected: return .red
+        case .withdrawn: return .gray
         }
     }
 }
@@ -2745,6 +2748,7 @@ struct PurchaseRequest: Identifiable, Codable {
         case "approved":  return .green
         case "completed": return .blue
         case "rejected":  return .red
+        case "withdrawn": return .gray
         default: return .gray
         }
     }
@@ -2755,6 +2759,7 @@ struct PurchaseRequest: Identifiable, Codable {
         case "approved":  return String(localized: "已核准")
         case "completed": return String(localized: "已完成")
         case "rejected":  return String(localized: "已拒絕")
+        case "withdrawn": return String(localized: "已撤回")
         default:          return status
         }
     }

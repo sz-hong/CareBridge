@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct TodoView: View {
+    var userRole: UserRole = .family
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(TodoStore.self) private var todoStore
     @Environment(CareLogStore.self) private var careLogStore
@@ -47,16 +48,23 @@ struct TodoView: View {
             }
 
             List {
-                ForEach(filteredTodos) { todo in
-                    TodoRow(todo: todo) {
-                        toggleTodo(todo)
-                    } onEdit: {
-                        editingTodo = todo
+                if userRole == .caregiver {
+                    ForEach(filteredTodos) { todo in
+                        TodoRow(todo: todo, allowsToggle: false) { }
+                            .listRowBackground(Color.white)
                     }
-                    .listRowBackground(Color.white)
-                }
-                .onDelete { indexSet in
-                    deleteTodo(at: indexSet)
+                } else {
+                    ForEach(filteredTodos) { todo in
+                        TodoRow(todo: todo) {
+                            toggleTodo(todo)
+                        } onEdit: {
+                            editingTodo = todo
+                        }
+                        .listRowBackground(Color.white)
+                    }
+                    .onDelete { indexSet in
+                        deleteTodo(at: indexSet)
+                    }
                 }
             }
             .listStyle(.plain)
@@ -124,19 +132,21 @@ struct TodoView: View {
 // MARK: - Todo Row
 struct TodoRow: View {
     let todo: TodoItem
+    var allowsToggle = true
     let onToggle: () -> Void
     var onEdit: (() -> Void)? = nil
     @Environment(LocaleStore.self) private var localeStore
 
     var body: some View {
         HStack(spacing: 14) {
-            Button(action: onToggle) {
-                Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 24))
-                    .foregroundStyle(todo.isCompleted ? Color.brandTeal : Color(.systemGray3))
-                    .frame(width: 32, height: 32)
+            if allowsToggle {
+                Button(action: onToggle) {
+                    statusIcon
+                }
+                .buttonStyle(.plain)
+            } else {
+                statusIcon
             }
-            .buttonStyle(.plain)
 
             if let onEdit {
                 Button(action: onEdit) {
@@ -150,6 +160,13 @@ struct TodoRow: View {
         .padding(.vertical, 6)
         .contentShape(Rectangle())
         .accessibilityElement(children: .contain)
+    }
+
+    private var statusIcon: some View {
+        Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
+            .font(.system(size: 24))
+            .foregroundStyle(todo.isCompleted ? Color.brandTeal : Color(.systemGray3))
+            .frame(width: 32, height: 32)
     }
 
     private var rowContent: some View {
@@ -437,7 +454,7 @@ struct EditTodoView: View {
 
 #Preview {
     NavigationStack {
-        TodoView()
+        TodoView(userRole: .family)
     }
     .environment(UserStore())
     .environment(TodoStore())

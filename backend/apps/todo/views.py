@@ -3,7 +3,7 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
-from core.permissions import CaregiverCannotDelete
+from core.permissions import CaregiverCannotDelete, CaregiverCannotEditOrDelete
 from core.responses import empty_success_response, success_response
 from core.translation import translate_for_user
 from core.viewsets import FamilyScopedQuerySetMixin
@@ -14,7 +14,9 @@ from .serializers import CreateTodoSerializer, TodoSerializer
 
 
 class TodoViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
-    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
+    permission_classes = [
+        IsAuthenticated, CaregiverCannotDelete, CaregiverCannotEditOrDelete,
+    ]
     serializer_class = TodoSerializer
 
     def get_queryset(self):

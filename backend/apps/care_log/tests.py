@@ -225,6 +225,26 @@ class CareLogAPIContractTests(TestCase):
         self.assertEqual(response.status_code, 200)
         delete_object.assert_called_once_with(photo_key)
 
+    def test_caregiver_cannot_update_care_log(self):
+        care_log = CareLog.objects.create(
+            family=self.family,
+            recorder=self.user,
+            type=CareLog.Type.NOTE,
+            content={'text': 'Original note'},
+            timestamp=timezone.now(),
+        )
+
+        response = self.client.patch(
+            f'/api/v1/care-logs/{care_log.id}/',
+            {'content': {'text': 'Changed note'}},
+            format='json',
+        )
+
+        care_log.refresh_from_db()
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()['error']['code'], 'permission_denied')
+        self.assertEqual(care_log.content['text'], 'Original note')
+
     @patch('core.translation.translate_text', return_value={'id': 'Catatan pagi'})
     def test_create_translates_care_log_text_content(self, _translate):
         response = self.client.post(

@@ -89,11 +89,15 @@ struct MedicationView: View {
             } else {
                 VStack(spacing: 10) {
                     ForEach(activeMedications) { med in
-                        SwipeToDeleteMedicationRow(
-                            medication: med,
-                            onEdit: { editingMedication = med },
-                            onDelete: { pendingMedicationDeletion = med }
-                        )
+                        if userRole == .caregiver {
+                            MedicationRow(medication: med)
+                        } else {
+                            SwipeToDeleteMedicationRow(
+                                medication: med,
+                                onEdit: { editingMedication = med },
+                                onDelete: { pendingMedicationDeletion = med }
+                            )
+                        }
                     }
                 }
             }

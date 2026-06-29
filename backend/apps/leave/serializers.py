@@ -37,7 +37,7 @@ class CreateLeaveSerializer(serializers.ModelSerializer):
 
 
 class UpdateLeaveStatusSerializer(serializers.Serializer):
-    status = serializers.ChoiceField(choices=['approved', 'rejected'])
+    status = serializers.ChoiceField(choices=['approved', 'rejected', 'withdrawn'])
     reply = serializers.CharField(required=False, allow_blank=True)
 
 
