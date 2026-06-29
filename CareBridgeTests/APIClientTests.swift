@@ -52,6 +52,7 @@ struct APIClientTests {
         #expect(APIEndpoint.medicationTodayConfirmations == "/medications/today_confirmations/")
         #expect(APIEndpoint.medicationConfirm(id: "med-1") == "/medications/med-1/confirm/")
         #expect(APIEndpoint.expenses == "/expenses/")
+        #expect(APIEndpoint.expense(id: "expense-1") == "/expenses/expense-1/")
         #expect(APIEndpoint.expenseMonthly == "/expenses/monthly/")
         #expect(APIEndpoint.expenseUploadURL == "/expenses/upload-url/")
         #expect(APIEndpoint.todos == "/todos/")

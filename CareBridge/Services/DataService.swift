@@ -223,6 +223,8 @@ protocol DataService {
     func fetchExpense(id: String) async throws -> Expense
     func fetchSpendingSummary(month: Date?) async throws -> SpendingSummary
     func createExpense(_ expense: Expense) async throws -> Expense
+    func updateExpense(_ expense: Expense) async throws -> Expense
+    func deleteExpense(id: String) async throws
     /// Upload a locally redacted receipt image to quarantine storage.
     func uploadReceiptImage(_ image: UIImage) async throws -> ReceiptUploadReference
 

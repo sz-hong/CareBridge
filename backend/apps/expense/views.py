@@ -8,7 +8,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 
-from core.permissions import CaregiverCannotDelete
+from core.permissions import CaregiverCannotEditOrDelete
 from core.responses import empty_success_response, success_response
 from core.upload_paths import (
     build_quarantine_key,
@@ -27,7 +27,7 @@ from .tasks import redact_receipt_image_task
 
 
 class ExpenseViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
-    permission_classes = [IsAuthenticated, CaregiverCannotDelete]
+    permission_classes = [IsAuthenticated, CaregiverCannotEditOrDelete]
     serializer_class = ExpenseSerializer
     filterset_fields = ['status']
 

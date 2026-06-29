@@ -147,7 +147,11 @@ struct SpendingView: View {
             NotificationCenterView()
         }
         .navigationDestination(isPresented: $showAllExpenses) {
-            AllExpensesView()
+            AllExpensesView(
+                userRole: userRole,
+                onUpdated: applyUpdatedExpense,
+                onDeleted: removeExpense
+            )
         }
         .task {
             async let e = service.fetchExpenses(month: nil)
@@ -180,6 +184,10 @@ struct SpendingView: View {
 
     private var usesWideLayout: Bool {
         UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
+
+    private var recentExpensePreview: [Expense] {
+        ExpenseRecordPresentation.recentTransactions(from: expenses)
     }
 
     // MARK: - CSV Export
@@ -336,6 +344,20 @@ struct SpendingView: View {
     }
 
     // MARK: - Recent Transactions
+    @ViewBuilder
+    private func recentTransactionRow(_ expense: Expense) -> some View {
+        NavigationLink {
+            ExpenseDetailView(
+                expense: expense,
+                userRole: userRole,
+                context: .recentTransactions
+            )
+        } label: {
+            ExpenseRow(expense: expense)
+        }
+        .buttonStyle(.plain)
+    }
+
     private var recentTransactions: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -349,20 +371,38 @@ struct SpendingView: View {
                 }
             }
 
-            ForEach(expenses) { expense in
-                NavigationLink {
-                    ExpenseDetailView(expense: expense)
-                } label: {
-                    ExpenseRow(expense: expense)
-                }
-                .buttonStyle(.plain)
-                if expense.id != expenses.last?.id {
+            ForEach(recentExpensePreview) { expense in
+                recentTransactionRow(expense)
+                if expense.id != recentExpensePreview.last?.id {
                     Divider().padding(.leading, 56)
                 }
             }
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 16).fill(.white))
+    }
+
+    private func applyUpdatedExpense(_ updated: Expense) {
+        if let index = expenses.firstIndex(where: { $0.id == updated.id }) {
+            expenses[index] = updated
+        } else {
+            expenses.insert(updated, at: 0)
+        }
+        refreshSummary()
+    }
+
+    private func removeExpense(_ expense: Expense) {
+        expenses.removeAll { $0.id == expense.id }
+        refreshSummary()
+    }
+
+    private func refreshSummary() {
+        Task {
+            let refreshed = try? await service.fetchSpendingSummary(month: nil)
+            await MainActor.run {
+                summary = refreshed
+            }
+        }
     }
 }
 
@@ -1053,29 +1093,26 @@ struct ShareSheet: UIViewControllerRepresentable {
 
 // MARK: - All Expenses View
 struct AllExpensesView: View {
+    let userRole: UserRole
+    var onUpdated: ((Expense) -> Void)? = nil
+    var onDeleted: ((Expense) -> Void)? = nil
     @Environment(\.dataService) private var service
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var expenses: [Expense] = []
-
-    private let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy/M/d"
-        return f
-    }()
+    @State private var editingExpense: Expense?
+    @State private var pendingExpenseDeletion: Expense?
 
     private var usesWideLayout: Bool {
         UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
+    private var canManageExpenseRecords: Bool {
+        ExpenseRecordPermissions.canManageRecords(userRole: userRole)
+    }
+
     var body: some View {
         List(expenses) { expense in
-            NavigationLink {
-                ExpenseDetailView(expense: expense)
-            } label: {
-                ExpenseRow(expense: expense)
-            }
-            .listRowBackground(Color.white)
-            .listRowSeparatorTint(Color(.systemGray5))
+            expenseListRow(expense)
         }
         .listStyle(.plain)
         .frame(maxWidth: usesWideLayout ? 900 : .infinity)
@@ -1086,21 +1123,131 @@ struct AllExpensesView: View {
         .task {
             expenses = (try? await service.fetchExpenses(month: nil)) ?? []
         }
+        .sheet(item: $editingExpense) { expense in
+            EditExpenseView(expense: expense) { updated in
+                replaceExpense(updated)
+            }
+        }
+        .alert("刪除消費紀錄？", isPresented: expenseDeleteConfirmationBinding) {
+            Button("取消", role: .cancel) {
+                pendingExpenseDeletion = nil
+            }
+            Button("刪除", role: .destructive) {
+                if let expense = pendingExpenseDeletion {
+                    deleteExpense(expense)
+                }
+                pendingExpenseDeletion = nil
+            }
+        } message: {
+            Text("刪除後此筆財務紀錄會從列表移除。")
+        }
+    }
+
+    @ViewBuilder
+    private func expenseListRow(_ expense: Expense) -> some View {
+        NavigationLink {
+            ExpenseDetailView(
+                expense: expense,
+                userRole: userRole,
+                onUpdated: replaceExpense,
+                onDeleted: removeExpense
+            )
+        } label: {
+            ExpenseRow(expense: expense)
+        }
+        .listRowBackground(Color.white)
+        .listRowSeparatorTint(Color(.systemGray5))
+        .swipeActions(edge: .trailing, allowsFullSwipe: canManageExpenseRecords) {
+            if canManageExpenseRecords {
+                Button(role: .destructive) {
+                    pendingExpenseDeletion = expense
+                } label: {
+                    Label("刪除", systemImage: "trash")
+                }
+                Button {
+                    editingExpense = expense
+                } label: {
+                    Label("編輯", systemImage: "pencil")
+                }
+                .tint(Color.brandTeal)
+            }
+        }
+    }
+
+    private func replaceExpense(_ updated: Expense) {
+        if let index = expenses.firstIndex(where: { $0.id == updated.id }) {
+            expenses[index] = updated
+        } else {
+            expenses.insert(updated, at: 0)
+        }
+        onUpdated?(updated)
+    }
+
+    private func removeExpense(_ expense: Expense) {
+        expenses.removeAll { $0.id == expense.id }
+        onDeleted?(expense)
+    }
+
+    private func deleteExpense(_ expense: Expense) {
+        Task {
+            do {
+                try await service.deleteExpense(id: expense.id)
+                await MainActor.run {
+                    removeExpense(expense)
+                }
+            } catch {
+                print("[AllExpensesView] delete expense failed: \(error)")
+            }
+        }
+    }
+
+    private var expenseDeleteConfirmationBinding: Binding<Bool> {
+        Binding {
+            pendingExpenseDeletion != nil
+        } set: { isPresented in
+            if !isPresented {
+                pendingExpenseDeletion = nil
+            }
+        }
     }
 }
 
 // MARK: - Expense Detail View
 struct ExpenseDetailView: View {
-    let expense: Expense
     @Environment(\.dataService) private var service
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    /// 進入這個畫面時才向 backend 拿 presigned image URL —— list 端點為了
-    /// 省下每筆 SigV4 簽名請求已經不回傳，這裡才補拉。
+    @State private var expense: Expense
+    let userRole: UserRole
+    let context: ExpenseRecordAccessContext
+    var onUpdated: ((Expense) -> Void)?
+    var onDeleted: ((Expense) -> Void)?
+    // Fetch a presigned receipt image URL only when opening detail.
     @State private var resolvedImageUrl: String?
     @State private var isFetchingImage = false
+    @State private var editingExpense: Expense?
+    @State private var pendingExpenseDeletion: Expense?
+
+    init(
+        expense: Expense,
+        userRole: UserRole = .family,
+        context: ExpenseRecordAccessContext = .allExpenses,
+        onUpdated: ((Expense) -> Void)? = nil,
+        onDeleted: ((Expense) -> Void)? = nil
+    ) {
+        _expense = State(initialValue: expense)
+        self.userRole = userRole
+        self.context = context
+        self.onUpdated = onUpdated
+        self.onDeleted = onDeleted
+    }
 
     private var usesWideLayout: Bool {
         UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
+
+    private var canManageExpenseRecords: Bool {
+        ExpenseRecordPermissions.canManageRecords(userRole: userRole, context: context)
     }
 
     var body: some View {
@@ -1131,8 +1278,38 @@ struct ExpenseDetailView: View {
         .background(Color.brandBackground)
         .navigationTitle("消費詳情")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if canManageExpenseRecords {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button { editingExpense = expense } label: {
+                        Image(systemName: "pencil")
+                    }
+                    Button(role: .destructive) { pendingExpenseDeletion = expense } label: {
+                        Image(systemName: "trash")
+                    }
+                }
+            }
+        }
+        .sheet(item: $editingExpense) { expense in
+            EditExpenseView(expense: expense) { updated in
+                self.expense = updated
+                onUpdated?(updated)
+            }
+        }
+        .alert("刪除消費紀錄？", isPresented: expenseDeleteConfirmationBinding) {
+            Button("取消", role: .cancel) {
+                pendingExpenseDeletion = nil
+            }
+            Button("刪除", role: .destructive) {
+                if let expense = pendingExpenseDeletion {
+                    deleteExpense(expense)
+                }
+                pendingExpenseDeletion = nil
+            }
+        } message: {
+            Text("刪除後會返回上一頁。")
+        }
         .task {
-            // 只有確實有發票才打 detail；剛拍完的（receiptImage 在記憶體）也不必再打。
             guard expense.receiptImage == nil,
                   expense.hasReceipt,
                   resolvedImageUrl == nil,
@@ -1147,8 +1324,6 @@ struct ExpenseDetailView: View {
 
     @ViewBuilder
     private var receiptImageSection: some View {
-        // Prefer the in-memory UIImage if the user just captured this expense;
-        // otherwise fall back to the presigned URL fetched on appear.
         if let img = expense.receiptImage {
             receiptImage(Image(uiImage: img))
         } else if isFetchingImage {
@@ -1206,6 +1381,181 @@ struct ExpenseDetailView: View {
             Text(value)
                 .font(.system(size: 15, weight: .medium))
         }
+    }
+
+    private func deleteExpense(_ expense: Expense) {
+        Task {
+            do {
+                try await service.deleteExpense(id: expense.id)
+                await MainActor.run {
+                    onDeleted?(expense)
+                    dismiss()
+                }
+            } catch {
+                print("[ExpenseDetailView] delete expense failed: \(error)")
+            }
+        }
+    }
+
+    private var expenseDeleteConfirmationBinding: Binding<Bool> {
+        Binding {
+            pendingExpenseDeletion != nil
+        } set: { isPresented in
+            if !isPresented {
+                pendingExpenseDeletion = nil
+            }
+        }
+    }
+}
+
+// MARK: - Edit Expense View
+struct EditExpenseView: View {
+    let expense: Expense
+    let onSave: (Expense) -> Void
+    @Environment(\.dataService) private var service
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var storeName: String
+    @State private var amountText: String
+    @State private var category: String
+    @State private var expenseDate: Date
+    @State private var isSaving = false
+    @State private var saveError: String?
+    @FocusState private var isAmountFocused: Bool
+
+    private let categories = Expense.allCategoryCodes
+
+    init(expense: Expense, onSave: @escaping (Expense) -> Void) {
+        self.expense = expense
+        self.onSave = onSave
+        _storeName = State(initialValue: expense.title)
+        if expense.amount.rounded() == expense.amount {
+            _amountText = State(initialValue: String(Int(expense.amount)))
+        } else {
+            _amountText = State(initialValue: String(expense.amount))
+        }
+        _category = State(initialValue: expense.category.isEmpty ? "other" : expense.category)
+        _expenseDate = State(initialValue: expense.date)
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
+
+    private var trimmedStoreName: String {
+        storeName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var parsedAmount: Double? {
+        Double(amountText.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private var canSave: Bool {
+        !trimmedStoreName.isEmpty && (parsedAmount ?? 0) > 0 && !isSaving
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("消費資訊") {
+                    LabeledContent("商家名稱") {
+                        TextField("商家名稱", text: $storeName)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    LabeledContent("金額（NT$）") {
+                        TextField("金額", text: $amountText)
+                            .multilineTextAlignment(.trailing)
+                            .keyboardType(.decimalPad)
+                            .textContentType(.oneTimeCode)
+                            .focused($isAmountFocused)
+                    }
+                    DatePicker("消費日期", selection: $expenseDate, displayedComponents: .date)
+                    Picker("分類", selection: $category) {
+                        ForEach(categories, id: \.self) { code in
+                            Text(Expense.localizedCategoryKey(code)).tag(code)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: usesWideLayout ? 640 : .infinity)
+            .frame(maxWidth: .infinity)
+            .navigationTitle("編輯消費紀錄")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("取消") { dismiss() }
+                        .foregroundStyle(.secondary)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(isSaving ? "儲存中…" : "儲存") { save() }
+                        .bold()
+                        .foregroundStyle(Color.brandTeal)
+                        .disabled(!canSave)
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    if isAmountFocused {
+                        Spacer()
+                        KeyboardDoneButton {
+                            isAmountFocused = false
+                        }
+                    }
+                }
+                .sharedBackgroundVisibility(.hidden)
+            }
+            .alert("儲存失敗", isPresented: .constant(saveError != nil)) {
+                Button("好", role: .cancel) { saveError = nil }
+            } message: {
+                Text(saveError ?? "")
+            }
+        }
+    }
+
+    private func save() {
+        guard let amount = parsedAmount, amount > 0 else { return }
+        isSaving = true
+        let draft = Expense(
+            id: expense.id,
+            title: trimmedStoreName,
+            amount: amount,
+            category: category,
+            date: expenseDate,
+            hasReceipt: expense.hasReceipt,
+            imageUrl: expense.imageUrl,
+            rawImageKey: expense.rawImageKey,
+            deidStatus: expense.deidStatus,
+            receiptImage: expense.receiptImage
+        )
+        Task {
+            do {
+                let saved = try await service.updateExpense(draft)
+                let merged = mergeReceiptMetadata(saved)
+                await MainActor.run {
+                    isSaving = false
+                    dismiss()
+                    onSave(merged)
+                }
+            } catch {
+                await MainActor.run {
+                    isSaving = false
+                    saveError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func mergeReceiptMetadata(_ saved: Expense) -> Expense {
+        Expense(
+            id: saved.id,
+            title: saved.title,
+            amount: saved.amount,
+            category: saved.category,
+            date: saved.date,
+            hasReceipt: saved.hasReceipt || expense.hasReceipt,
+            imageUrl: saved.imageUrl ?? expense.imageUrl,
+            rawImageKey: saved.rawImageKey ?? expense.rawImageKey,
+            deidStatus: saved.deidStatus ?? expense.deidStatus,
+            receiptImage: expense.receiptImage
+        )
     }
 }
 

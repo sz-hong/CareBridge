@@ -27,6 +27,12 @@ class ExpenseAPIEndpointTests(TestCase):
             name='Other Expense',
             role=User.Role.FAMILY_MEMBER,
         )
+        self.caregiver = User.objects.create_user(
+            email='caregiver-expense@example.com',
+            password='password123',
+            name='Caregiver Expense',
+            role=User.Role.CAREGIVER,
+        )
         self.family = Family.objects.create(
             name='Expense Family',
             elder_name='Elder',
@@ -41,6 +47,8 @@ class ExpenseAPIEndpointTests(TestCase):
         )
         self.user.family = self.family
         self.user.save(update_fields=['family'])
+        self.caregiver.family = self.family
+        self.caregiver.save(update_fields=['family'])
         self.other_user.family = self.other_family
         self.other_user.save(update_fields=['family'])
         self.client.force_authenticate(self.user)
@@ -157,6 +165,40 @@ class ExpenseAPIEndpointTests(TestCase):
         expense = Expense.objects.get(id=data['id'])
         self.assertEqual(expense.items[0]['category'], 'medical')
         self.assertEqual(expense.items[1]['category'], 'other')
+
+    def test_family_member_can_update_and_delete_existing_expense(self):
+        expense = self.create_expense()
+
+        update_response = self.client.patch(
+            f'/api/v1/expenses/{expense.id}/',
+            {'store_name': 'Changed Store'},
+            format='json',
+        )
+        expense.refresh_from_db()
+
+        delete_response = self.client.delete(f'/api/v1/expenses/{expense.id}/')
+
+        self.assertEqual(update_response.status_code, 200)
+        self.assertEqual(expense.store_name, 'Changed Store')
+        self.assertEqual(delete_response.status_code, 200)
+        self.assertFalse(Expense.objects.filter(id=expense.id).exists())
+
+    def test_caregiver_cannot_update_or_delete_existing_expense(self):
+        expense = self.create_expense()
+        self.client.force_authenticate(self.caregiver)
+
+        update_response = self.client.patch(
+            f'/api/v1/expenses/{expense.id}/',
+            {'store_name': 'Caregiver Changed Store'},
+            format='json',
+        )
+        delete_response = self.client.delete(f'/api/v1/expenses/{expense.id}/')
+
+        self.assertEqual(update_response.status_code, 403)
+        self.assertEqual(delete_response.status_code, 403)
+        expense.refresh_from_db()
+        self.assertEqual(expense.store_name, 'Care Store')
+        self.assertTrue(Expense.objects.filter(id=expense.id).exists())
 
     def test_scan_rejects_direct_image_url_upload_path(self):
         response = self.client.post(
