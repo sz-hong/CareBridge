@@ -51,6 +51,7 @@ struct SOSView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dataService) private var service
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(NotificationStore.self) private var notificationStore
     @State private var isConfirming = false
     @State private var countdown = 5
     @State private var isTriggered = false
@@ -190,6 +191,8 @@ struct SOSView: View {
             do {
                 let count = try await service.triggerSOS(location: locationParam)
                 guard !Task.isCancelled else { return }
+                await notificationStore.refresh()
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
                     withAnimation {
                         notifiedCount = count
@@ -304,4 +307,5 @@ struct SOSView: View {
 
 #Preview {
     SOSView()
+        .environment(NotificationStore(service: MockDataService()))
 }

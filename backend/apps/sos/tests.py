@@ -5,6 +5,8 @@ from unittest.mock import patch
 
 from apps.auth_account.models import User
 from apps.family.models import Family
+from apps.notification.models import Notification
+from apps.notification.types import NotificationType
 from apps.sos.models import SOSRecord
 
 
@@ -62,7 +64,10 @@ class SOSAPIEndpointTests(TestCase):
 
     @patch('core.notify.broadcast_family')
     def test_trigger_creates_record_and_tracks_notified_members(self, broadcast_family):
-        broadcast_family.return_value = [SimpleNamespace(user_id=self.member.id)]
+        broadcast_family.return_value = [
+            SimpleNamespace(user_id=self.user.id),
+            SimpleNamespace(user_id=self.member.id),
+        ]
 
         response = self.client.post(
             '/api/v1/sos/trigger/',
@@ -78,9 +83,37 @@ class SOSAPIEndpointTests(TestCase):
         self.assertEqual(sos.family, self.family)
         self.assertEqual(sos.triggered_by, self.user)
         self.assertEqual(sos.status, SOSRecord.Status.TRIGGERED)
-        self.assertEqual(sos.notified_members, [str(self.member.id)])
-        self.assertEqual(response.json()['data']['notified_count'], 1)
+        self.assertEqual(sos.notified_members, [str(self.user.id), str(self.member.id)])
+        self.assertEqual(response.json()['data']['notified_count'], 2)
         broadcast_family.assert_called_once()
+        _, kwargs = broadcast_family.call_args
+        self.assertFalse(kwargs['push'])
+        self.assertNotIn('exclude_user', kwargs)
+
+    @patch('core.notify._send_push_to_user')
+    def test_trigger_creates_in_app_notifications_for_triggerer_and_family(self, send_push):
+        response = self.client.post(
+            '/api/v1/sos/trigger/',
+            {
+                'location': {'lat': 25.0, 'lng': 121.5},
+                'situation': 'Fall detected',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        sos = SOSRecord.objects.get(id=response.json()['data']['id'])
+        notifications = Notification.objects.filter(
+            type=NotificationType.SOS,
+            data__sos_id=str(sos.id),
+        )
+        self.assertEqual(
+            {notification.user_id for notification in notifications},
+            {self.user.id, self.member.id},
+        )
+        self.assertEqual(response.json()['data']['notified_count'], 2)
+        self.assertEqual(set(sos.notified_members), {str(self.user.id), str(self.member.id)})
+        send_push.assert_not_called()
 
     def test_history_is_scoped_to_authenticated_family(self):
         own = self.create_sos(situation='Own SOS')

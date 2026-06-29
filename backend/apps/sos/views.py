@@ -24,7 +24,7 @@ class SOSViewSet(FamilyScopedQuerySetMixin, ViewSet):
     def trigger(self, request):
         """
         POST /sos/trigger/
-        Phase 8: Enhanced SOS trigger with push notification broadcasting
+        Phase 8: Enhanced SOS trigger with in-app notification broadcasting
         to all family members.
         """
         serializer = TriggerSOSSerializer(data=request.data)
@@ -41,7 +41,7 @@ class SOSViewSet(FamilyScopedQuerySetMixin, ViewSet):
             status=SOSRecord.Status.TRIGGERED,
         )
 
-        # Broadcast high-priority push notification to ALL family members
+        # Broadcast high-priority in-app notification to ALL family members.
         notified_ids = []
         try:
             from core.notify import broadcast_family
@@ -68,8 +68,7 @@ class SOSViewSet(FamilyScopedQuerySetMixin, ViewSet):
                     'situation': sos.situation or '',
                     'priority': 'critical',
                 },
-                exclude_user=request.user,  # Don't notify the triggering user
-                push=True,
+                push=False,
             )
             notified_ids = [str(n.user_id) for n in notifications]
 
