@@ -17,6 +17,12 @@ enum UserRole: String, CaseIterable, Codable {
     }
 }
 
+enum ExpenseRecordPermissions {
+    static func canManageRecords(userRole: UserRole) -> Bool {
+        userRole == .family
+    }
+}
+
 // MARK: - User Profile
 struct FamilyInfo: Codable {
     var id: String
@@ -1928,7 +1934,7 @@ struct Expense: Identifiable, Codable {
     }
 
     func encode(to encoder: Encoder) throws {
-        // Matches backend CreateExpenseSerializer: store_name, date, items, total_amount, image_url.
+        // Matches backend CreateExpenseSerializer: store_name, date, items, total_amount, raw_image_key.
         // Category is embedded inside `items` per backend schema.
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(title,  forKey: .title)
@@ -1944,8 +1950,6 @@ struct Expense: Identifiable, Codable {
         try c.encode([item], forKey: .items)
         if let rawImageKey {
             try c.encode(rawImageKey, forKey: .rawImageKey)
-        } else {
-            try c.encodeIfPresent(imageUrl, forKey: .imageUrl)
         }
     }
 

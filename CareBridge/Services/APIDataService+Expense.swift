@@ -7,10 +7,12 @@ extension APIDataService {
     /// Hit the detail endpoint so the backend resolves a fresh presigned
     /// image URL for this one expense — list responses no longer include it.
     func fetchExpense(id: String) async throws -> Expense {
-        try await get(path: APIEndpoint.expenses + "\(id)/")
+        try await get(path: APIEndpoint.expense(id: id))
     }
     func fetchSpendingSummary(month: Date?) async throws -> SpendingSummary { try await get(path: APIEndpoint.expenseMonthly) }
     func createExpense(_ expense: Expense) async throws -> Expense { try await post(path: APIEndpoint.expenses, body: expense) }
+    func updateExpense(_ expense: Expense) async throws -> Expense { try await patch(path: APIEndpoint.expense(id: expense.id), body: expense) }
+    func deleteExpense(id: String) async throws { try await delete(path: APIEndpoint.expense(id: id)) }
 
     /// Redact obvious local PII, upload to quarantine storage, and return the
     /// backend raw key for the de-identification pipeline.

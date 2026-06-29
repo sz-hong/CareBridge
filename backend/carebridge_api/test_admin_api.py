@@ -117,9 +117,9 @@ class AdminAPITableTests(TestCase):
         self.assertFalse(tables["families"]["capabilities"]["update"])
         self.assertTrue(tables["todos"]["capabilities"]["update"])
         self.assertTrue(tables["medications"]["capabilities"]["delete"])
-        self.assertFalse(tables["expenses"]["capabilities"]["create"])
-        self.assertFalse(tables["expenses"]["capabilities"]["update"])
-        self.assertFalse(tables["expenses"]["capabilities"]["delete"])
+        self.assertTrue(tables["expenses"]["capabilities"]["create"])
+        self.assertTrue(tables["expenses"]["capabilities"]["update"])
+        self.assertTrue(tables["expenses"]["capabilities"]["delete"])
 
     def test_table_date_range_filters_between_bounds(self):
 
@@ -535,7 +535,7 @@ class AdminAPIMutationTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
 
-    def test_expense_admin_table_rejects_update_and_delete(self):
+    def test_expense_admin_table_allows_update_and_delete(self):
         expense = Expense.objects.create(
             family=self.family,
             recorder=self.staff,
@@ -551,15 +551,35 @@ class AdminAPIMutationTests(TestCase):
             {"store_name": "Changed Store"},
             format="json",
         )
+        expense.refresh_from_db()
+
         delete_response = self.client.delete(
             f"/api/v1/admin/records/expenses/{expense.id}/"
         )
 
-        self.assertEqual(update_response.status_code, 403)
-        self.assertEqual(delete_response.status_code, 403)
-        expense.refresh_from_db()
-        self.assertEqual(expense.store_name, "Care Store")
+        self.assertEqual(update_response.status_code, 200)
+        self.assertEqual(expense.store_name, "Changed Store")
+        self.assertEqual(delete_response.status_code, 200)
         self.assertTrue(Expense.objects.filter(id=expense.id).exists())
+
+    def test_caregiver_role_staff_can_delete_expense_in_admin_dashboard(self):
+        self.staff.role = User.Role.CAREGIVER
+        self.staff.save(update_fields=["role"])
+        expense = Expense.objects.create(
+            family=self.family,
+            recorder=self.staff,
+            store_name="Care Store",
+            date=timezone.localdate(),
+            items=[{"name": "Meal", "category": "food", "total": 120}],
+            total_amount=120,
+        )
+        self.client.force_authenticate(self.staff)
+
+        response = self.client.delete(
+            f"/api/v1/admin/records/expenses/{expense.id}/"
+        )
+
+        self.assertEqual(response.status_code, 200)
 
     def test_delete_rejects_read_only_tables(self):
 

@@ -33,7 +33,6 @@ from apps.medication.models import Medication, MedicationConfirmation
 from apps.notification.models import Device, Notification
 from apps.sos.models import SOSRecord
 from apps.todo.models import Todo
-from core.permissions import CaregiverCannotDelete
 from core.responses import error_response, success_response
 from core.storage import (
     _get_public_endpoint_url,
@@ -221,6 +220,7 @@ TABLES = {
         search_fields=('store_name', 'status', 'recorder__email', 'recorder__name'),
         date_fields=('updated_at', 'created_at', 'date'),
         actor_fields=('recorder',),
+        mutable=True,
         display_name='Expenses',
         category='Finance',
     ),
@@ -354,12 +354,12 @@ class IsActiveStaff(BasePermission):
 
 
 class StaffReadOnlyAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsActiveStaff, CaregiverCannotDelete]
+    permission_classes = [IsAuthenticated, IsActiveStaff]
     http_method_names = ['get', 'options']
 
 
 class StaffAdminAPIView(APIView):
-    permission_classes = [IsAuthenticated, IsActiveStaff, CaregiverCannotDelete]
+    permission_classes = [IsAuthenticated, IsActiveStaff]
     http_method_names = ['get', 'post', 'patch', 'delete', 'options']
 
 

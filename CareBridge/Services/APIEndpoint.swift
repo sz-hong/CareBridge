@@ -73,6 +73,11 @@ enum APIEndpoint {
     }
 
     static let expenses = "/expenses/"
+
+    static func expense(id: String) -> String {
+        "/expenses/\(id)/"
+    }
+
     static let expenseMonthly = "/expenses/monthly/"
     static let expenseUploadURL = "/expenses/upload-url/"
 
