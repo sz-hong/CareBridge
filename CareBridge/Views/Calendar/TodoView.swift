@@ -6,6 +6,7 @@ struct TodoView: View {
     @Environment(CareLogStore.self) private var careLogStore
     @Environment(LocaleStore.self) private var localeStore
     @State private var filter = 0 // 0=全部, 1=待處理, 2=已完成
+    @State private var editingTodo: TodoItem?
 
     var filteredTodos: [TodoItem] {
         switch filter {
@@ -49,6 +50,8 @@ struct TodoView: View {
                 ForEach(filteredTodos) { todo in
                     TodoRow(todo: todo) {
                         toggleTodo(todo)
+                    } onEdit: {
+                        editingTodo = todo
                     }
                     .listRowBackground(Color.white)
                 }
@@ -65,6 +68,9 @@ struct TodoView: View {
         .navigationTitle("代辦事項")
         .navigationBarTitleDisplayMode(.large)
         .task { todoStore.load() }
+        .sheet(item: $editingTodo) { todo in
+            EditTodoView(todo: todo)
+        }
     }
 
     private var usesWideLayout: Bool {
@@ -119,6 +125,7 @@ struct TodoView: View {
 struct TodoRow: View {
     let todo: TodoItem
     let onToggle: () -> Void
+    var onEdit: (() -> Void)? = nil
     @Environment(LocaleStore.self) private var localeStore
 
     var body: some View {
@@ -127,18 +134,35 @@ struct TodoRow: View {
                 Image(systemName: todo.isCompleted ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 24))
                     .foregroundStyle(todo.isCompleted ? Color.brandTeal : Color(.systemGray3))
+                    .frame(width: 32, height: 32)
             }
             .buttonStyle(.plain)
 
+            if let onEdit {
+                Button(action: onEdit) {
+                    rowContent
+                }
+                .buttonStyle(.plain)
+            } else {
+                rowContent
+            }
+        }
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .contain)
+    }
+
+    private var rowContent: some View {
+        HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(todo.displayTitle(language: localeStore.code))
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(todo.isCompleted ? .secondary : .primary)
                     .strikethrough(todo.isCompleted)
                     .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 HStack(spacing: 8) {
-                    // Assignee
                     HStack(spacing: 4) {
                         Image(systemName: "person.fill")
                             .font(.system(size: 11))
@@ -148,7 +172,6 @@ struct TodoRow: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    // Due date
                     if let dueDate = todo.dueDate {
                         HStack(spacing: 4) {
                             Image(systemName: "calendar")
@@ -162,21 +185,15 @@ struct TodoRow: View {
                 }
             }
 
-            Spacer()
-
-            // Priority badge
             if !todo.isCompleted {
                 Text(todo.priority.displayName)
                     .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(todo.priority.color)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(
-                        Capsule().fill(todo.priority.color.opacity(0.12))
-                    )
+                    .background(Capsule().fill(todo.priority.color.opacity(0.12)))
             }
         }
-        .padding(.vertical, 6)
     }
 }
 
@@ -289,11 +306,142 @@ struct AddTodoView: View {
     }
 }
 
+
+
+// MARK: - Edit Todo View
+struct EditTodoView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(UserStore.self) private var userStore
+    @Environment(TodoStore.self) private var todoStore
+
+    let todo: TodoItem
+    @State private var title: String
+    @State private var selectedMemberId: String?
+    @State private var priority: Priority
+    @State private var hasDueDate: Bool
+    @State private var dueDate: Date
+
+    init(todo: TodoItem) {
+        self.todo = todo
+        _title = State(initialValue: todo.title)
+        _selectedMemberId = State(initialValue: todo.assigneeId)
+        _priority = State(initialValue: todo.priority)
+        _hasDueDate = State(initialValue: todo.dueDate != nil)
+        _dueDate = State(initialValue: todo.dueDate ?? Date().addingTimeInterval(86400))
+    }
+
+    private var selectedAssignee: UserProfile? {
+        userStore.familyMembers.first(where: { $0.id == selectedMemberId })
+            ?? userStore.familyMembers.first(where: { $0.name == todo.assignee })
+            ?? userStore.familyMembers.first
+    }
+
+    private var selectedAssigneeName: String { selectedAssignee?.name ?? todo.assignee }
+    private var selectedAssigneeId: String? { selectedAssignee?.id ?? todo.assigneeId }
+    private var canSave: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && selectedAssigneeId != nil
+    }
+
+    private var usesWideLayout: Bool {
+        UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("待辦內容") {
+                    TextField("輸入待辦事項...", text: $title, axis: .vertical)
+                        .lineLimit(1...3)
+                }
+
+                Section("指派對象") {
+                    if userStore.familyMembers.isEmpty {
+                        Text("正在載入家人...").foregroundStyle(.secondary)
+                    } else {
+                        Picker("指派給誰？", selection: $selectedMemberId) {
+                            ForEach(userStore.familyMembers) { member in
+                                HStack(spacing: 6) {
+                                    Image(systemName: member.role == .caregiver ? "cross.case.fill" : "person.fill")
+                                        .font(.system(size: 12))
+                                    Text("\(member.name)（\(member.role?.displayName ?? "-")）")
+                                }
+                                .tag(member.id as String?)
+                            }
+                        }
+                    }
+                }
+
+                Section("優先度") {
+                    Picker("優先度", selection: $priority) {
+                        ForEach(Priority.allCases, id: \.self) { p in
+                            HStack {
+                                Circle().fill(p.color).frame(width: 8, height: 8)
+                                Text(p.displayName)
+                            }
+                            .tag(p)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+
+                Section("到期日") {
+                    Toggle("設定到期日", isOn: $hasDueDate)
+                    if hasDueDate {
+                        DatePicker("到期日", selection: $dueDate, displayedComponents: .date)
+                            .datePickerStyle(.graphical)
+                    }
+                }
+            }
+            .frame(maxWidth: usesWideLayout ? 640 : .infinity)
+            .frame(maxWidth: .infinity)
+            .navigationTitle("編輯待辦")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("儲存") { saveTodo() }
+                        .bold()
+                        .foregroundStyle(canSave ? Color.brandTeal : Color.secondary)
+                        .disabled(!canSave)
+                }
+            }
+            .task {
+                await userStore.reload()
+                if selectedMemberId == nil {
+                    selectedMemberId = selectedAssigneeId
+                }
+            }
+        }
+    }
+
+    private func saveTodo() {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { return }
+        let updated = TodoItem(
+            id: todo.id,
+            title: trimmedTitle,
+            assignee: selectedAssigneeName,
+            priority: priority,
+            dueDate: hasDueDate ? dueDate : nil,
+            isCompleted: todo.isCompleted,
+            assigneeId: selectedAssigneeId,
+            titleTranslations: trimmedTitle == todo.title ? todo.titleTranslations : nil
+        )
+        todoStore.updateTodo(updated)
+        dismiss()
+    }
+}
+
 #Preview {
     NavigationStack {
         TodoView()
     }
+    .environment(UserStore())
     .environment(TodoStore())
     .environment(CareLogStore())
     .environment(CalendarStore())
+    .environment(LocaleStore())
 }

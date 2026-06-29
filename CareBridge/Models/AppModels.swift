@@ -1561,6 +1561,62 @@ class MedicationStore {
         }
     }
 
+    func updateMedication(_ medication: Medication) {
+        let originalMedications = medications
+        let originalDoses = doses
+        var preservedDoseState: [String: Bool] = [:]
+        for dose in doses where dose.medicationId == medication.id {
+            preservedDoseState[dose.time] = dose.isDone
+        }
+
+        if let index = medications.firstIndex(where: { $0.id == medication.id }) {
+            var updatedList = medications
+            updatedList[index] = medication
+            medications = updatedList
+        }
+
+        doses.removeAll { $0.medicationId == medication.id }
+        for time in medication.times {
+            doses.append(DoseEntry(
+                medicationId: medication.id,
+                time: time,
+                name: "\(medication.nameTranslated) \(medication.dosage)",
+                isDone: preservedDoseState[time] ?? false
+            ))
+        }
+        doses.sort { $0.time < $1.time }
+
+        Task { @MainActor in
+            do {
+                let saved = try await service.updateMedication(medication)
+                if let index = medications.firstIndex(where: { $0.id == medication.id }) {
+                    var updatedList = medications
+                    updatedList[index] = saved
+                    medications = updatedList
+                }
+
+                var currentDoseState: [String: Bool] = [:]
+                for dose in doses where dose.medicationId == medication.id {
+                    currentDoseState[dose.time] = dose.isDone
+                }
+                doses.removeAll { $0.medicationId == medication.id }
+                for time in saved.times {
+                    doses.append(DoseEntry(
+                        medicationId: saved.id,
+                        time: time,
+                        name: "\(saved.nameTranslated) \(saved.dosage)",
+                        isDone: currentDoseState[time] ?? false
+                    ))
+                }
+                doses.sort { $0.time < $1.time }
+            } catch {
+                print("[MedicationStore] update failed: \(error)")
+                medications = originalMedications
+                doses = originalDoses
+            }
+        }
+    }
+
     func markDoseTaken(index: Int) {
         guard index < doses.count, !doses[index].isDone else { return }
         // Optimistic flip for instant UI feedback. Capture the dose's stable
