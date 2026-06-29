@@ -26,6 +26,12 @@ class LeaveAPIEndpointTests(TestCase):
             name='Second Member',
             role=User.Role.FAMILY_MEMBER,
         )
+        self.caregiver = User.objects.create_user(
+            email='leave-caregiver@example.com',
+            password='password123',
+            name='Leave Caregiver',
+            role=User.Role.CAREGIVER,
+        )
         self.other_user = User.objects.create_user(
             email='other-leave@example.com',
             password='password123',
@@ -48,6 +54,8 @@ class LeaveAPIEndpointTests(TestCase):
         self.user.save(update_fields=['family'])
         self.second_member.family = self.family
         self.second_member.save(update_fields=['family'])
+        self.caregiver.family = self.family
+        self.caregiver.save(update_fields=['family'])
         self.other_user.family = self.other_family
         self.other_user.save(update_fields=['family'])
         self.client.force_authenticate(self.user)
@@ -203,3 +211,80 @@ class LeaveAPIEndpointTests(TestCase):
         self.assertEqual(leave.status, Leave.Status.APPROVED)
         self.assertEqual(LeaveVote.objects.filter(leave=leave).count(), 2)
         self.assertIsNotNone(leave.calendar_event)
+
+
+    def test_caregiver_can_edit_and_withdraw_own_pending_leave(self):
+        leave = self.create_leave(applicant=self.caregiver)
+        self.client.force_authenticate(self.caregiver)
+        new_start = timezone.localdate() + timezone.timedelta(days=3)
+        new_end = new_start + timezone.timedelta(days=2)
+
+        response = self.client.patch(
+            f'/api/v1/leaves/{leave.id}/',
+            {
+                'type': Leave.Type.SICK,
+                'start_date': new_start.isoformat(),
+                'end_date': new_end.isoformat(),
+                'reason': 'Updated leave reason',
+            },
+            format='json',
+        )
+
+        leave.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(leave.type, Leave.Type.SICK)
+        self.assertEqual(leave.start_date, new_start)
+        self.assertEqual(leave.end_date, new_end)
+        self.assertEqual(leave.days, 3)
+        self.assertEqual(leave.reason, 'Updated leave reason')
+
+        response = self.client.patch(
+            f'/api/v1/leaves/{leave.id}/status/',
+            {'status': 'withdrawn'},
+            format='json',
+        )
+
+        leave.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(leave.status, 'withdrawn')
+        self.assertIsNone(leave.reviewed_by)
+
+    def test_caregiver_cannot_review_leave(self):
+        leave = self.create_leave(applicant=self.caregiver)
+        self.client.force_authenticate(self.caregiver)
+
+        response = self.client.patch(
+            f'/api/v1/leaves/{leave.id}/status/',
+            {'status': Leave.Status.APPROVED},
+            format='json',
+        )
+
+        leave.refresh_from_db()
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(leave.status, Leave.Status.PENDING)
+        self.assertIsNone(leave.reviewed_by)
+
+    @patch('apps.notification.tasks.send_notification_task.delay')
+    def test_family_can_review_but_not_edit_or_delete_caregiver_leave(self, _delay):
+        leave = self.create_leave(applicant=self.caregiver)
+        self.client.force_authenticate(self.second_member)
+
+        edit_response = self.client.patch(
+            f'/api/v1/leaves/{leave.id}/',
+            {'reason': 'Family edit should be blocked'},
+            format='json',
+        )
+        delete_response = self.client.delete(f'/api/v1/leaves/{leave.id}/')
+        review_response = self.client.patch(
+            f'/api/v1/leaves/{leave.id}/status/',
+            {'status': Leave.Status.APPROVED, 'reply': 'Approved'},
+            format='json',
+        )
+
+        leave.refresh_from_db()
+        self.assertEqual(edit_response.status_code, 403)
+        self.assertEqual(delete_response.status_code, 403)
+        self.assertEqual(review_response.status_code, 200)
+        self.assertEqual(leave.reason, 'Family care')
+        self.assertEqual(leave.status, Leave.Status.APPROVED)
+        self.assertEqual(leave.reviewed_by, self.second_member)

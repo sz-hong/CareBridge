@@ -24,6 +24,12 @@ class BoardRequestAPIEndpointTests(TestCase):
             name='Board Reviewer',
             role=User.Role.FAMILY_MEMBER,
         )
+        self.caregiver = User.objects.create_user(
+            email='board-caregiver@example.com',
+            password='password123',
+            name='Board Caregiver',
+            role=User.Role.CAREGIVER,
+        )
         self.other_user = User.objects.create_user(
             email='other-board@example.com',
             password='password123',
@@ -46,6 +52,8 @@ class BoardRequestAPIEndpointTests(TestCase):
         self.user.save(update_fields=['family'])
         self.reviewer.family = self.family
         self.reviewer.save(update_fields=['family'])
+        self.caregiver.family = self.family
+        self.caregiver.save(update_fields=['family'])
         self.other_user.family = self.other_family
         self.other_user.save(update_fields=['family'])
         self.client.force_authenticate(self.user)
@@ -204,3 +212,74 @@ class BoardRequestAPIEndpointTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.json()['success'])
         self.assertEqual(response.json()['error']['code'], 'invalid_status')
+
+
+    def test_caregiver_can_edit_and_withdraw_own_pending_request(self):
+        board_request = self.create_request(requester=self.caregiver)
+        self.client.force_authenticate(self.caregiver)
+
+        response = self.client.patch(
+            f'/api/v1/board/{board_request.id}/',
+            {
+                'category': BoardRequest.Category.DAILY,
+                'items': [{'name': 'Gloves', 'quantity': 1}],
+                'note': 'Updated request',
+            },
+            format='json',
+        )
+
+        board_request.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(board_request.category, BoardRequest.Category.DAILY)
+        self.assertEqual(board_request.items[0]['name'], 'Gloves')
+        self.assertEqual(board_request.note, 'Updated request')
+
+        response = self.client.patch(
+            f'/api/v1/board/{board_request.id}/status/',
+            {'status': 'withdrawn'},
+            format='json',
+        )
+
+        board_request.refresh_from_db()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(board_request.status, 'withdrawn')
+        self.assertIsNone(board_request.reviewed_by)
+
+    def test_caregiver_cannot_review_purchase_request(self):
+        board_request = self.create_request(requester=self.caregiver)
+        self.client.force_authenticate(self.caregiver)
+
+        response = self.client.patch(
+            f'/api/v1/board/{board_request.id}/status/',
+            {'status': BoardRequest.Status.APPROVED},
+            format='json',
+        )
+
+        board_request.refresh_from_db()
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(board_request.status, BoardRequest.Status.PENDING)
+        self.assertIsNone(board_request.reviewed_by)
+
+    def test_family_can_review_but_not_edit_or_delete_caregiver_request(self):
+        board_request = self.create_request(requester=self.caregiver)
+        self.client.force_authenticate(self.reviewer)
+
+        edit_response = self.client.patch(
+            f'/api/v1/board/{board_request.id}/',
+            {'note': 'Family edit should be blocked'},
+            format='json',
+        )
+        delete_response = self.client.delete(f'/api/v1/board/{board_request.id}/')
+        review_response = self.client.patch(
+            f'/api/v1/board/{board_request.id}/status/',
+            {'status': BoardRequest.Status.APPROVED, 'reply': 'Approved'},
+            format='json',
+        )
+
+        board_request.refresh_from_db()
+        self.assertEqual(edit_response.status_code, 403)
+        self.assertEqual(delete_response.status_code, 403)
+        self.assertEqual(review_response.status_code, 200)
+        self.assertEqual(board_request.note, 'For breakfast')
+        self.assertEqual(board_request.status, BoardRequest.Status.APPROVED)
+        self.assertEqual(board_request.reviewed_by, self.reviewer)

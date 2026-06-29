@@ -71,6 +71,17 @@ class CaregiverCannotDelete(BasePermission):
         return True
 
 
+class CaregiverCannotEditOrDelete(BasePermission):
+    """Prevent caregivers from editing or deleting existing records."""
+
+    message = 'Caregivers cannot edit or delete records.'
+
+    def has_permission(self, request, view):
+        if request.method in {'PUT', 'PATCH', 'DELETE'} and _is_caregiver(request.user):
+            return False
+        return True
+
+
 class CaregiverMedicationPermission(BasePermission):
     """
     Caregivers can read medication schedules and confirm doses, but cannot

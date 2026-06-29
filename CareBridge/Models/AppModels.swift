@@ -1561,6 +1561,62 @@ class MedicationStore {
         }
     }
 
+    func updateMedication(_ medication: Medication) {
+        let originalMedications = medications
+        let originalDoses = doses
+        var preservedDoseState: [String: Bool] = [:]
+        for dose in doses where dose.medicationId == medication.id {
+            preservedDoseState[dose.time] = dose.isDone
+        }
+
+        if let index = medications.firstIndex(where: { $0.id == medication.id }) {
+            var updatedList = medications
+            updatedList[index] = medication
+            medications = updatedList
+        }
+
+        doses.removeAll { $0.medicationId == medication.id }
+        for time in medication.times {
+            doses.append(DoseEntry(
+                medicationId: medication.id,
+                time: time,
+                name: "\(medication.nameTranslated) \(medication.dosage)",
+                isDone: preservedDoseState[time] ?? false
+            ))
+        }
+        doses.sort { $0.time < $1.time }
+
+        Task { @MainActor in
+            do {
+                let saved = try await service.updateMedication(medication)
+                if let index = medications.firstIndex(where: { $0.id == medication.id }) {
+                    var updatedList = medications
+                    updatedList[index] = saved
+                    medications = updatedList
+                }
+
+                var currentDoseState: [String: Bool] = [:]
+                for dose in doses where dose.medicationId == medication.id {
+                    currentDoseState[dose.time] = dose.isDone
+                }
+                doses.removeAll { $0.medicationId == medication.id }
+                for time in saved.times {
+                    doses.append(DoseEntry(
+                        medicationId: saved.id,
+                        time: time,
+                        name: "\(saved.nameTranslated) \(saved.dosage)",
+                        isDone: currentDoseState[time] ?? false
+                    ))
+                }
+                doses.sort { $0.time < $1.time }
+            } catch {
+                print("[MedicationStore] update failed: \(error)")
+                medications = originalMedications
+                doses = originalDoses
+            }
+        }
+    }
+
     func markDoseTaken(index: Int) {
         guard index < doses.count, !doses[index].isDone else { return }
         // Optimistic flip for instant UI feedback. Capture the dose's stable
@@ -2171,12 +2227,14 @@ enum LeaveStatus: String, Codable {
     case pending  = "pending"
     case approved = "approved"
     case rejected = "rejected"
+    case withdrawn = "withdrawn"
 
     var displayName: String {
         switch self {
         case .pending:  return String(localized: "待審核")
         case .approved: return String(localized: "已核准")
         case .rejected: return String(localized: "已拒絕")
+        case .withdrawn: return String(localized: "已撤回")
         }
     }
 
@@ -2185,6 +2243,7 @@ enum LeaveStatus: String, Codable {
         case .pending:  return .orange
         case .approved: return .green
         case .rejected: return .red
+        case .withdrawn: return .gray
         }
     }
 }
@@ -2689,6 +2748,7 @@ struct PurchaseRequest: Identifiable, Codable {
         case "approved":  return .green
         case "completed": return .blue
         case "rejected":  return .red
+        case "withdrawn": return .gray
         default: return .gray
         }
     }
@@ -2699,6 +2759,7 @@ struct PurchaseRequest: Identifiable, Codable {
         case "approved":  return String(localized: "已核准")
         case "completed": return String(localized: "已完成")
         case "rejected":  return String(localized: "已拒絕")
+        case "withdrawn": return String(localized: "已撤回")
         default:          return status
         }
     }

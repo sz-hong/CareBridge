@@ -15,6 +15,7 @@ class BoardRequest(models.Model):
         PENDING = 'pending', 'Pending'
         APPROVED = 'approved', 'Approved'
         REJECTED = 'rejected', 'Rejected'
+        WITHDRAWN = 'withdrawn', 'Withdrawn'
         COMPLETED = 'completed', 'Completed'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

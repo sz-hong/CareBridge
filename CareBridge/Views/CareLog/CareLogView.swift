@@ -184,7 +184,7 @@ struct CareLogView: View {
                                 entry: entry,
                                 previewedPhotoID: previewedPhotoID,
                                 onPreviewPhoto: onPreviewPhoto,
-                                isEditing: isEditingTimeline
+                                isEditing: userRole == .caregiver ? false : isEditingTimeline
                             ) {
                                 pendingCareLogDeletion = entry
                             }
@@ -236,7 +236,7 @@ struct CareLogView: View {
                 careLogTaskSection(title: "日常", systemImage: "checklist") {
                     VStack(spacing: 12) {
                         NavigationLink {
-                            TodoView()
+                            TodoView(userRole: userRole)
                         } label: {
                             HStack {
                                 Text("查看待辦頁面")
@@ -255,7 +255,11 @@ struct CareLogView: View {
                         } else {
                             VStack(spacing: 0) {
                                 ForEach(todayTodos) { todo in
-                                    TodoRow(todo: todo) {
+                                    TodoRow(
+                                        todo: todo,
+                                        allowsToggle: userRole != .caregiver
+                                    ) {
+                                        guard userRole != .caregiver else { return }
                                         toggleTodo(todo)
                                     }
                                     if todo.id != todayTodos.last?.id {
@@ -654,7 +658,7 @@ struct CareLogView: View {
         .padding(.top, 0)
         .padding(.bottom, 12)
         .overlay(alignment: .trailing) {
-            if !careLogStore.timelineEntries.isEmpty {
+            if userRole != .caregiver && !careLogStore.timelineEntries.isEmpty {
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isEditingTimeline.toggle()

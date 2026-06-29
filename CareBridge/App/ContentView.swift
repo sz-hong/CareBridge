@@ -287,9 +287,9 @@ struct ContentView: View {
         case .health:
             HealthMonitorView()
         case .todo:
-            TodoView()
+            TodoView(userRole: userRole)
         case .documents:
-            DocumentsView()
+            DocumentsView(userRole: userRole)
         }
     }
 

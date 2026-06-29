@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct DocumentsView: View {
     var isEmbeddedInManagement = false
+    var userRole: UserRole = .family
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.floatingActionBottomPadding) private var floatingActionBottomPadding
     @Environment(\.dataService) private var service
@@ -66,21 +67,37 @@ struct DocumentsView: View {
                 .frame(maxWidth: .infinity)
             } else {
                 List {
-                    ForEach(filteredDocuments) { doc in
-                        DocumentRow(
-                            document: doc,
-                            isLoadingPreview: previewLoadingDocumentID == doc.id,
-                            isApproving: approvingDocumentID == doc.id,
-                            onPreview: {
-                                Task { await preparePreview(for: doc) }
-                            },
-                            onApprove: {
-                                Task { await approveDocument(doc) }
-                            }
-                        )
-                        .listRowBackground(Color.white)
+                    if userRole == .caregiver {
+                        ForEach(filteredDocuments) { doc in
+                            DocumentRow(
+                                document: doc,
+                                isLoadingPreview: previewLoadingDocumentID == doc.id,
+                                isApproving: approvingDocumentID == doc.id,
+                                canApprove: false,
+                                onPreview: {
+                                    Task { await preparePreview(for: doc) }
+                                }
+                            )
+                            .listRowBackground(Color.white)
+                        }
+                    } else {
+                        ForEach(filteredDocuments) { doc in
+                            DocumentRow(
+                                document: doc,
+                                isLoadingPreview: previewLoadingDocumentID == doc.id,
+                                isApproving: approvingDocumentID == doc.id,
+                                canApprove: true,
+                                onPreview: {
+                                    Task { await preparePreview(for: doc) }
+                                },
+                                onApprove: {
+                                    Task { await approveDocument(doc) }
+                                }
+                            )
+                            .listRowBackground(Color.white)
+                        }
+                        .onDelete(perform: deleteDocuments)
                     }
-                    .onDelete(perform: deleteDocuments)
                 }
                 .listStyle(.plain)
                 .quickLookPreview($previewLocalURL)
@@ -91,27 +108,29 @@ struct DocumentsView: View {
         .background(Color.brandBackground)
         .modifier(DocumentsNavigationChrome(enabled: !isEmbeddedInManagement))
         .overlay(alignment: .bottomTrailing) {
-            Button {
-                showUpload = true
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(Color.brandTeal)
-                        .frame(width: 52, height: 52)
-                        .shadow(
-                            color: .black.opacity(0.15),
-                            radius: 6,
-                            x: 0,
-                            y: 3
-                        )
-                    Image(systemName: "plus")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(.white)
+            if userRole != .caregiver {
+                Button {
+                    showUpload = true
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(Color.brandTeal)
+                            .frame(width: 52, height: 52)
+                            .shadow(
+                                color: .black.opacity(0.15),
+                                radius: 6,
+                                x: 0,
+                                y: 3
+                            )
+                        Image(systemName: "plus")
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
                 }
+                .padding(.trailing, usesWideLayout ? 32 : 24)
+                .padding(.bottom, floatingActionBottomPadding)
+                .accessibilityLabel("上傳文件")
             }
-            .padding(.trailing, usesWideLayout ? 32 : 24)
-            .padding(.bottom, floatingActionBottomPadding)
-            .accessibilityLabel("上傳文件")
         }
         .sheet(isPresented: $showUpload) {
             UploadDocumentView { newDoc in
@@ -284,6 +303,7 @@ struct DocumentRow: View {
     let document: AppDocument
     var isLoadingPreview: Bool = false
     var isApproving: Bool = false
+    var canApprove = true
     let onPreview: () -> Void
     var onApprove: () -> Void = {}
 
@@ -343,7 +363,7 @@ struct DocumentRow: View {
                 .buttonStyle(.plain)
                 .disabled(document.previewURL == nil || isLoadingPreview)
 
-                if needsReview {
+                if needsReview && canApprove {
                     Button {
                         onApprove()
                     } label: {
@@ -601,6 +621,6 @@ struct UploadDocumentView: View {
 
 #Preview {
     NavigationStack {
-        DocumentsView()
+        DocumentsView(userRole: .family)
     }
 }

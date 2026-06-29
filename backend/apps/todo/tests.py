@@ -188,3 +188,24 @@ class TodoAPIEndpointTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()['error']['code'], 'permission_denied')
         self.assertTrue(Todo.objects.filter(id=todo.id).exists())
+
+    def test_caregiver_cannot_update_todo(self):
+        todo = Todo.objects.create(
+            family=self.family,
+            created_by=self.user,
+            assignee=self.assignee,
+            title='Protected todo',
+        )
+        self.client.force_authenticate(self.assignee)
+
+        response = self.client.patch(
+            f'/api/v1/todos/{todo.id}/',
+            {'status': Todo.Status.COMPLETED},
+            format='json',
+        )
+
+        todo.refresh_from_db()
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()['error']['code'], 'permission_denied')
+        self.assertEqual(todo.status, Todo.Status.PENDING)
+        self.assertEqual(CareLog.objects.filter(todos=todo).count(), 0)
