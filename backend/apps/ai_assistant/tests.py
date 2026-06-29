@@ -1,14 +1,18 @@
 import json
+from io import StringIO
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from django.core.management import call_command
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.utils import timezone
+from pgvector.django import VectorField
 from rest_framework.test import APIClient
 
 from apps.ai_assistant.models import FirstAidDocument
+from apps.ai_assistant.views import FirstAidView
 from apps.ai_assistant.tools import TOOL_DEFINITIONS, execute_tool
 from apps.auth_account.models import User
 from apps.board.models import BoardRequest
@@ -1167,6 +1171,142 @@ class FirstAidScenarioEndpointTests(TestCase):
             ["Call 119 immediately.", "Keep the elder seated."],
         )
 
+
+class FirstAidRAGTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            email="first-aid-rag@example.com",
+            password="password123",
+            name="First Aid RAG User",
+            role=User.Role.FAMILY_MEMBER,
+        )
+        self.family = Family.objects.create(
+            name="First Aid RAG Family",
+            elder_name="Grandma Lin",
+            invite_code="741258",
+            created_by=self.user,
+        )
+        self.user.family = self.family
+        self.user.save(update_fields=["family"])
+        self.client.force_authenticate(self.user)
+
+    def _chat_client(self, answer="\u8acb\u7acb\u5373\u64a5\u6253 119 \u4e26\u4f9d\u7167\u6025\u6551\u6b65\u9a5f\u8655\u7406\u3002"):
+        client = Mock()
+        client.chat.completions.create.return_value = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content=answer),
+                )
+            ],
+            usage=SimpleNamespace(total_tokens=42),
+        )
+        return client
+
+    def test_embedding_field_uses_pgvector_with_openai_small_dimensions(self):
+        field = FirstAidDocument._meta.get_field("embedding")
+
+        self.assertIsInstance(field, VectorField)
+        self.assertEqual(field.dimensions, 1536)
+
+    def test_keyword_fallback_matches_chinese_natural_language_query(self):
+        FirstAidDocument.objects.create(
+            title="\u4e2d\u98a8 FAST \u8a55\u4f30",
+            source="\u6025\u6551\u624b\u518a",
+            section="\u5fc3\u8840\u7ba1\u6025\u75c7",
+            content="\u81c9\u6b6a\u3001\u624b\u7121\u529b\u3001\u8aaa\u8a71\u4e0d\u6e05\u695a\u6642\uff0c\u8a18\u9304\u6642\u9593\u4e26\u7acb\u5373\u64a5\u6253 119\u3002",
+        )
+        FirstAidDocument.objects.create(
+            title="\u8dcc\u5012\u8655\u7f6e",
+            source="\u6025\u6551\u624b\u518a",
+            section="\u5c45\u5bb6\u610f\u5916",
+            content="\u5148\u78ba\u8a8d\u610f\u8b58\u8207\u547c\u5438\uff0c\u4e0d\u8981\u7acb\u523b\u62c9\u8d77\u9577\u8005\u3002",
+        )
+
+        results = FirstAidView()._retrieve_documents("\u963f\u5b24\u7591\u4f3c\u4e2d\u98a8\u600e\u9ebc\u8fa6", top_k=3)
+
+        self.assertEqual(results[0]["title"], "\u4e2d\u98a8 FAST \u8a55\u4f30")
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_first_aid_api_uses_retrieved_documents_as_prompt_context(self, mock_get_client):
+        mock_client = self._chat_client()
+        mock_get_client.return_value = mock_client
+        FirstAidDocument.objects.create(
+            title="\u4e2d\u98a8 FAST \u8a55\u4f30",
+            source="\u6025\u6551\u624b\u518a",
+            section="\u5fc3\u8840\u7ba1\u6025\u75c7",
+            content="\u81c9\u6b6a\u3001\u624b\u7121\u529b\u3001\u8aaa\u8a71\u4e0d\u6e05\u695a\u6642\uff0c\u8a18\u9304\u6642\u9593\u4e26\u7acb\u5373\u64a5\u6253 119\u3002",
+        )
+
+        response = self.client.post(
+            "/api/v1/ai/first-aid/",
+            {"query": "\u963f\u5b24\u7591\u4f3c\u4e2d\u98a8\u600e\u9ebc\u8fa6"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(data["sources"], [{"title": "\u4e2d\u98a8 FAST \u8a55\u4f30", "source": "\u6025\u6551\u624b\u518a"}])
+        user_prompt = mock_client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
+        self.assertIn("Reference Materials:", user_prompt)
+        self.assertIn("\u4e2d\u98a8 FAST \u8a55\u4f30", user_prompt)
+        self.assertIn("\u963f\u5b24\u7591\u4f3c\u4e2d\u98a8\u600e\u9ebc\u8fa6", user_prompt)
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_vector_retrieval_orders_documents_by_embedding_distance(self, mock_get_client):
+        mock_client = self._chat_client()
+        mock_client.embeddings.create.return_value = SimpleNamespace(
+            data=[SimpleNamespace(embedding=[1.0] + [0.0] * 1535)]
+        )
+        mock_get_client.return_value = mock_client
+        FirstAidDocument.objects.create(
+            title="\u4e2d\u98a8 FAST \u8a55\u4f30",
+            source="\u6025\u6551\u624b\u518a",
+            section="\u5fc3\u8840\u7ba1\u6025\u75c7",
+            content="\u81c9\u6b6a\u3001\u624b\u7121\u529b\u3001\u8aaa\u8a71\u4e0d\u6e05\u695a\u6642\uff0c\u8a18\u9304\u6642\u9593\u4e26\u7acb\u5373\u64a5\u6253 119\u3002",
+            embedding=[1.0] + [0.0] * 1535,
+        )
+        FirstAidDocument.objects.create(
+            title="\u8dcc\u5012\u8655\u7f6e",
+            source="\u6025\u6551\u624b\u518a",
+            section="\u5c45\u5bb6\u610f\u5916",
+            content="\u5148\u78ba\u8a8d\u610f\u8b58\u8207\u547c\u5438\uff0c\u4e0d\u8981\u7acb\u523b\u62c9\u8d77\u9577\u8005\u3002",
+            embedding=[0.0, 1.0] + [0.0] * 1534,
+        )
+
+        results = FirstAidView()._retrieve_documents("\u7591\u4f3c\u4e2d\u98a8", top_k=2)
+
+        self.assertEqual([doc["title"] for doc in results], ["\u4e2d\u98a8 FAST \u8a55\u4f30", "\u8dcc\u5012\u8655\u7f6e"])
+        mock_client.embeddings.create.assert_called_once()
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_index_command_writes_embeddings_and_skips_current_documents(self, mock_get_client):
+        mock_client = self._chat_client()
+        mock_client.embeddings.create.return_value = SimpleNamespace(
+            data=[SimpleNamespace(embedding=[0.5] + [0.0] * 1535)]
+        )
+        mock_get_client.return_value = mock_client
+        doc = FirstAidDocument.objects.create(
+            title="\u660f\u53a5\u6025\u6551\u6307\u5357",
+            source="\u6025\u6551\u624b\u518a",
+            section="\u5e38\u898b\u6025\u75c7",
+            content="\u78ba\u8a8d\u547c\u5438\uff0c\u8b93\u9577\u8005\u5e73\u8e7a\uff0c\u5fc5\u8981\u6642\u64a5\u6253 119\u3002",
+        )
+
+        first_run = StringIO()
+        call_command("index_first_aid_documents", stdout=first_run)
+        doc.refresh_from_db()
+
+        self.assertIsNotNone(doc.embedding)
+        self.assertEqual(doc.embedding_model, "text-embedding-3-small")
+        self.assertTrue(doc.embedding_content_hash)
+        self.assertIn("indexed=1", first_run.getvalue())
+
+        second_run = StringIO()
+        call_command("index_first_aid_documents", stdout=second_run)
+
+        mock_client.embeddings.create.assert_called_once()
+        self.assertIn("skipped=1", second_run.getvalue())
 
 @override_settings(DLP_PROVIDER="mock")
 class AIPromptDeidentificationTests(TestCase):
