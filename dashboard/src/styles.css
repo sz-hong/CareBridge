@@ -39,6 +39,18 @@ svg { width: 18px; height: 18px; }
 input, select, textarea { width: 100%; border: 1px solid var(--border); background: #fff; border-radius: 6px; min-height: 38px; padding: 9px 11px; color: var(--text); }
 textarea { resize: vertical; }
 input:focus, select:focus, textarea:focus { outline: 2px solid rgb(15 143 138 / 18%); border-color: var(--accent); }
+.field-label { display: grid; gap: 4px; }
+.field-meta { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; font-weight: 600; }
+.field-meta strong { color: var(--accent-strong); font-size: 10px; text-transform: uppercase; }
+.field-hint, .field-warning { color: var(--muted); font-size: 12px; font-weight: 600; }
+.field-warning { color: var(--danger); }
+.relation-field { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.relation-field select { background: var(--surface-2); }
+.json-editor { display: grid; gap: 8px; border: 1px solid var(--border); border-radius: 7px; padding: 10px; background: var(--surface-2); }
+.json-editor__head, .json-editor__row { display: grid; grid-template-columns: minmax(120px, .8fr) minmax(160px, 1fr) 36px; gap: 8px; align-items: center; }
+.json-editor__head { color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.json-editor__remove { width: 34px; min-height: 34px; }
+.json-editor__add { justify-self: start; min-height: 32px; }
 
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 248px minmax(0, 1fr); }
 .shell-sidebar { background: #10272f; color: #e6f2f4; padding: 18px 14px; display: flex; flex-direction: column; gap: 20px; }
@@ -130,7 +142,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid rgb(15 143 138 / 
 .notice--danger, .form-error { color: var(--danger); background: var(--danger-bg); border-color: #f0b4ae; }
 .form-error { padding: 8px 10px; border-radius: 6px; font-size: 13px; }
 .dialog-backdrop { position: fixed; inset: 0; background: rgb(9 24 31 / 38%); display: grid; place-items: center; z-index: 20; padding: 20px; }
-.confirm-dialog, .create-dialog { width: min(680px, 100%); background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); box-shadow: var(--shadow); padding: 18px; }
+.confirm-dialog, .create-dialog { width: min(820px, 100%); background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); box-shadow: var(--shadow); padding: 18px; }
 .confirm-dialog { width: min(440px, 100%); }
 .confirm-dialog h2 { margin: 0 0 8px; }
 .confirm-dialog p { color: var(--muted); }
@@ -156,6 +168,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid rgb(15 143 138 / 
   .topbar__right { width: 100%; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
   .topbar__account { min-width: 0; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .filter-bar__controls { margin-left: 0; flex-wrap: wrap; }
+  .json-editor__head, .json-editor__row { grid-template-columns: 1fr; }
+  .json-editor__remove { width: 100%; }
   .table-tabs { flex-direction: column; }
   .table-tab { width: 100%; }
 }

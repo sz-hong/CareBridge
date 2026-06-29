@@ -11,6 +11,7 @@ export function RecordDrawer({
   fields,
   canUpdate,
   canDelete,
+  token,
   onClose,
   onUpdate,
   onDelete,
@@ -20,6 +21,7 @@ export function RecordDrawer({
   fields: FieldSchema[];
   canUpdate: boolean;
   canDelete: boolean;
+  token?: string | null;
   onClose: () => void;
   onUpdate: (id: string, values: ReturnType<typeof initialValuesFromRecord>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
@@ -39,11 +41,21 @@ export function RecordDrawer({
         <button className="icon-button" onClick={onClose} title="Close"><Icon name="close" /></button>
       </div>
       <div className="drawer-actions">
-        {canUpdate && <button className="button" onClick={() => setMode(mode === 'edit' ? 'detail' : 'edit')}><Icon name="edit" />{mode === 'edit' ? 'Detail' : 'Edit'}</button>}
-        {canDelete && <button className="button button--danger" onClick={() => onDelete(id)}><Icon name="trash" />Delete</button>}
+        {canUpdate && <button className="button" type="button" onClick={() => setMode(mode === 'edit' ? 'detail' : 'edit')}><Icon name="edit" />{mode === 'edit' ? 'Detail' : 'Edit'}</button>}
+        {canDelete && <button className="button button--danger" type="button" onClick={() => onDelete(id)}><Icon name="trash" />Delete</button>}
       </div>
       {mode === 'edit' ? (
-        <SchemaForm fields={fields} record={record} submitLabel="Update record" onSubmit={(values) => onUpdate(id, values)} />
+        <SchemaForm
+          fields={fields}
+          record={record}
+          submitLabel="Update record"
+          token={token}
+          formId={`${table}:${id}:edit`}
+          onSubmit={async (values) => {
+            await onUpdate(id, values);
+            setMode('detail');
+          }}
+        />
       ) : (
         <dl className="record-fields">
           {Object.entries(record).map(([key, value]) => (

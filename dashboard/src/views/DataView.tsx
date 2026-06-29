@@ -49,6 +49,7 @@ export function DataView({ token }: { token: string | null }) {
         fields={vm.schema?.fields ?? []}
         canUpdate={Boolean(vm.selectedTableInfo?.capabilities.update)}
         canDelete={Boolean(vm.selectedTableInfo?.capabilities.delete)}
+        token={token}
         onClose={() => vm.setSelectedRecord(null)}
         onUpdate={vm.updateRecord}
         onDelete={(id) => {
@@ -63,7 +64,16 @@ export function DataView({ token }: { token: string | null }) {
               <div><span className="eyebrow">{vm.selectedTable}</span><h2>Create Record</h2></div>
               <button className="icon-button" onClick={() => setShowCreate(false)}><Icon name="close" /></button>
             </div>
-            <SchemaForm fields={vm.schema.fields} submitLabel="Create record" onSubmit={async (values) => { await vm.createRecord(values); setShowCreate(false); }} />
+            <SchemaForm
+              fields={vm.schema.fields}
+              submitLabel="Create record"
+              token={token}
+              formId={`${vm.selectedTable}:create`}
+              onSubmit={async (values) => {
+                await vm.createRecord(values);
+                setShowCreate(false);
+              }}
+            />
           </section>
         </div>
       )}

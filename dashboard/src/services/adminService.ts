@@ -3,6 +3,7 @@ import type {
   AdminRecord,
   AdminTableIndex,
   OverviewData,
+  LookupPage,
   PresignedFile,
   RecordDetail,
   StorageObjectInfo,
@@ -36,6 +37,10 @@ export const adminService = {
 
   tableSchema(token: string, table: string): Promise<TableSchema> {
     return apiRequest(`/admin/tables/${table}/schema/`, { token });
+  },
+
+  lookup(token: string, resource: string, params: ListParams = {}): Promise<LookupPage> {
+    return apiRequest(`/admin/lookups/${resource}/${toQuery(params)}`, { token });
   },
 
   listRecords(token: string, table: string, params: ListParams = {}): Promise<TableRecords> {
