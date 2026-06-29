@@ -215,70 +215,74 @@ export function SchemaForm({
 
   return (
     <form className="schema-form" onSubmit={submit}>
-      {fields.map((field) => {
-        const mode = formModeForField(field);
-        const fieldValue = values[field.name];
-        const disabled = field.readonly || isSaving;
+      <div className="schema-form__fields">
+        {fields.map((field) => {
+          const mode = formModeForField(field);
+          const fieldValue = values[field.name];
+          const disabled = field.readonly || isSaving;
 
-        return (
-          <label key={field.name} className={`field-row field-row--${mode}`}>
-            <span className="field-label">
-              {field.label}{field.required ? ' *' : ''}
-              <FieldMeta field={field} />
-            </span>
-            {mode === 'json-object' ? (
-              <JsonObjectEditor
-                value={fieldValue}
-                disabled={disabled}
-                resetKey={`${formId}:${field.name}`}
-                onChange={(nextValue) => setFieldValue(field, nextValue)}
-              />
-            ) : mode === 'relation' ? (
-              <RelationLookupField
-                field={field}
-                token={token}
-                value={String(fieldValue ?? '')}
-                disabled={disabled}
-                onChange={(nextValue) => setFieldValue(field, nextValue)}
-              />
-            ) : mode === 'textarea' ? (
-              <textarea
-                value={String(fieldValue ?? '')}
-                readOnly={field.readonly}
-                disabled={isSaving}
-                onChange={(event) => setFieldValue(field, event.target.value)}
-                rows={3}
-              />
-            ) : mode === 'checkbox' ? (
-              <input
-                type="checkbox"
-                checked={Boolean(fieldValue)}
-                disabled={disabled}
-                onChange={(event) => setFieldValue(field, event.target.checked)}
-              />
-            ) : mode === 'select' ? (
-              <select
-                value={String(fieldValue ?? '')}
-                disabled={disabled}
-                onChange={(event) => setFieldValue(field, event.target.value)}
-              >
-                <option value="">Select {field.label}</option>
-                {field.choices.map((choice) => <option key={String(choice.value)} value={String(choice.value)}>{choice.label}</option>)}
-              </select>
-            ) : (
-              <input
-                type={inputTypeForField(field)}
-                value={String(fieldValue ?? '')}
-                readOnly={field.readonly}
-                disabled={isSaving}
-                onChange={(event) => setFieldValue(field, event.target.value)}
-              />
-            )}
-          </label>
-        );
-      })}
-      {error && <div className="form-error">{error}</div>}
-      <button className="button button--primary" disabled={isSaving}>{isSaving ? 'Saving...' : submitLabel}</button>
+          return (
+            <label key={field.name} className={`field-row field-row--${mode}`}>
+              <span className="field-label">
+                {field.label}{field.required ? ' *' : ''}
+                <FieldMeta field={field} />
+              </span>
+              {mode === 'json-object' ? (
+                <JsonObjectEditor
+                  value={fieldValue}
+                  disabled={disabled}
+                  resetKey={`${formId}:${field.name}`}
+                  onChange={(nextValue) => setFieldValue(field, nextValue)}
+                />
+              ) : mode === 'relation' ? (
+                <RelationLookupField
+                  field={field}
+                  token={token}
+                  value={String(fieldValue ?? '')}
+                  disabled={disabled}
+                  onChange={(nextValue) => setFieldValue(field, nextValue)}
+                />
+              ) : mode === 'textarea' ? (
+                <textarea
+                  value={String(fieldValue ?? '')}
+                  readOnly={field.readonly}
+                  disabled={isSaving}
+                  onChange={(event) => setFieldValue(field, event.target.value)}
+                  rows={3}
+                />
+              ) : mode === 'checkbox' ? (
+                <input
+                  type="checkbox"
+                  checked={Boolean(fieldValue)}
+                  disabled={disabled}
+                  onChange={(event) => setFieldValue(field, event.target.checked)}
+                />
+              ) : mode === 'select' ? (
+                <select
+                  value={String(fieldValue ?? '')}
+                  disabled={disabled}
+                  onChange={(event) => setFieldValue(field, event.target.value)}
+                >
+                  <option value="">Select {field.label}</option>
+                  {field.choices.map((choice) => <option key={String(choice.value)} value={String(choice.value)}>{choice.label}</option>)}
+                </select>
+              ) : (
+                <input
+                  type={inputTypeForField(field)}
+                  value={String(fieldValue ?? '')}
+                  readOnly={field.readonly}
+                  disabled={isSaving}
+                  onChange={(event) => setFieldValue(field, event.target.value)}
+                />
+              )}
+            </label>
+          );
+        })}
+      </div>
+      <div className="schema-form__actions">
+        {error && <div className="form-error">{error}</div>}
+        <button className="button button--primary" disabled={isSaving}>{isSaving ? 'Saving...' : submitLabel}</button>
+      </div>
     </form>
   );
 }

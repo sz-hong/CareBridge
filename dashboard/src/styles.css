@@ -34,7 +34,13 @@ svg { width: 18px; height: 18px; }
 .login-panel { width: min(420px, 100%); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 32px; }
 .login-brand span { color: var(--accent); font-weight: 700; font-size: 13px; text-transform: uppercase; }
 .login-brand h1 { margin: 8px 0 28px; font-size: 30px; line-height: 1.1; }
-.login-form, .schema-form { display: grid; gap: 16px; }
+.login-form, .schema-form, .schema-form__fields { display: grid; gap: 16px; }
+.schema-form, .schema-form__fields { min-height: 0; }
+.schema-form__actions { display: grid; gap: 10px; background: var(--surface); }
+.create-dialog .schema-form, .record-drawer .schema-form { grid-template-rows: minmax(0, 1fr) auto; overflow: hidden; }
+.create-dialog .schema-form__fields, .record-drawer .schema-form__fields, .record-fields { overflow-y: auto; padding-right: 4px; overscroll-behavior: contain; }
+.create-dialog .schema-form__actions, .record-drawer .schema-form__actions { border-top: 1px solid var(--border); padding-top: 12px; }
+.create-dialog .schema-form__actions .button, .record-drawer .schema-form__actions .button { width: 100%; }
 .login-form label, .field-row { display: grid; gap: 7px; color: var(--muted); font-size: 13px; font-weight: 650; }
 input, select, textarea { width: 100%; border: 1px solid var(--border); background: #fff; border-radius: 6px; min-height: 38px; padding: 9px 11px; color: var(--text); }
 textarea { resize: vertical; }
@@ -119,13 +125,14 @@ input:focus, select:focus, textarea:focus { outline: 2px solid rgb(15 143 138 / 
 .data-table tr:hover td, .data-table tr.is-selected td { background: #edf8f7; }
 .empty-cell { text-align: center; color: var(--muted); padding: 32px; }
 
-.record-drawer { min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: auto; padding: 15px; }
+.record-drawer { min-width: 0; min-height: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; padding: 15px; display: grid; grid-template-rows: auto auto minmax(0, 1fr); }
 .drawer-empty { height: 100%; display: grid; place-items: center; color: var(--muted); }
+.record-drawer > .drawer-empty { grid-row: 1 / -1; }
 .drawer-header { display: flex; justify-content: space-between; align-items: start; gap: 16px; margin-bottom: 12px; }
 .eyebrow { color: var(--accent); font-weight: 800; font-size: 11px; text-transform: uppercase; }
 .drawer-header h2 { margin: 5px 0 0; font-size: 18px; }
 .drawer-actions { display: flex; gap: 8px; margin-bottom: 14px; }
-.record-fields { display: grid; gap: 10px; margin: 0; }
+.record-fields { display: grid; gap: 10px; margin: 0; min-height: 0; }
 .record-fields div { display: grid; gap: 4px; padding-bottom: 9px; border-bottom: 1px solid var(--border); }
 .record-fields dt { color: var(--muted); font-size: 11px; text-transform: uppercase; font-weight: 800; }
 .record-fields dd { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
@@ -143,6 +150,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid rgb(15 143 138 / 
 .form-error { padding: 8px 10px; border-radius: 6px; font-size: 13px; }
 .dialog-backdrop { position: fixed; inset: 0; background: rgb(9 24 31 / 38%); display: grid; place-items: center; z-index: 20; padding: 20px; }
 .confirm-dialog, .create-dialog { width: min(820px, 100%); background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); box-shadow: var(--shadow); padding: 18px; }
+.create-dialog { max-height: min(760px, calc(100vh - 40px)); display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
+.create-dialog .drawer-header { margin-bottom: 14px; }
 .confirm-dialog { width: min(440px, 100%); }
 .confirm-dialog h2 { margin: 0 0 8px; }
 .confirm-dialog p { color: var(--muted); }
@@ -171,5 +180,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid rgb(15 143 138 / 
   .json-editor__head, .json-editor__row { grid-template-columns: 1fr; }
   .json-editor__remove { width: 100%; }
   .table-tabs { flex-direction: column; }
+  .dialog-backdrop { padding: 10px; }
+  .create-dialog { max-height: calc(100vh - 20px); }
   .table-tab { width: 100%; }
 }
