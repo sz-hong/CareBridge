@@ -4,7 +4,6 @@
 > Last reviewed: 2026-06-28
 > Source of truth: `backend/carebridge_api/urls.py`, `backend/apps/*/urls.py`, `views.py`, `serializers.py`, `models.py`
 > Production Base URL: `https://api.carebridge-lab.com/api/v1`
-> Local Development Base URL: `http://127.0.0.1:8000/api/v1`
 > Production WebSocket Base: `wss://api.carebridge-lab.com`
 > Public Storage Base: `https://storage.carebridge-lab.com`
 > Runtime: Django REST Framework, SimpleJWT, Channels WebSocket
