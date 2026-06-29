@@ -107,6 +107,14 @@ Local exploratory notes, generated diagrams, and old handoff checklists should n
 
 Use `backend/.env.example` as the backend environment template. Do not commit real credentials, API keys, APNs credentials, DLP service account JSON, S3 credentials, or personal health data.
 
+First-aid RAG uses PostgreSQL pgvector plus OpenAI embeddings. After migrations, seed resets, or first-aid document changes, refresh the local Docker index with:
+
+```powershell
+cd C:\CareBridge\backend\docker
+docker compose exec web python manage.py migrate
+docker compose exec web python manage.py index_first_aid_documents
+```
+
 When Google DLP is enabled in Docker, the credential file must be mounted into both `web` and `celery-worker`, usually through:
 
 ```env

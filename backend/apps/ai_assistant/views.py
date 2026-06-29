@@ -14,9 +14,11 @@ import re
 from datetime import timedelta
 
 from django.conf import settings
+from django.db import connection
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 from openai import OpenAI, OpenAIError
+from pgvector.django import CosineDistance
 from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -914,23 +916,32 @@ class FirstAidView(APIView):
         # Try RAG approach: embed query → find similar docs → augment prompt
         context_docs = self._retrieve_documents(query)
 
-        if context_docs:
-            context_text = "\n\n---\n\n".join(
-                f"[{doc['title']}] ({doc['source']})\n{doc['content']}"
-                for doc in context_docs
-            )
-            user_prompt = (
-                f"Based on the following first-aid reference materials, "
-                f"answer the user's question.\n\n"
-                f"Reference Materials:\n{context_text}\n\n"
-                f"User Question: {query}"
-            )
-        else:
-            user_prompt = (
-                f"The user needs first-aid guidance. Answer based on your "
-                f"medical knowledge with Taiwan emergency context (119 for ambulance).\n\n"
-                f"Question: {query}"
-            )
+        if not context_docs:
+            return success_response(data={
+                "answer": (
+                    "\u6025\u6551\u77e5\u8b58\u5eab\u76ee\u524d\u6c92\u6709\u8db3\u5920\u7684\u53c3\u8003\u8cc7\u6599\u56de\u7b54\u9019\u500b\u554f\u984c\u3002"
+                    "\u8acb\u6539\u7528\u66f4\u660e\u78ba\u7684\u75c7\u72c0\u63cf\u8ff0\uff0c\u6216\u76f4\u63a5\u64a5\u6253 119 / \u806f\u7d61\u91ab\u7642\u4eba\u54e1\u3002"
+                    "\u5982\u679c\u9577\u8005\u5931\u53bb\u610f\u8b58\u3001\u547c\u5438\u56f0\u96e3\u3001\u5927\u91cf\u51fa\u8840\u3001\u80f8\u75db\u6216\u7591\u4f3c\u4e2d\u98a8\uff0c\u8acb\u7acb\u5373\u64a5\u6253 119\u3002"
+                ),
+                "sources": [],
+                "tokens_used": 0,
+            })
+
+        context_text = "\n\n---\n\n".join(
+            f"[{doc['title']}] ({doc['source']})\n{doc['content']}"
+            for doc in context_docs
+        )
+        user_prompt = (
+            "Use only the reference materials below to answer the user's "
+            "first-aid question. Do not add medical facts that are not supported "
+            "by the references. If the references do not cover the user's "
+            "question, say the first-aid knowledge base does not have enough "
+            "information and advise calling 119 or a medical professional for "
+            "urgent situations. Respond in plain text only; do not use Markdown "
+            "syntax, headings, bullets, tables, links, or code formatting.\n\n"
+            f"Reference Materials:\n{context_text}\n\n"
+            f"User Question: {query}"
+        )
 
         client = _get_client()
         response = client.chat.completions.create(
@@ -938,9 +949,11 @@ class FirstAidView(APIView):
             messages=[
                 {"role": "system", "content": (
                     "You are an emergency first-aid assistant for elder care in Taiwan. "
+                    "Use only the provided first-aid reference materials. "
                     "Provide clear, step-by-step first-aid instructions in Traditional Chinese. "
                     "Always remind to call 119 for serious emergencies. "
-                    "Include both Chinese and English for critical instructions."
+                    "Include both Chinese and English for critical instructions. "
+                    "Respond in plain text only and never use Markdown syntax."
                 )},
                 {"role": "user", "content": user_prompt},
             ],
@@ -948,7 +961,7 @@ class FirstAidView(APIView):
             max_completion_tokens=2000,
         )
 
-        reply = response.choices[0].message.content
+        reply = _plain_text_from_markdown(response.choices[0].message.content)
         tokens_used = response.usage.total_tokens if response.usage else 0
 
         return success_response(data={
@@ -961,93 +974,150 @@ class FirstAidView(APIView):
         })
 
     def _retrieve_documents(self, query, top_k=3):
-        """
-        Retrieve relevant FirstAidDocuments using OpenAI embeddings.
-        Falls back to keyword search if embeddings are not available.
-        """
+        """Retrieve relevant FirstAidDocuments with vector search and safe fallback."""
         docs = FirstAidDocument.objects.all()
         if not docs.exists():
             return []
 
-        # Check if any documents have embeddings
-        has_embeddings = docs.exclude(embedding__isnull=True).exclude(embedding='').exists()
-
+        has_embeddings = docs.exclude(embedding__isnull=True).exists()
         if has_embeddings:
-            return self._vector_search(query, top_k)
-        else:
-            return self._keyword_search(query, top_k)
+            vector_results = self._vector_search(query, top_k)
+            if vector_results:
+                return vector_results
+
+        return self._keyword_search(query, top_k)
 
     def _vector_search(self, query, top_k):
-        """Search using OpenAI embeddings + cosine similarity."""
+        """Search indexed documents using OpenAI embeddings and pgvector distance."""
         try:
             client = _get_client()
             embedding_model = getattr(
                 settings, 'OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small'
             )
-
-            # Get query embedding
             response = client.embeddings.create(
                 model=embedding_model,
                 input=query,
             )
             query_embedding = response.data[0].embedding
+            self._validate_embedding_dimensions(query_embedding)
 
-            # For development (SQLite), do in-memory cosine similarity
-            # In production with pgvector, use SQL-based similarity search
-            import numpy as np
+            indexed_docs = FirstAidDocument.objects.exclude(embedding__isnull=True)
+            if connection.vendor == 'postgresql':
+                docs = (
+                    indexed_docs
+                    .annotate(distance=CosineDistance('embedding', query_embedding))
+                    .order_by('distance', 'title')[:top_k]
+                )
+                return [
+                    self._document_result(
+                        doc,
+                        relevance_score=max(0.0, 1.0 - float(doc.distance)),
+                    )
+                    for doc in docs
+                ]
 
-            docs = FirstAidDocument.objects.exclude(
-                embedding__isnull=True
-            ).exclude(embedding='')
-
-            scored = []
-            for doc in docs:
-                try:
-                    doc_embedding = json.loads(doc.embedding)
-                    # Cosine similarity
-                    a = np.array(query_embedding)
-                    b = np.array(doc_embedding)
-                    similarity = float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
-                    scored.append((similarity, doc))
-                except (json.JSONDecodeError, ValueError):
-                    continue
-
-            scored.sort(key=lambda x: x[0], reverse=True)
-
-            results = []
-            for score, doc in scored[:top_k]:
-                results.append({
-                    "id": str(doc.id),
-                    "title": doc.title,
-                    "source": doc.source,
-                    "section": doc.section,
-                    "content": doc.content[:2000],
-                    "relevance_score": score,
-                })
-            return results
+            return self._python_vector_search(indexed_docs, query_embedding, top_k)
 
         except Exception:
             logger.exception("Vector search failed, falling back to keyword search")
             return self._keyword_search(query, top_k)
 
-    def _keyword_search(self, query, top_k):
-        """Simple keyword-based search fallback."""
-        from django.db.models import Q
-
-        words = query.split()
-        q_filter = Q()
-        for word in words:
-            q_filter |= Q(title__icontains=word) | Q(content__icontains=word)
-
-        docs = FirstAidDocument.objects.filter(q_filter)[:top_k]
-
-        results = []
+    def _python_vector_search(self, docs, query_embedding, top_k):
+        scored = []
         for doc in docs:
-            results.append({
-                "id": str(doc.id),
-                "title": doc.title,
-                "source": doc.source,
-                "section": doc.section,
-                "content": doc.content[:2000],
-            })
-        return results
+            doc_embedding = doc.embedding
+            if doc_embedding is None:
+                continue
+            try:
+                similarity = self._cosine_similarity(query_embedding, list(doc_embedding))
+            except (TypeError, ValueError, ZeroDivisionError):
+                continue
+            scored.append((similarity, doc))
+
+        scored.sort(key=lambda item: (-item[0], item[1].title))
+        return [
+            self._document_result(doc, relevance_score=score)
+            for score, doc in scored[:top_k]
+        ]
+
+    def _keyword_search(self, query, top_k):
+        """Keyword fallback that works for Chinese natural-language phrases."""
+        tokens = self._search_tokens(query)
+        if not tokens:
+            return []
+
+        scored = []
+        for doc in FirstAidDocument.objects.all():
+            title = self._normalize_search_text(doc.title)
+            section = self._normalize_search_text(doc.section or '')
+            content = self._normalize_search_text(doc.content)
+            score = 0
+            for token in tokens:
+                if token in title:
+                    score += 8
+                if token in section:
+                    score += 3
+                if token in content:
+                    score += 1
+
+            if score > 0:
+                scored.append((score, doc))
+
+        scored.sort(key=lambda item: (-item[0], item[1].title))
+        return [
+            self._document_result(doc, relevance_score=float(score))
+            for score, doc in scored[:top_k]
+        ]
+
+    def _search_tokens(self, query):
+        text = self._normalize_search_text(query)
+        tokens = {
+            token
+            for token in re.findall(r'[a-z0-9]+', text)
+            if len(token) >= 2 or token.isdigit()
+        }
+
+        stopwords = {
+            '\u4e00\u4e0b', '\u4ec0\u9ebc', '\u600e\u9ebc', '\u600e\u9ebc\u8fa6',
+            '\u9700\u8981', '\u8655\u7406', '\u73fe\u5728', '\u7a81\u7136',
+            '\u5982\u679c', '\u53ef\u4ee5', '\u8001\u4eba', '\u9577\u8005',
+            '\u963f\u516c', '\u963f\u5b24', '\u7591\u4f3c',
+        }
+        for run in re.findall(r'[\u4e00-\u9fff]+', text):
+            for size in range(2, min(5, len(run) + 1)):
+                for index in range(0, len(run) - size + 1):
+                    token = run[index:index + size]
+                    if token not in stopwords:
+                        tokens.add(token)
+
+        return tokens
+
+    def _normalize_search_text(self, text):
+        return re.sub(r'\s+', '', (text or '').lower())
+
+    def _validate_embedding_dimensions(self, embedding):
+        expected = getattr(settings, 'OPENAI_EMBEDDING_DIMENSIONS', 1536)
+        if len(embedding) != expected:
+            raise ValueError(
+                f'Embedding dimension mismatch: expected {expected}, got {len(embedding)}'
+            )
+
+    def _cosine_similarity(self, a, b):
+        if len(a) != len(b):
+            raise ValueError('Embedding vectors must have the same dimensions.')
+        dot = sum(float(left) * float(right) for left, right in zip(a, b))
+        norm_a = sum(float(value) ** 2 for value in a) ** 0.5
+        norm_b = sum(float(value) ** 2 for value in b) ** 0.5
+        return dot / (norm_a * norm_b)
+
+    def _document_result(self, doc, relevance_score=None):
+        result = {
+            "id": str(doc.id),
+            "title": doc.title,
+            "source": doc.source,
+            "section": doc.section,
+            "content": doc.content[:2000],
+        }
+        if relevance_score is not None:
+            result["relevance_score"] = relevance_score
+        return result

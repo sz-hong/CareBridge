@@ -1,7 +1,12 @@
+import hashlib
 import uuid
 
 from django.conf import settings
 from django.db import models
+from pgvector.django import HnswIndex, VectorField
+
+
+FIRST_AID_EMBEDDING_DIMENSIONS = 1536
 
 
 class AIConversation(models.Model):
@@ -33,14 +38,44 @@ class FirstAidDocument(models.Model):
     source = models.CharField(max_length=200)
     section = models.CharField(max_length=200, null=True, blank=True)
     content = models.TextField()
-    # In production, this should be a VECTOR(1024) column (e.g. using pgvector).
-    # Using TextField as a placeholder for development environments.
-    embedding = models.TextField(null=True, blank=True)
+    embedding = VectorField(
+        dimensions=FIRST_AID_EMBEDDING_DIMENSIONS,
+        null=True,
+        blank=True,
+    )
+    embedding_model = models.CharField(max_length=100, blank=True, default='')
+    embedding_content_hash = models.CharField(max_length=64, blank=True, default='')
+    embedded_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'first_aid_document'
         ordering = ['title']
+        indexes = [
+            HnswIndex(
+                name='first_aid_embed_hnsw',
+                fields=['embedding'],
+                m=16,
+                ef_construction=64,
+                opclasses=['vector_cosine_ops'],
+            ),
+        ]
 
     def __str__(self):
         return self.title
+
+    def embedding_source_text(self):
+        parts = [self.title, self.section or '', self.content]
+        return "\n".join(part.strip() for part in parts if part and part.strip())
+
+    def embedding_source_hash_value(self):
+        return hashlib.sha256(
+            self.embedding_source_text().encode('utf-8')
+        ).hexdigest()
+
+    def needs_embedding_refresh(self, model_name):
+        return (
+            self.embedding is None
+            or self.embedding_model != model_name
+            or self.embedding_content_hash != self.embedding_source_hash_value()
+        )

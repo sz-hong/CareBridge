@@ -266,6 +266,7 @@ AWS_QUERYSTRING_EXPIRE = 3600  # Presigned URL 有效期 1 小時
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-4o')
 OPENAI_EMBEDDING_MODEL = os.environ.get('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small')
+OPENAI_EMBEDDING_DIMENSIONS = int(os.environ.get('OPENAI_EMBEDDING_DIMENSIONS', '1536'))
 
 # ==============================================================================
 # De-identification / DLP

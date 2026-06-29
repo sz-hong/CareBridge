@@ -70,7 +70,7 @@ struct FirstAidView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "phone.fill")
                         .font(.system(size: 18))
-                    Text("撥打 119 並通知家人")
+                    Text("通知家人")
                         .font(.system(size: 17, weight: .semibold))
                     Image(systemName: "chevron.right")
                         .font(.system(size: 14))
