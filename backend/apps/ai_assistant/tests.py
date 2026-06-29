@@ -1249,8 +1249,54 @@ class FirstAidRAGTests(TestCase):
         self.assertEqual(data["sources"], [{"title": "\u4e2d\u98a8 FAST \u8a55\u4f30", "source": "\u6025\u6551\u624b\u518a"}])
         user_prompt = mock_client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
         self.assertIn("Reference Materials:", user_prompt)
+        self.assertIn("Use only the reference materials", user_prompt)
         self.assertIn("\u4e2d\u98a8 FAST \u8a55\u4f30", user_prompt)
         self.assertIn("\u963f\u5b24\u7591\u4f3c\u4e2d\u98a8\u600e\u9ebc\u8fa6", user_prompt)
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_first_aid_api_does_not_answer_without_rag_sources(self, mock_get_client):
+        mock_get_client.return_value = self._chat_client("should not answer")
+
+        response = self.client.post(
+            "/api/v1/ai/first-aid/",
+            {"query": "\u7259\u75db\u53ef\u4ee5\u5403\u4ec0\u9ebc\u85e5"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()["data"]
+        self.assertEqual(data["sources"], [])
+        self.assertEqual(data["tokens_used"], 0)
+        self.assertIn("\u6025\u6551\u77e5\u8b58\u5eab", data["answer"])
+        mock_get_client.assert_not_called()
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_first_aid_api_strips_markdown_from_model_answer(self, mock_get_client):
+        markdown_answer = "# \u7acb\u5373\u8655\u7f6e\n- **\u64a5\u6253 119**\n[\u4f7f\u7528 AED](https://example.com) `CPR`"
+        mock_client = self._chat_client(markdown_answer)
+        mock_get_client.return_value = mock_client
+        FirstAidDocument.objects.create(
+            title="\u4e2d\u98a8 FAST \u8a55\u4f30",
+            source="\u6025\u6551\u624b\u518a",
+            section="\u5fc3\u8840\u7ba1\u6025\u75c7",
+            content="\u81c9\u6b6a\u3001\u624b\u7121\u529b\u3001\u8aaa\u8a71\u4e0d\u6e05\u695a\u6642\uff0c\u8a18\u9304\u6642\u9593\u4e26\u7acb\u5373\u64a5\u6253 119\u3002",
+        )
+
+        response = self.client.post(
+            "/api/v1/ai/first-aid/",
+            {"query": "\u963f\u5b24\u7591\u4f3c\u4e2d\u98a8\u600e\u9ebc\u8fa6"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        answer = response.json()["data"]["answer"]
+        self.assertNotIn("#", answer)
+        self.assertNotIn("**", answer)
+        self.assertNotIn("- ", answer)
+        self.assertNotIn("[`", answer)
+        self.assertNotIn("](https://", answer)
+        self.assertIn("\u64a5\u6253 119", answer)
+        self.assertIn("AED CPR", answer)
 
     @patch("apps.ai_assistant.views._get_client")
     def test_vector_retrieval_orders_documents_by_embedding_distance(self, mock_get_client):

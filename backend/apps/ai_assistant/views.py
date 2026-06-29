@@ -916,23 +916,32 @@ class FirstAidView(APIView):
         # Try RAG approach: embed query → find similar docs → augment prompt
         context_docs = self._retrieve_documents(query)
 
-        if context_docs:
-            context_text = "\n\n---\n\n".join(
-                f"[{doc['title']}] ({doc['source']})\n{doc['content']}"
-                for doc in context_docs
-            )
-            user_prompt = (
-                f"Based on the following first-aid reference materials, "
-                f"answer the user's question.\n\n"
-                f"Reference Materials:\n{context_text}\n\n"
-                f"User Question: {query}"
-            )
-        else:
-            user_prompt = (
-                f"The user needs first-aid guidance. Answer based on your "
-                f"medical knowledge with Taiwan emergency context (119 for ambulance).\n\n"
-                f"Question: {query}"
-            )
+        if not context_docs:
+            return success_response(data={
+                "answer": (
+                    "\u6025\u6551\u77e5\u8b58\u5eab\u76ee\u524d\u6c92\u6709\u8db3\u5920\u7684\u53c3\u8003\u8cc7\u6599\u56de\u7b54\u9019\u500b\u554f\u984c\u3002"
+                    "\u8acb\u6539\u7528\u66f4\u660e\u78ba\u7684\u75c7\u72c0\u63cf\u8ff0\uff0c\u6216\u76f4\u63a5\u64a5\u6253 119 / \u806f\u7d61\u91ab\u7642\u4eba\u54e1\u3002"
+                    "\u5982\u679c\u9577\u8005\u5931\u53bb\u610f\u8b58\u3001\u547c\u5438\u56f0\u96e3\u3001\u5927\u91cf\u51fa\u8840\u3001\u80f8\u75db\u6216\u7591\u4f3c\u4e2d\u98a8\uff0c\u8acb\u7acb\u5373\u64a5\u6253 119\u3002"
+                ),
+                "sources": [],
+                "tokens_used": 0,
+            })
+
+        context_text = "\n\n---\n\n".join(
+            f"[{doc['title']}] ({doc['source']})\n{doc['content']}"
+            for doc in context_docs
+        )
+        user_prompt = (
+            "Use only the reference materials below to answer the user's "
+            "first-aid question. Do not add medical facts that are not supported "
+            "by the references. If the references do not cover the user's "
+            "question, say the first-aid knowledge base does not have enough "
+            "information and advise calling 119 or a medical professional for "
+            "urgent situations. Respond in plain text only; do not use Markdown "
+            "syntax, headings, bullets, tables, links, or code formatting.\n\n"
+            f"Reference Materials:\n{context_text}\n\n"
+            f"User Question: {query}"
+        )
 
         client = _get_client()
         response = client.chat.completions.create(
@@ -940,9 +949,11 @@ class FirstAidView(APIView):
             messages=[
                 {"role": "system", "content": (
                     "You are an emergency first-aid assistant for elder care in Taiwan. "
+                    "Use only the provided first-aid reference materials. "
                     "Provide clear, step-by-step first-aid instructions in Traditional Chinese. "
                     "Always remind to call 119 for serious emergencies. "
-                    "Include both Chinese and English for critical instructions."
+                    "Include both Chinese and English for critical instructions. "
+                    "Respond in plain text only and never use Markdown syntax."
                 )},
                 {"role": "user", "content": user_prompt},
             ],
@@ -950,7 +961,7 @@ class FirstAidView(APIView):
             max_completion_tokens=2000,
         )
 
-        reply = response.choices[0].message.content
+        reply = _plain_text_from_markdown(response.choices[0].message.content)
         tokens_used = response.usage.total_tokens if response.usage else 0
 
         return success_response(data={
