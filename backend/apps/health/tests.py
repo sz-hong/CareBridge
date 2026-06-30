@@ -1,4 +1,5 @@
-from django.test import TestCase
+from django.conf import settings
+from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 from unittest.mock import patch
@@ -6,6 +7,22 @@ from unittest.mock import patch
 from apps.auth_account.models import User
 from apps.family.models import Family
 from apps.health.models import HealthAlert, HealthAlertThreshold, HealthData
+from apps.notification.models import Notification
+from apps.notification.types import NotificationType
+
+
+class HealthCeleryScheduleTests(SimpleTestCase):
+    def test_health_data_cleanup_is_scheduled_daily(self):
+        schedule = settings.CELERY_BEAT_SCHEDULE
+
+        self.assertIn('delete-expired-health-data-daily', schedule)
+        health_cleanup = schedule['delete-expired-health-data-daily']
+
+        self.assertEqual(
+            health_cleanup['task'],
+            'apps.health.tasks.delete_expired_health_data_task',
+        )
+        self.assertEqual(health_cleanup['schedule'], 86400.0)
 
 
 class HealthAPIEndpointTests(TestCase):
@@ -268,3 +285,109 @@ class HealthAPIEndpointTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['data'], [0, 0, 0, 0, 0, 0, 1500])
+
+
+class HealthRetentionTaskTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='health-retention@example.com',
+            password='password123',
+            name='Health Retention',
+            role=User.Role.FAMILY_MEMBER,
+        )
+        self.family = Family.objects.create(
+            name='Health Retention Family',
+            elder_name='Elder',
+            invite_code='990990',
+            created_by=self.user,
+        )
+        self.user.family = self.family
+        self.user.save(update_fields=['family'])
+
+    def create_data(self, *, recorded_at):
+        return HealthData.objects.create(
+            family=self.family,
+            type=HealthData.Type.HEART_RATE,
+            value=72,
+            unit=HealthData.Unit.BPM,
+            recorded_at=recorded_at,
+        )
+
+    def create_alert(self, *, recorded_at):
+        return HealthAlert.objects.create(
+            family=self.family,
+            type=HealthData.Type.HEART_RATE,
+            value=120,
+            threshold=100,
+            severity=HealthAlert.Severity.WARNING,
+            recorded_at=recorded_at,
+        )
+
+    def test_deletes_expired_health_data_alerts_and_alert_notifications(self):
+        try:
+            from apps.health.tasks import delete_expired_health_data_task
+        except ImportError:
+            self.fail('delete_expired_health_data_task is not implemented')
+
+        cutoff = timezone.now() - timezone.timedelta(
+            days=settings.HEALTH_DATA_RETENTION_DAYS,
+        )
+        expired_at = cutoff - timezone.timedelta(seconds=1)
+        retained_at = cutoff + timezone.timedelta(seconds=1)
+
+        expired_data = self.create_data(recorded_at=expired_at)
+        retained_data = self.create_data(recorded_at=retained_at)
+        expired_alert = self.create_alert(recorded_at=expired_at)
+        retained_alert = self.create_alert(recorded_at=retained_at)
+
+        expired_notification = Notification.objects.create(
+            user=self.user,
+            type=NotificationType.HEALTH_ALERT,
+            title='Expired alert',
+            body='Expired body',
+            data={'alert_id': str(expired_alert.id)},
+        )
+        retained_notification = Notification.objects.create(
+            user=self.user,
+            type=NotificationType.HEALTH_ALERT,
+            title='Retained alert',
+            body='Retained body',
+            data={'alert_id': str(retained_alert.id)},
+        )
+        unrelated_notification = Notification.objects.create(
+            user=self.user,
+            type=NotificationType.CHAT_MESSAGE,
+            title='Chat',
+            body='Keep me',
+            data={'alert_id': str(expired_alert.id)},
+        )
+        unmatched_health_notification = Notification.objects.create(
+            user=self.user,
+            type=NotificationType.HEALTH_ALERT,
+            title='Unmatched',
+            body='Keep me',
+            data={'alert_id': 'not-a-known-alert'},
+        )
+
+        result = delete_expired_health_data_task()
+
+        self.assertEqual(result['health_data_deleted'], 1)
+        self.assertEqual(result['health_alerts_deleted'], 1)
+        self.assertEqual(result['notifications_deleted'], 1)
+
+        self.assertFalse(HealthData.objects.filter(id=expired_data.id).exists())
+        self.assertTrue(HealthData.objects.filter(id=retained_data.id).exists())
+        self.assertFalse(HealthAlert.objects.filter(id=expired_alert.id).exists())
+        self.assertTrue(HealthAlert.objects.filter(id=retained_alert.id).exists())
+        self.assertFalse(
+            Notification.objects.filter(id=expired_notification.id).exists()
+        )
+        self.assertTrue(
+            Notification.objects.filter(id=retained_notification.id).exists()
+        )
+        self.assertTrue(
+            Notification.objects.filter(id=unrelated_notification.id).exists()
+        )
+        self.assertTrue(
+            Notification.objects.filter(id=unmatched_health_notification.id).exists()
+        )

@@ -211,6 +211,9 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Asia/Taipei'
+HEALTH_DATA_RETENTION_DAYS = int(
+    os.environ.get('HEALTH_DATA_RETENTION_DAYS', '90')
+)
 CELERY_BEAT_SCHEDULE = {
     'delete-expired-document-quarantine-files-hourly': {
         'task': 'apps.document.tasks.delete_expired_document_quarantine_files_task',
@@ -222,6 +225,10 @@ CELERY_BEAT_SCHEDULE = {
     },
     'delete-read-notifications-daily': {
         'task': 'apps.notification.tasks.delete_read_notifications_task',
+        'schedule': 86400.0,
+    },
+    'delete-expired-health-data-daily': {
+        'task': 'apps.health.tasks.delete_expired_health_data_task',
         'schedule': 86400.0,
     },
 }
