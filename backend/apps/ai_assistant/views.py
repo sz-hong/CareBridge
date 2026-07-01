@@ -130,6 +130,21 @@ def _limit_summary_chars(text, max_chars=50):
     return summary[:max_chars]
 
 
+TODAY_SUMMARY_LANGUAGE_NAMES = {
+    "zh-TW": "Traditional Chinese",
+    "id": "Bahasa Indonesia",
+    "vi": "Vietnamese",
+    "tl": "Tagalog",
+}
+
+
+def _today_summary_language_name(user):
+    return TODAY_SUMMARY_LANGUAGE_NAMES.get(
+        getattr(user, "language", None),
+        TODAY_SUMMARY_LANGUAGE_NAMES["zh-TW"],
+    )
+
+
 def _system_prompt_for_user(user):
     now = timezone.localtime()
     return (
@@ -375,6 +390,7 @@ class TodaySummaryView(APIView):
         user = request.user
         family = user.family
         today = timezone.localdate()
+        language_name = _today_summary_language_name(user)
 
         from django.db.models import Q
 
@@ -459,9 +475,9 @@ class TodaySummaryView(APIView):
         prompt = (
             "Summarize ONLY the supplied date's elder care logs, schedule, "
             "todos, and active medications for the logged-in home page. "
-            "Use Traditional Chinese plain text. "
+            f"Use {language_name} plain text. "
             "The summary must be one sentence, no Markdown, no bullet points, "
-            "and no more than 50 Chinese characters. Do not mention records "
+            "and no more than 50 characters. Do not mention records "
             "outside the supplied date. If there is no care log, event, todo, "
             "or medication, say that today has no care or schedule record.\n\n"
             f"Data:\n{data_summary}"
@@ -473,7 +489,7 @@ class TodaySummaryView(APIView):
             messages=[
                 {"role": "system", "content": (
                     "You write short elder-care home page summaries. "
-                    "Use Traditional Chinese plain text only. "
+                    f"Use {language_name} plain text only. "
                     "Never exceed 50 characters."
                 )},
                 {"role": "user", "content": prompt},

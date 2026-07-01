@@ -874,6 +874,44 @@ class AIReportEndpointContractTests(TestCase):
         self.assertNotIn("other family medication secret", user_prompt)
 
     @patch("apps.ai_assistant.views._get_client")
+    def test_today_summary_prompt_uses_authenticated_user_language(self, mock_get_client):
+        language_expectations = {
+            User.Language.ZH_TW: "Traditional Chinese",
+            User.Language.ID: "Bahasa Indonesia",
+            User.Language.VI: "Vietnamese",
+            User.Language.TL: "Tagalog",
+        }
+
+        for language_code, expected_language_name in language_expectations.items():
+            with self.subTest(language=language_code):
+                mock_client = self._mock_client("localized summary")
+                mock_get_client.return_value = mock_client
+                self.user.language = language_code
+                self.user.save(update_fields=["language"])
+
+                response = self.client.get("/api/v1/ai/today-summary/")
+
+                self.assertEqual(response.status_code, 200)
+                messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+                combined_prompt = "\n".join(message["content"] for message in messages)
+                self.assertIn(expected_language_name, combined_prompt)
+
+    @patch("apps.ai_assistant.views._get_client")
+    def test_today_summary_prompt_falls_back_to_traditional_chinese_for_unknown_language(self, mock_get_client):
+        mock_client = self._mock_client("fallback summary")
+        mock_get_client.return_value = mock_client
+        self.user.language = "unknown"
+        self.user.save(update_fields=["language"])
+
+        response = self.client.get("/api/v1/ai/today-summary/")
+
+        self.assertEqual(response.status_code, 200)
+        messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
+        combined_prompt = "\n".join(message["content"] for message in messages)
+        self.assertIn("Traditional Chinese", combined_prompt)
+        self.assertNotIn("unknown", combined_prompt)
+
+    @patch("apps.ai_assistant.views._get_client")
     def test_today_summary_limits_model_output_to_50_characters(self, mock_get_client):
         mock_get_client.return_value = self._mock_client("x" * 60)
 
