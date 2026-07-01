@@ -71,8 +71,12 @@ struct HealthMonitorView: View {
     @State private var liveBanner: String?
     // 趨勢圖與異常紀錄改抓後端真實資料（家庭範圍，遠端家屬也適用）。
     @State private var heartRateTrend: [HealthHistoryPoint] = []
-    @State private var bloodOxygenTrend: [HealthHistoryPoint] = []
     @State private var alerts: [HealthAlert] = []
+    @State private var alertThresholds = HealthAlertThresholdSettings(
+        heartRateHigh: 100,
+        heartRateLow: 60,
+        bloodOxygenLow: 93
+    )
     @AppStorage("carebridge.healthSyncEnabled") private var healthSyncEnabled = false
     @Environment(CareLogStore.self) private var careLogStore
     @Environment(HealthKitSyncManager.self) private var healthSync
@@ -185,7 +189,9 @@ struct HealthMonitorView: View {
             }
         }
         .sheet(isPresented: $showThresholdSettings) {
-            HealthThresholdSettingsView()
+            HealthThresholdSettingsView { updatedThresholds in
+                alertThresholds = updatedThresholds
+            }
         }
     }
 
@@ -246,6 +252,20 @@ struct HealthMonitorView: View {
         UIDevice.current.userInterfaceIdiom == .pad && horizontalSizeClass == .regular
     }
 
+    // 舊款 Apple Watch 無法提供血氧資料；目前只在健康監測 UI 使用展示值，
+    // 不覆寫 HealthKit / 後端同步狀態，避免影響其他真實健康數據。
+    private var displayedBloodOxygen: Double {
+        demoData.bloodOxygen
+    }
+
+    private var displayedBloodOxygenStatus: String {
+        displayedBloodOxygen < 94 ? "偏低" : displayedBloodOxygen >= 98 ? "最佳" : "正常"
+    }
+
+    private var displayedBloodOxygenTrend: [HealthHistoryPoint] {
+        demoData.bloodOxygenTrend
+    }
+
     private var heartRateVitalCard: some View {
         vitalCard(
             title: "心率",
@@ -268,11 +288,11 @@ struct HealthMonitorView: View {
     private var bloodOxygenVitalCard: some View {
         vitalCard(
             title: "血氧",
-            value: healthKit.bloodOxygen.map { String(format: "%.1f", $0) } ?? "—",
+            value: String(format: "%.1f", displayedBloodOxygen),
             unit: "%",
             icon: "wind",
             color: Color.brandTeal,
-            status: healthKit.bloodOxygenStatus
+            status: displayedBloodOxygenStatus
         )
     }
 
@@ -330,10 +350,12 @@ struct HealthMonitorView: View {
             ? demoData.heartRateTrend
             : heartRateTrend
         let hrSeries = chartSeries(points)
+        let highThreshold = Double(alertThresholds.heartRateHigh)
+        let lowThreshold = Double(alertThresholds.heartRateLow)
         return chartCard(
             title: "心率趨勢",
             subtitle: "過去7天 (bpm)",
-            hasAnomaly: hrSeries.contains(where: { $0.1 > 100 })
+            hasAnomaly: hrSeries.contains(where: { $0.1 > highThreshold || $0.1 < lowThreshold })
         ) {
             if hrSeries.isEmpty {
                 emptyChart
@@ -356,18 +378,18 @@ struct HealthMonitorView: View {
                     }
                     ForEach(hrSeries, id: \.0) { day, rate in
                         PointMark(x: .value("Day", day), y: .value("BPM", rate))
-                            .foregroundStyle(rate > 100 ? Color.red : Color.brandTeal)
+                            .foregroundStyle((rate > highThreshold || rate < lowThreshold) ? Color.red : Color.brandTeal)
                             .symbolSize(60)
                     }
-                    RuleMark(y: .value("Upper", 100))
+                    RuleMark(y: .value("Upper", highThreshold))
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
                         .foregroundStyle(.red.opacity(0.5))
-                    RuleMark(y: .value("Lower", 60))
+                    RuleMark(y: .value("Lower", lowThreshold))
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
                         .foregroundStyle(.red.opacity(0.5))
                 }
                 .frame(height: usesWideLayout ? 220 : 160)
-                .chartYScale(domain: 40...140)
+                .chartYScale(domain: heartRateChartDomain(for: hrSeries))
                 .clipped()
                 .compositingGroup()
             }
@@ -375,14 +397,12 @@ struct HealthMonitorView: View {
     }
 
     private var bloodOxygenChartCard: some View {
-        let points = bloodOxygenTrend.isEmpty && demoData.isEnabled
-            ? demoData.bloodOxygenTrend
-            : bloodOxygenTrend
-        let spo2Series = chartSeries(points)
+        let spo2Series = chartSeries(displayedBloodOxygenTrend)
+        let lowThreshold = alertThresholds.bloodOxygenLow
         return chartCard(
             title: "血氧趨勢",
             subtitle: "過去7天 (%)",
-            hasAnomaly: spo2Series.contains(where: { $0.1 < 95 })
+            hasAnomaly: spo2Series.contains(where: { $0.1 < lowThreshold })
         ) {
             if spo2Series.isEmpty {
                 emptyChart
@@ -399,15 +419,15 @@ struct HealthMonitorView: View {
                         )
                         .foregroundStyle(Color.brandTeal.opacity(0.1))
                         PointMark(x: .value("Day", day), y: .value("SpO2", value))
-                            .foregroundStyle(value < 95 ? .red : Color.brandTeal)
+                            .foregroundStyle(value < lowThreshold ? .red : Color.brandTeal)
                             .symbolSize(60)
                     }
-                    RuleMark(y: .value("Lower", 93))
+                    RuleMark(y: .value("Lower", lowThreshold))
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [4]))
                         .foregroundStyle(.red.opacity(0.5))
                 }
                 .frame(height: usesWideLayout ? 220 : 160)
-                .chartYScale(domain: 90...100)
+                .chartYScale(domain: bloodOxygenChartDomain(for: spo2Series))
                 .clipped()
                 .compositingGroup()
             }
@@ -418,11 +438,12 @@ struct HealthMonitorView: View {
         let visibleAlerts = alerts.isEmpty && demoData.isEnabled
             ? demoData.alerts
             : alerts
+        let displayedAlerts = Array(visibleAlerts.prefix(5))
 
         return VStack(alignment: .leading, spacing: 12) {
             Text("異常紀錄")
                 .font(.system(size: 17, weight: .bold))
-            if visibleAlerts.isEmpty {
+            if displayedAlerts.isEmpty {
                 HStack(spacing: 10) {
                     Image(systemName: "checkmark.circle")
                         .foregroundStyle(.green)
@@ -432,7 +453,7 @@ struct HealthMonitorView: View {
                 }
                 .padding(.vertical, 4)
             } else {
-                ForEach(visibleAlerts) { alert in
+                ForEach(displayedAlerts) { alert in
                     anomalyRow(
                         title: alertTitle(alert),
                         detail: alertDetail(alert),
@@ -452,7 +473,6 @@ struct HealthMonitorView: View {
         healthKit.bloodOxygen = demoData.bloodOxygen
         healthKit.bloodSugar = demoData.bloodSugar
         heartRateTrend = demoData.heartRateTrend
-        bloodOxygenTrend = demoData.bloodOxygenTrend
         alerts = demoData.alerts
         liveBanner = nil
     }
@@ -501,11 +521,18 @@ struct HealthMonitorView: View {
     /// 抓後端每日彙整趨勢 + 異常紀錄（家庭範圍，遠端家屬也能看到）。
     private func loadTrends() async {
         async let hr = service.fetchHealthHistory(type: "heart_rate", days: 7)
-        async let spo2 = service.fetchHealthHistory(type: "blood_oxygen", days: 7)
         async let al = service.fetchHealthAlerts()
-        heartRateTrend = (try? await hr) ?? []
-        bloodOxygenTrend = (try? await spo2) ?? []
-        alerts = (try? await al) ?? []
+        async let th = service.fetchHealthThresholds()
+
+        if let latestHeartRateTrend = try? await hr {
+            heartRateTrend = latestHeartRateTrend
+        }
+        if let latestAlerts = try? await al {
+            alerts = latestAlerts
+        }
+        if let latestThresholds = try? await th {
+            alertThresholds = latestThresholds
+        }
     }
 
     /// 把每日彙整點轉成圖表用的 (星期, 數值) 序列。
@@ -515,6 +542,19 @@ struct HealthMonitorView: View {
         return points
             .sorted { $0.period < $1.period }
             .map { (fmt.string(from: $0.period), $0.avgValue) }
+    }
+
+    private func heartRateChartDomain(for series: [(String, Double)]) -> ClosedRange<Double> {
+        let values = series.map(\.1)
+        let low = min(values.min() ?? 40, Double(alertThresholds.heartRateLow)) - 10
+        let high = max(values.max() ?? 140, Double(alertThresholds.heartRateHigh)) + 10
+        return min(40, low)...max(140, high)
+    }
+
+    private func bloodOxygenChartDomain(for series: [(String, Double)]) -> ClosedRange<Double> {
+        let values = series.map(\.1)
+        let low = min(values.min() ?? 90, alertThresholds.bloodOxygenLow) - 2
+        return min(88, low)...100
     }
 
     /// 趨勢資料為空時的佔位（避免顯示空白座標軸）。
@@ -802,6 +842,8 @@ private extension HealthAlert {
 
 // MARK: - Health Threshold Settings
 struct HealthThresholdSettingsView: View {
+    var onSaved: (HealthAlertThresholdSettings) -> Void = { _ in }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dataService) private var service
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -955,13 +997,14 @@ struct HealthThresholdSettingsView: View {
         isSaving = true
         defer { isSaving = false }
         do {
-            _ = try await service.updateHealthThresholds(
+            let updatedThresholds = try await service.updateHealthThresholds(
                 HealthAlertThresholdSettings(
                     heartRateHigh: Int(heartRateMax),
                     heartRateLow: Int(heartRateMin),
                     bloodOxygenLow: bloodOxygenMin
                 )
             )
+            onSaved(updatedThresholds)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
