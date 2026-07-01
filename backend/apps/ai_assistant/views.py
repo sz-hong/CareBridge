@@ -124,10 +124,9 @@ def _get_model():
     return getattr(settings, 'OPENAI_MODEL', 'gpt-4o')
 
 
-def _limit_summary_chars(text, max_chars=50):
+def _clean_summary_text(text):
     summary = _plain_text_from_markdown(text or "")
-    summary = re.sub(r"\s+", " ", summary).strip()
-    return summary[:max_chars]
+    return re.sub(r"\s+", " ", summary).strip()
 
 
 TODAY_SUMMARY_LANGUAGE_NAMES = {
@@ -137,12 +136,30 @@ TODAY_SUMMARY_LANGUAGE_NAMES = {
     "tl": "Tagalog",
 }
 
+TODAY_SUMMARY_LANGUAGE_EXCLUSIONS = {
+    "zh-TW": "Do not use English, Bahasa Indonesia, Vietnamese, or Tagalog.",
+    "id": "Do not use Traditional Chinese, Simplified Chinese, English, Vietnamese, or Tagalog.",
+    "vi": "Do not use Traditional Chinese, Simplified Chinese, English, Bahasa Indonesia, or Tagalog.",
+    "tl": "Do not use Traditional Chinese, Simplified Chinese, English, Bahasa Indonesia, or Vietnamese.",
+}
+
+
+def _today_summary_language_code(user):
+    language_code = getattr(user, "language", None)
+    if language_code in TODAY_SUMMARY_LANGUAGE_NAMES:
+        return language_code
+    return "zh-TW"
+
 
 def _today_summary_language_name(user):
-    return TODAY_SUMMARY_LANGUAGE_NAMES.get(
-        getattr(user, "language", None),
-        TODAY_SUMMARY_LANGUAGE_NAMES["zh-TW"],
-    )
+    return TODAY_SUMMARY_LANGUAGE_NAMES[_today_summary_language_code(user)]
+
+
+def _today_summary_language_instruction(user):
+    language_code = _today_summary_language_code(user)
+    language_name = TODAY_SUMMARY_LANGUAGE_NAMES[language_code]
+    exclusion = TODAY_SUMMARY_LANGUAGE_EXCLUSIONS[language_code]
+    return f"Return the summary ONLY in {language_name}. {exclusion}"
 
 
 def _system_prompt_for_user(user):
@@ -390,7 +407,7 @@ class TodaySummaryView(APIView):
         user = request.user
         family = user.family
         today = timezone.localdate()
-        language_name = _today_summary_language_name(user)
+        language_instruction = _today_summary_language_instruction(user)
 
         from django.db.models import Q
 
@@ -475,11 +492,12 @@ class TodaySummaryView(APIView):
         prompt = (
             "Summarize ONLY the supplied date's elder care logs, schedule, "
             "todos, and active medications for the logged-in home page. "
-            f"Use {language_name} plain text. "
-            "The summary must be one sentence, no Markdown, no bullet points, "
-            "and no more than 50 characters. Do not mention records "
-            "outside the supplied date. If there is no care log, event, todo, "
-            "or medication, say that today has no care or schedule record.\n\n"
+            f"{language_instruction} "
+            "The summary must be one concise sentence, no Markdown, no bullet points. "
+            "Keep the answer concise and suitable for a home page card. "
+            "Do not mention records outside the supplied date. If there is no care log, "
+            "event, todo, or medication, state in the target language that today has no "
+            "care or schedule record.\n\n"
             f"Data:\n{data_summary}"
         )
 
@@ -489,8 +507,8 @@ class TodaySummaryView(APIView):
             messages=[
                 {"role": "system", "content": (
                     "You write short elder-care home page summaries. "
-                    f"Use {language_name} plain text only. "
-                    "Never exceed 50 characters."
+                    f"{language_instruction} "
+                    "Keep the answer concise and use plain text only."
                 )},
                 {"role": "user", "content": prompt},
             ],
@@ -498,7 +516,7 @@ class TodaySummaryView(APIView):
             max_completion_tokens=120,
         )
 
-        summary = _limit_summary_chars(response.choices[0].message.content)
+        summary = _clean_summary_text(response.choices[0].message.content)
         tokens_used = response.usage.total_tokens if response.usage else 0
 
         return success_response(data={

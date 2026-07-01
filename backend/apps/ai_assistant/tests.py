@@ -876,13 +876,25 @@ class AIReportEndpointContractTests(TestCase):
     @patch("apps.ai_assistant.views._get_client")
     def test_today_summary_prompt_uses_authenticated_user_language(self, mock_get_client):
         language_expectations = {
-            User.Language.ZH_TW: "Traditional Chinese",
-            User.Language.ID: "Bahasa Indonesia",
-            User.Language.VI: "Vietnamese",
-            User.Language.TL: "Tagalog",
+            User.Language.ZH_TW: (
+                "Return the summary ONLY in Traditional Chinese.",
+                "Do not use English, Bahasa Indonesia, Vietnamese, or Tagalog.",
+            ),
+            User.Language.ID: (
+                "Return the summary ONLY in Bahasa Indonesia.",
+                "Do not use Traditional Chinese, Simplified Chinese, English, Vietnamese, or Tagalog.",
+            ),
+            User.Language.VI: (
+                "Return the summary ONLY in Vietnamese.",
+                "Do not use Traditional Chinese, Simplified Chinese, English, Bahasa Indonesia, or Tagalog.",
+            ),
+            User.Language.TL: (
+                "Return the summary ONLY in Tagalog.",
+                "Do not use Traditional Chinese, Simplified Chinese, English, Bahasa Indonesia, or Vietnamese.",
+            ),
         }
 
-        for language_code, expected_language_name in language_expectations.items():
+        for language_code, expected_language_prompt in language_expectations.items():
             with self.subTest(language=language_code):
                 mock_client = self._mock_client("localized summary")
                 mock_get_client.return_value = mock_client
@@ -894,8 +906,10 @@ class AIReportEndpointContractTests(TestCase):
                 self.assertEqual(response.status_code, 200)
                 messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
                 combined_prompt = "\n".join(message["content"] for message in messages)
-                self.assertIn(expected_language_name, combined_prompt)
-
+                for expected_text in expected_language_prompt:
+                    self.assertIn(expected_text, combined_prompt)
+                self.assertIn("Keep the answer concise", combined_prompt)
+                self.assertNotIn("50 characters", combined_prompt)
     @patch("apps.ai_assistant.views._get_client")
     def test_today_summary_prompt_falls_back_to_traditional_chinese_for_unknown_language(self, mock_get_client):
         mock_client = self._mock_client("fallback summary")
@@ -912,16 +926,15 @@ class AIReportEndpointContractTests(TestCase):
         self.assertNotIn("unknown", combined_prompt)
 
     @patch("apps.ai_assistant.views._get_client")
-    def test_today_summary_limits_model_output_to_50_characters(self, mock_get_client):
-        mock_get_client.return_value = self._mock_client("x" * 60)
+    def test_today_summary_does_not_truncate_model_output(self, mock_get_client):
+        model_summary = "x" * 60
+        mock_get_client.return_value = self._mock_client(model_summary)
 
         response = self.client.get("/api/v1/ai/today-summary/")
 
         self.assertEqual(response.status_code, 200)
         summary = response.json()["data"]["summary"]
-        self.assertEqual(summary, "x" * 50)
-        self.assertLessEqual(len(summary), 50)
-
+        self.assertEqual(summary, model_summary)
     @patch("apps.ai_assistant.views._get_client")
     def test_care_analysis_uses_current_medication_schema(self, mock_get_client):
         mock_get_client.return_value = self._mock_client("care analysis")
