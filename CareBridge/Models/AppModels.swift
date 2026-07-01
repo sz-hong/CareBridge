@@ -1063,22 +1063,14 @@ class CareLogStore {
     }
 
     func load() {
-        guard !isLoading, !didLoadRecentEntries else { return }
-        state.beginLoading()
         Task { @MainActor in
-            do {
-                let page = try await service.fetchCareLogEntries(
-                    date: nil,
-                    type: nil,
-                    page: 1
-                )
-                state.finish(with: page.items)
-                didLoadRecentEntries = true
-            } catch {
-                state.fail(error)
-                print("[CareLogStore] fetch failed: \(error)")
-            }
+            await loadRecentEntries(forceRefresh: false)
         }
+    }
+
+    @MainActor
+    func refreshRecentEntries() async {
+        await loadRecentEntries(forceRefresh: true)
     }
 
     @MainActor
@@ -1286,9 +1278,51 @@ class CareLogStore {
         )
     }
 
+    @MainActor
+    private func loadRecentEntries(forceRefresh: Bool) async {
+        guard !isLoading else { return }
+        guard forceRefresh || !didLoadRecentEntries else { return }
+
+        state.beginLoading()
+        do {
+            let page = try await service.fetchCareLogEntries(
+                date: nil,
+                type: nil,
+                page: 1
+            )
+            state.finish(with: page.items)
+            didLoadRecentEntries = true
+        } catch {
+            state.fail(error)
+            print("[CareLogStore] fetch failed: \(error)")
+        }
+    }
+
     private func applyTimelinePage(_ page: TimelinePage) {
         timelineState.finish(with: page.entries)
         timelineHasMore = page.nextPage != nil
+        if let activeTimelineQuery {
+            mergeTimelineEntriesIntoRecentEntries(page.entries, for: activeTimelineQuery)
+        }
+    }
+
+    private func mergeTimelineEntriesIntoRecentEntries(
+        _ timelineEntries: [CareLogEntry],
+        for query: TimelineQuery
+    ) {
+        let calendar = Calendar.current
+        state.updateValue { entries in
+            entries.removeAll { entry in
+                calendar.isDate(entry.timestamp, inSameDayAs: query.day)
+                    && (query.type == nil || entry.type == query.type)
+            }
+            entries.append(contentsOf: timelineEntries)
+
+            var seenIDs = Set<String>()
+            entries = entries
+                .sorted { $0.timestamp > $1.timestamp }
+                .filter { seenIDs.insert($0.id).inserted }
+        }
     }
 
     private func finishCancelledTimelineRequest(

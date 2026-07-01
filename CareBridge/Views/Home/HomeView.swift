@@ -88,6 +88,13 @@ struct HomeView: View {
                 }
                 .background(Color.brandBackground)
                 .scrollIndicators(.hidden)
+                .refreshable {
+                    medicationStore.load()
+                    await careLogStore.refreshRecentEntries()
+                    todoStore.load()
+                    await healthKit.loadLatestValues()
+                    await seedBackendHealthDataIfNeeded(overwriteExisting: true)
+                }
                 .navigationDestination(for: HomeDestination.self) { dest in
                     switch dest {
                     case .health:     HealthMonitorView()
@@ -104,7 +111,7 @@ struct HomeView: View {
                 }
                 .task {
                     medicationStore.load()
-                    careLogStore.load()
+                    await careLogStore.refreshRecentEntries()
                     todoStore.load()
 
                     // 1) 本機 HealthKit 即時讀數（看護／長者端有配對 Apple Watch 時）。
@@ -126,10 +133,10 @@ struct HomeView: View {
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .active {
                         medicationStore.load()
-                        careLogStore.load()
                         todoStore.load()
                         liveSocket.reconnectIfNeeded()
                         Task {
+                            await careLogStore.refreshRecentEntries()
                             await healthKit.loadLatestValues()
                             await seedBackendHealthDataIfNeeded(overwriteExisting: true)
                         }

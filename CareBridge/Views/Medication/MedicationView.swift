@@ -7,6 +7,7 @@ struct MedicationView: View {
     @Environment(CareLogStore.self) private var careLogStore
     @State private var editingMedication: Medication?
     @State private var pendingMedicationDeletion: Medication?
+    @State private var isEditingMedicationList = false
 
     /// Hide meds whose endDate has already passed — they should silently
     /// disappear from the active list once their treatment course is over.
@@ -77,8 +78,27 @@ struct MedicationView: View {
 
     private var medicationListCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("目前用藥清單")
-                .font(.system(size: 17, weight: .bold))
+            HStack(spacing: 12) {
+                Text("目前用藥清單")
+                    .font(.system(size: 17, weight: .bold))
+
+                Spacer()
+
+                if canManageMedicationList && !activeMedications.isEmpty {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isEditingMedicationList.toggle()
+                        }
+                    } label: {
+                        Image(systemName: isEditingMedicationList ? "checkmark" : "pencil")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(Color.brandTeal)
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(isEditingMedicationList ? "完成編輯用藥" : "編輯用藥")
+                }
+            }
 
             if activeMedications.isEmpty {
                 Text("目前沒有用藥項目")
@@ -89,21 +109,27 @@ struct MedicationView: View {
             } else {
                 VStack(spacing: 10) {
                     ForEach(activeMedications) { med in
-                        if userRole == .caregiver {
-                            MedicationRow(medication: med)
-                        } else {
-                            SwipeToDeleteMedicationRow(
+                        if canManageMedicationList {
+                            EditableMedicationRow(
                                 medication: med,
+                                isEditing: isEditingMedicationList,
                                 onEdit: { editingMedication = med },
                                 onDelete: { pendingMedicationDeletion = med }
                             )
+                        } else {
+                            MedicationRow(medication: med)
                         }
                     }
                 }
+                .animation(.easeInOut(duration: 0.2), value: isEditingMedicationList)
             }
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: 16).fill(.white))
+    }
+
+    private var canManageMedicationList: Bool {
+        userRole != .caregiver
     }
 
     // MARK: - Today's Summary
@@ -138,6 +164,9 @@ struct MedicationView: View {
     private func deleteMedication(_ medication: Medication) {
         withAnimation(.easeInOut(duration: 0.2)) {
             medStore.deleteMedication(id: medication.id)
+            if activeMedications.isEmpty {
+                isEditingMedicationList = false
+            }
         }
     }
 
@@ -262,61 +291,35 @@ struct MedicationTodayProgressCard: View {
 }
 
 // MARK: - Medication Row
-struct SwipeToDeleteMedicationRow: View {
+struct EditableMedicationRow: View {
     let medication: Medication
+    let isEditing: Bool
     let onEdit: () -> Void
     let onDelete: () -> Void
-    @State private var offset: CGFloat = 0
-
-    private let deleteWidth: CGFloat = 82
 
     var body: some View {
-        ZStack(alignment: .trailing) {
-            Button(role: .destructive) {
-                withAnimation(.easeInOut(duration: 0.2)) { offset = 0 }
-                onDelete()
-            } label: {
-                VStack(spacing: 4) {
-                    Image(systemName: "trash.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                    Text("刪除")
-                        .font(.system(size: 12, weight: .semibold))
-                }
-                .foregroundStyle(.white)
-                .frame(width: deleteWidth)
-                .padding(.vertical, 18)
-                .background(RoundedRectangle(cornerRadius: 12).fill(.red))
-            }
-            .buttonStyle(.plain)
-
-            MedicationRow(medication: medication, onEdit: {
-                if offset < 0 {
-                    withAnimation(.easeInOut(duration: 0.2)) { offset = 0 }
-                } else {
-                    onEdit()
-                }
-            })
-            .offset(x: offset)
-            .gesture(
-                DragGesture(minimumDistance: 16)
-                    .onChanged { value in
-                        guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                        if value.translation.width < 0 {
-                            offset = max(value.translation.width, -deleteWidth)
-                        } else if offset < 0 {
-                            offset = min(0, -deleteWidth + value.translation.width)
-                        }
-                    }
-                    .onEnded { value in
-                        guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            offset = value.translation.width < -(deleteWidth / 2) ? -deleteWidth : 0
-                        }
-                    }
+        HStack(spacing: 10) {
+            MedicationRow(
+                medication: medication,
+                onEdit: isEditing ? nil : onEdit
             )
-            .animation(.easeInOut(duration: 0.2), value: offset)
+            .frame(maxWidth: .infinity)
+
+            if isEditing {
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(.red)
+                        .frame(width: 30, height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("刪除用藥")
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         }
-        .clipped()
+        .animation(.easeInOut(duration: 0.2), value: isEditing)
     }
 }
 

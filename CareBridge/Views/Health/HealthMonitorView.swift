@@ -63,8 +63,6 @@ class HealthKitManager {
 // MARK: - Health Monitor View
 
 struct HealthMonitorView: View {
-    @State private var selectedRange = 0 // 0=日, 1=週, 2=月
-    private let rangeLabels = ["日", "週", "月"]
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     private let demoData = HealthMonitorDemoData.self
     @State private var showThresholdSettings = false
@@ -124,11 +122,12 @@ struct HealthMonitorView: View {
                 return
             }
 
-            await healthKit.requestAuthorization()
+            // 綁定健康的手機才讀本機 HealthKit 並同步；其他手機只讀後端。
+            await refreshHealthReadings()
 
-            // 進入頁面時主動 trigger 一次 HealthKit → backend sync
-            // （免費 Apple Developer 帳號無 background delivery 時的兜底）
-            await syncHealthIfCurrentOwner()
+            // 血壓 / 血糖來自照護日誌；進入健康監測時要重抓，
+            // 才能看到其他裝置剛新增的生命徵象紀錄。
+            await careLogStore.refreshRecentEntries()
 
             // 趨勢圖與異常紀錄抓後端真實資料。
             await loadTrends()
@@ -148,17 +147,17 @@ struct HealthMonitorView: View {
                 return
             }
 
-            // 下拉重新整理：手動 trigger HealthKit sync + 等 server 回 WS 推送
-            await syncHealthIfCurrentOwner()
-            await healthKit.loadLatestValues()
+            // 下拉重新整理：綁定手機同步 HealthKit；非綁定手機只重新讀後端。
+            await refreshHealthReadings()
+            await careLogStore.refreshRecentEntries()
             await loadTrends()
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 liveSocket.reconnectIfNeeded()
                 Task {
-                    await syncHealthIfCurrentOwner()
-                    await healthKit.loadLatestValues()
+                    await refreshHealthReadings()
+                    await careLogStore.refreshRecentEntries()
                     await loadTrends()
                 }
             }
@@ -194,10 +193,6 @@ struct HealthMonitorView: View {
     private var healthContent: some View {
         if usesWideLayout {
             VStack(spacing: 20) {
-                rangeSelector
-                    .frame(width: 360)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), spacing: 14) {
                     heartRateVitalCard
                     bloodOxygenVitalCard
@@ -220,18 +215,12 @@ struct HealthMonitorView: View {
             .frame(maxWidth: .infinity)
         } else {
             VStack(spacing: 16) {
-                // Range selector — custom segmented control with explicit
-                // clipping; iOS 26 Liquid Glass tinting was leaking the
-                // selected-segment fill outside the row before.
-                rangeSelector
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-
                 HStack(spacing: 12) {
                     heartRateVitalCard
                     bloodOxygenVitalCard
                 }
                 .padding(.horizontal, 16)
+                .padding(.top, 8)
 
                 HStack(spacing: 12) {
                     bloodPressureVitalCard
@@ -264,8 +253,16 @@ struct HealthMonitorView: View {
             unit: "bpm",
             icon: "heart.fill",
             color: .red,
-            status: healthKit.heartRateStatus
+            status: displayedHeartRateStatus
         )
+    }
+
+    private var displayedHeartRateStatus: String {
+        guard let heartRate = healthKit.heartRate else { return "—" }
+        return heartRate > Double(alertThresholds.heartRateHigh) ||
+            heartRate < Double(alertThresholds.heartRateLow)
+            ? "異常"
+            : "正常"
     }
 
     private var bloodOxygenVitalCard: some View {
@@ -460,12 +457,44 @@ struct HealthMonitorView: View {
         liveBanner = nil
     }
 
+    private func refreshHealthReadings() async {
+        let isOwner = await isCurrentHealthOwner()
+        if isOwner {
+            await healthKit.requestAuthorization()
+            await syncHealthIfCurrentOwner()
+            await healthKit.loadLatestValues()
+            await seedBackendHeartRateIfNeeded(overwriteExisting: false)
+        } else {
+            // 非綁定手機不能顯示本機 HealthKit 心率，否則可能變成照護者自己的數值。
+            healthKit.heartRate = nil
+            await seedBackendHeartRateIfNeeded(overwriteExisting: true)
+        }
+    }
+
+    private func isCurrentHealthOwner() async -> Bool {
+        if let state = try? await service.fetchHealthBinding() {
+            healthSyncEnabled = state.isOwner
+            return state.isOwner
+        }
+        return healthSyncEnabled
+    }
+
     private func syncHealthIfCurrentOwner() async {
         guard healthSyncEnabled else { return }
         if let state = try? await service.fetchHealthBinding(), state.isOwner {
             await healthSync.incrementalSyncAll()
         } else {
             healthSyncEnabled = false
+        }
+    }
+
+    private func seedBackendHeartRateIfNeeded(overwriteExisting: Bool) async {
+        guard let backend = try? await service.fetchHealthData(elderId: ""),
+              backend.heartRate > 0 else {
+            return
+        }
+        if overwriteExisting || healthKit.heartRate == nil {
+            healthKit.heartRate = Double(backend.heartRate)
         }
     }
 
@@ -534,30 +563,6 @@ struct HealthMonitorView: View {
         return "\(localizedTypeName(alert.type)) \(fmt(alert.value))\(unit)（警戒值 \(fmt(alert.threshold))\(unit)）"
     }
 
-    private var rangeSelector: some View {
-        // iOS 26 Liquid Glass was applying its own glass background to
-        // `Button` views even with `.buttonStyle(.plain)`, causing the
-        // selected segment's fill to bleed across the full ScrollView
-        // height. We sidestep `Button` entirely with a Rectangle hit area
-        // and `.onTapGesture`, plus `.compositingGroup()` to render each
-        // segment offscreen first so its fill cannot escape its bounds.
-        HStack(spacing: 6) {
-            ForEach(rangeLabels.indices, id: \.self) { i in
-                let isSelected = selectedRange == i
-                Text(rangeLabel(at: i))
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(isSelected ? .white : Color.brandTeal)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(isSelected ? Color.brandTeal : Color.brandTealLight)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .compositingGroup()
-                    .contentShape(Rectangle())
-                    .onTapGesture { selectedRange = i }
-            }
-        }
-        .frame(height: 36)
-    }
-
     /// Apply server-pushed health update to the local cards so the UI
     /// reflects watch readings the moment they arrive at the backend.
     private func applyLiveUpdate(_ update: HealthLiveUpdate) {
@@ -591,18 +596,6 @@ struct HealthMonitorView: View {
 
     private func localizedText(_ key: String.LocalizationValue) -> String {
         String(localized: key, locale: localeStore.locale)
-    }
-
-    private func rangeLabel(at index: Int) -> String {
-        if localeStore.code == "vi" {
-            switch index {
-            case 0: return "Ngày"
-            case 1: return "Tuần"
-            case 2: return "Tháng"
-            default: return ""
-            }
-        }
-        return rangeLabels.indices.contains(index) ? rangeLabels[index] : ""
     }
 
     /// 依狀態字串決定徽章顏色：異常/偏低→橘、尚未填寫/—→灰、其餘→綠。

@@ -102,11 +102,14 @@ struct CareLogView: View {
             .navigationDestination(isPresented: $showNotifications) {
                 NotificationCenterView()
             }
-            .task { careLogStore.load() }
+            .task {
+                await careLogStore.refreshRecentEntries()
+            }
             .task(id: timelineQueryID) {
                 await careLogStore.loadTimeline(
                     date: selectedDate,
-                    type: selectedFilter
+                    type: selectedFilter,
+                    forceRefresh: true
                 )
             }
             .onChange(of: selectedMode) { _, newMode in
@@ -220,11 +223,13 @@ struct CareLogView: View {
         }
         .background(Color.brandBackground)
         .refreshable {
-            await careLogStore.loadTimeline(
+            async let timelineRefresh: Void = careLogStore.loadTimeline(
                 date: selectedDate,
                 type: selectedFilter,
                 forceRefresh: true
             )
+            async let recentRefresh: Void = careLogStore.refreshRecentEntries()
+            _ = await (timelineRefresh, recentRefresh)
         }
     }
 

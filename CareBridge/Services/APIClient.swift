@@ -34,12 +34,13 @@ struct APIClient {
         body: (any Encodable)? = nil,
         authToken: String? = nil
     ) async throws -> T {
-        guard let url = URL(string: "\(baseURL)\(path)") else {
+        guard let url = makeURL(method: method, path: path) else {
             throw URLError(.badURL)
         }
 
         var req = URLRequest(url: url)
         req.httpMethod = method
+        configureCachePolicy(for: &req, method: method)
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         if let authToken {
@@ -99,12 +100,13 @@ struct APIClient {
         path: String,
         authToken: String? = nil
     ) async throws -> PaginatedResult<T> {
-        guard let url = URL(string: "\(baseURL)\(path)") else {
+        guard let url = makeURL(method: method, path: path) else {
             throw URLError(.badURL)
         }
 
         var req = URLRequest(url: url)
         req.httpMethod = method
+        configureCachePolicy(for: &req, method: method)
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         if let authToken {
@@ -149,6 +151,31 @@ struct APIClient {
         encoder.dateEncodingStrategy = .iso8601
         encoder.keyEncodingStrategy = .convertToSnakeCase
         return encoder
+    }
+
+    private func configureCachePolicy(for request: inout URLRequest, method: String) {
+        guard method.uppercased() == "GET" else { return }
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        request.setValue("no-cache", forHTTPHeaderField: "Pragma")
+    }
+
+    private func makeURL(method: String, path: String) -> URL? {
+        let rawURL = "\(baseURL)\(path)"
+        guard method.uppercased() == "GET",
+              var components = URLComponents(string: rawURL) else {
+            return URL(string: rawURL)
+        }
+
+        var queryItems = components.queryItems ?? []
+        queryItems.append(
+            URLQueryItem(
+                name: "_cb",
+                value: String(Int(Date().timeIntervalSince1970 * 1000))
+            )
+        )
+        components.queryItems = queryItems
+        return components.url
     }
 }
 
