@@ -26,6 +26,23 @@ from .serializers import (
 from .tasks import redact_receipt_image_task
 
 
+def _coerce_float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _expense_item_total(item):
+    if not isinstance(item, dict):
+        return 0.0
+    if item.get('total') is not None:
+        return _coerce_float(item.get('total'))
+    if item.get('amount') is None:
+        return 0.0
+    return _coerce_float(item.get('amount')) * _coerce_float(item.get('quantity'), 1.0)
+
+
 class ExpenseViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
     permission_classes = [IsAuthenticated, CaregiverCannotEditOrDelete]
     serializer_class = ExpenseSerializer
@@ -188,8 +205,10 @@ class ExpenseViewSet(FamilyScopedQuerySetMixin, ModelViewSet):
         for expense in qs:
             monthly_total += float(expense.total_amount or 0)
             for item in (expense.items or []):
+                if not isinstance(item, dict):
+                    continue
                 cat = normalize_expense_category(item.get('category'))
-                amount = float(item.get('total') or 0)
+                amount = _expense_item_total(item)
                 category_totals[cat] = category_totals.get(cat, 0.0) + amount
 
         total_for_pct = sum(category_totals.values()) or 1.0

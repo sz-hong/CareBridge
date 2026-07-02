@@ -340,6 +340,35 @@ class ExpenseAPIEndpointTests(TestCase):
             ],
         )
 
+    def test_monthly_summary_supports_amount_quantity_item_shape(self):
+        today = timezone.localdate()
+        self.create_expense(
+            date=today,
+            total_amount=300,
+            items=[
+                {
+                    'name': 'Lunch boxes',
+                    'category': 'food',
+                    'amount': 120,
+                    'quantity': 2,
+                },
+                {'name': 'Medicine', 'category': 'medical', 'amount': 60},
+            ],
+        )
+
+        response = self.client.get('/api/v1/expenses/monthly/')
+
+        data = response.json()['data']
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(data['monthly_total'], 300.0)
+        self.assertEqual(
+            data['category_breakdown'],
+            [
+                {'category': 'food', 'percentage': 80.0},
+                {'category': 'medical', 'percentage': 20.0},
+            ],
+        )
+
     def test_monthly_summary_normalizes_legacy_and_missing_categories(self):
         today = timezone.localdate()
         self.create_expense(
